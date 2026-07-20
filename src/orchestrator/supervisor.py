@@ -35,15 +35,25 @@ class Supervisor:
         self._provider = provider
         self._model_id = model_id
         self._cost_meter = cost_meter
+        self._used = False
 
     async def plan(self, goal: str) -> list[Task]:
+        if self._used:
+            raise RuntimeError(
+                "Supervisor.plan is non-re-entrant; use a fresh Supervisor per run"
+            )
+        self._used = True
         req = self._build_request(goal)
         resp = await self._provider.complete(req)
-        # PATCH v2.1: tagih panggilan planning ke model_id SETELAH complete() sukses.
+        # PATCH v2.1: tagih panggilan planning ke model_id SETELAH complete()
+        # sukses dan SEBELUM validasi -> panggilan yang benar-benar dieksekusi
+        # tetap terhitung meski plan-nya ternyata invalid.
         self._cost_meter.add(self._model_id, resp.usage)
         raw = _extract_text(resp)
         data = _parse_plan_json(raw)
-        return _build_tasks(data)
+        tasks = _build_tasks(data)
+        _validate(tasks)
+        return tasks
 
     def _build_request(self, goal: str) -> CanonicalRequest:
         return CanonicalRequest(
@@ -95,3 +105,34 @@ def _build_tasks(data: list[Any]) -> list[Task]:
             raise ValueError(f"plan item #{i} missing required key {exc}") from exc
         tasks.append(task)
     return tasks
+
+
+def _validate(tasks: list[Task]) -> None:
+    ids = [t.id for t in tasks]
+    if len(ids) != len(set(ids)):
+        raise ValueError("plan contains duplicate task ids")
+    id_set = set(ids)
+    for t in tasks:
+        for dep in t.depends_on:
+            if dep not in id_set:
+                raise ValueError(f"task {t.id!r} depends on unknown task {dep!r}")
+    _assert_acyclic(tasks)
+
+
+def _assert_acyclic(tasks: list[Task]) -> None:
+    indegree = {t.id: len(t.depends_on) for t in tasks}
+    dependents: dict[str, list[str]] = {t.id: [] for t in tasks}
+    for t in tasks:
+        for dep in t.depends_on:
+            dependents[dep].append(t.id)
+    ready = [tid for tid, deg in indegree.items() if deg == 0]
+    resolved = 0
+    while ready:
+        tid = ready.pop()
+        resolved += 1
+        for child in dependents[tid]:
+            indegree[child] -= 1
+            if indegree[child] == 0:
+                ready.append(child)
+    if resolved != len(tasks):
+        raise ValueError("plan contains a dependency cycle")

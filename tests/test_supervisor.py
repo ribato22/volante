@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from orchestrator.cost import CostMeter
 from orchestrator.providers.fake import FakeProvider
 from orchestrator.supervisor import Supervisor
@@ -147,3 +149,140 @@ async def test_estimated_usage_propagates_to_has_estimated() -> None:
     assert cost_meter.has_estimated() is False
     await sup.plan("plan me")
     assert cost_meter.has_estimated() is True
+
+
+async def test_plan_rejects_cycle() -> None:
+    plan_json = json.dumps(
+        [
+            {
+                "id": "x",
+                "description": "x",
+                "type": "code",
+                "mode": "one_shot",
+                "depends_on": ["y"],
+            },
+            {
+                "id": "y",
+                "description": "y",
+                "type": "code",
+                "mode": "one_shot",
+                "depends_on": ["x"],
+            },
+        ]
+    )
+    provider = FakeProvider(responses=[_resp(plan_json)])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+
+    with pytest.raises(ValueError):
+        await sup.plan("a cyclic goal")
+
+
+async def test_plan_rejects_duplicate_ids() -> None:
+    plan_json = json.dumps(
+        [
+            {
+                "id": "dup",
+                "description": "one",
+                "type": "code",
+                "mode": "one_shot",
+                "depends_on": [],
+            },
+            {
+                "id": "dup",
+                "description": "two",
+                "type": "code",
+                "mode": "one_shot",
+                "depends_on": [],
+            },
+        ]
+    )
+    provider = FakeProvider(responses=[_resp(plan_json)])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+
+    with pytest.raises(ValueError):
+        await sup.plan("a duplicate-id goal")
+
+
+async def test_plan_rejects_unknown_dependency() -> None:
+    plan_json = json.dumps(
+        [
+            {
+                "id": "only",
+                "description": "only",
+                "type": "code",
+                "mode": "one_shot",
+                "depends_on": ["ghost"],
+            }
+        ]
+    )
+    provider = FakeProvider(responses=[_resp(plan_json)])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+
+    with pytest.raises(ValueError):
+        await sup.plan("a dangling-dependency goal")
+
+
+async def test_plan_is_non_reentrant() -> None:
+    provider = FakeProvider(responses=[_resp(_one_task_plan())])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+
+    first = await sup.plan("first call")
+    assert [t.id for t in first] == ["t1"]
+
+    with pytest.raises(RuntimeError):
+        await sup.plan("second call")
+
+
+async def test_planning_call_is_billed_even_when_plan_invalid() -> None:
+    # PATCH: add() berada SETELAH complete() dan SEBELUM validasi -> panggilan
+    # planner tetap ditagih walau plan siklik ditolak dengan ValueError.
+    plan_json = json.dumps(
+        [
+            {
+                "id": "x",
+                "description": "x",
+                "type": "code",
+                "mode": "one_shot",
+                "depends_on": ["y"],
+            },
+            {
+                "id": "y",
+                "description": "y",
+                "type": "code",
+                "mode": "one_shot",
+                "depends_on": ["x"],
+            },
+        ]
+    )
+    provider = FakeProvider(responses=[_resp(plan_json, prompt=90, completion=30)])
+    cost_meter = CostMeter()
+    sup = Supervisor(provider, _PLANNER_MODEL, cost_meter)
+
+    with pytest.raises(ValueError):
+        await sup.plan("a cyclic goal")
+
+    totals = cost_meter.totals()
+    assert totals[_PLANNER_MODEL].prompt_tokens == 90
+    assert totals[_PLANNER_MODEL].completion_tokens == 30
+
+
+async def test_reentrant_call_is_not_billed() -> None:
+    # PATCH: guard non-re-entrant raise SEBELUM complete() -> panggilan kedua
+    # tidak menyentuh provider dan tidak menagih apa pun. Response kedua (999)
+    # sengaja diantre; bila guard bocor & complete() terpanggil, total akan naik.
+    provider = FakeProvider(
+        responses=[
+            _resp(_one_task_plan(), prompt=15, completion=5),
+            _resp(_one_task_plan(), prompt=999, completion=999),
+        ]
+    )
+    cost_meter = CostMeter()
+    sup = Supervisor(provider, _PLANNER_MODEL, cost_meter)
+
+    await sup.plan("first call")
+    with pytest.raises(RuntimeError):
+        await sup.plan("second call")
+
+    totals = cost_meter.totals()
+    assert totals[_PLANNER_MODEL].prompt_tokens == 15
+    assert totals[_PLANNER_MODEL].completion_tokens == 5
