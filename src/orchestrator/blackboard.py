@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from orchestrator.types import Entry, Task
 
 
@@ -14,3 +16,13 @@ class Blackboard:
 
     def entries(self) -> list[Entry]:
         return list(self._log)
+
+    def current_artifacts(self) -> dict[str, Any]:
+        artifacts: dict[str, Any] = {}
+        for e in self._log:
+            if e.kind == "artifact":
+                artifacts[e.task_id] = e.payload
+        return artifacts
+
+    def facts(self) -> list[str]:
+        return [e.payload for e in self._log if e.kind == "fact"]
