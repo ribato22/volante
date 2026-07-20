@@ -27,3 +27,42 @@ class Registry:
                 continue
             result.append(m)
         return result
+
+
+def default_models() -> list[ModelInfo]:
+    return [
+        ModelInfo(
+            id="anthropic/claude-opus-4-8",
+            provider="anthropic",
+            strengths={"coding", "reasoning"},
+            context_window=200_000,
+            max_output_tokens=8_192,
+            supports_tools=True,
+            cost_per_1k_in=0.015,
+            cost_per_1k_out=0.075,
+        ),
+        ModelInfo(
+            id="kimi/kimi-k2",
+            provider="openai_compat",
+            strengths={"coding"},
+            context_window=128_000,
+            max_output_tokens=4_096,
+            supports_tools=True,
+            cost_per_1k_in=0.0012,
+            cost_per_1k_out=0.0012,
+        ),
+        ModelInfo(
+            id="ollama/llama3.2",
+            provider="openai_compat",
+            strengths={"cheap_fast"},
+            context_window=8_192,
+            max_output_tokens=2_048,
+            supports_tools=False,
+            cost_per_1k_in=0.0,
+            cost_per_1k_out=0.0,
+        ),
+    ]
+
+
+def default_registry() -> Registry:
+    return Registry(default_models())
