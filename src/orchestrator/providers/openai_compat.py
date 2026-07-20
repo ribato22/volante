@@ -4,8 +4,9 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from openai import AsyncOpenAI
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
 
+from orchestrator.providers.base import ProviderError
 from orchestrator.types import (
     CanonicalMessage,
     CanonicalRequest,
@@ -15,6 +16,8 @@ from orchestrator.types import (
     Usage,
 )
 
+# chat.completions finish_reason -> canonical stop_reason (tabel lengkap).
+# Apa pun yang tidak terdaftar (termasuk None / unknown) jatuh ke "end_turn".
 _FINISH_REASON_MAP: dict[str, str] = {
     "stop": "end_turn",
     "length": "max_tokens",
@@ -22,6 +25,9 @@ _FINISH_REASON_MAP: dict[str, str] = {
     "function_call": "tool_use",
     "content_filter": "content_filter",
 }
+
+# HTTP status transien yang layak di-retry.
+_RETRYABLE_STATUSES: frozenset[int] = frozenset({408, 409, 429})
 
 
 @dataclass(frozen=True)
@@ -55,6 +61,30 @@ def _join_input_text(messages: list[CanonicalMessage]) -> str:
     )
 
 
+def _status_of(err: BaseException) -> int | None:
+    status = getattr(err, "status_code", None)
+    if status is None:
+        status = getattr(err, "status", None)
+    return status if isinstance(status, int) else None
+
+
+def _is_network_error(err: BaseException) -> bool:
+    if isinstance(
+        err, (APITimeoutError, APIConnectionError, TimeoutError, ConnectionError)
+    ):
+        return True
+    name = type(err).__name__
+    return name.endswith("TimeoutError") or name.endswith("ConnectionError")
+
+
+def _classify_error(err: BaseException) -> tuple[bool, int | None]:
+    """(retryable, status): 408/409/429 atau >=500 atau timeout/koneksi -> retryable."""
+    status = _status_of(err)
+    if status is not None:
+        return (status in _RETRYABLE_STATUSES or status >= 500), status
+    return _is_network_error(err), None
+
+
 class OpenAICompatProvider:
     name: str = "openai_compat"
 
@@ -80,7 +110,11 @@ class OpenAICompatProvider:
             self.config.output_tokens_param: req.max_tokens,
         }
         start = time.monotonic()
-        resp = await self._client.chat.completions.create(**create_kwargs)
+        try:
+            resp = await self._client.chat.completions.create(**create_kwargs)
+        except Exception as err:
+            retryable, status = _classify_error(err)
+            raise ProviderError(str(err), retryable=retryable, status=status) from err
         latency_ms = int((time.monotonic() - start) * 1000)
 
         choice = resp.choices[0]

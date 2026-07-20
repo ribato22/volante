@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import orchestrator.providers.openai_compat as oc
+from orchestrator.providers.base import ProviderError
 from orchestrator.types import CanonicalRequest, TextBlock, Usage, text
 
 
@@ -257,3 +258,100 @@ async def test_none_content_with_missing_usage_estimates_at_least_one(monkeypatc
     assert resp.usage.estimated is True
     assert resp.usage.prompt_tokens >= 1
     assert resp.usage.completion_tokens >= 1
+
+
+class _FakeStatusError(Exception):
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class _FakeTimeoutError(Exception):
+    """Nama diakhiri 'TimeoutError' -> diklasifikasi sebagai error jaringan."""
+
+
+class _FakeConnectionError(Exception):
+    """Nama diakhiri 'ConnectionError' -> diklasifikasi sebagai error jaringan."""
+
+
+@pytest.mark.parametrize(
+    "status, retryable",
+    [
+        (408, True),
+        (409, True),
+        (429, True),
+        (500, True),
+        (503, True),
+        (400, False),
+        (401, False),
+        (404, False),
+        (422, False),
+    ],
+)
+async def test_status_error_wrapped_with_correct_retryable(monkeypatch, status, retryable):
+    _install_fake_openai(
+        monkeypatch, error=_FakeStatusError("boom", status_code=status)
+    )
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
+    )
+    with pytest.raises(ProviderError) as excinfo:
+        await provider.complete(
+            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+        )
+    err = excinfo.value
+    assert err.status == status
+    assert err.retryable is retryable
+    assert "boom" in str(err)
+
+
+async def test_timeout_error_retryable_without_status(monkeypatch):
+    _install_fake_openai(monkeypatch, error=_FakeTimeoutError("read timed out"))
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
+    )
+    with pytest.raises(ProviderError) as excinfo:
+        await provider.complete(
+            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+        )
+    assert excinfo.value.retryable is True
+    assert excinfo.value.status is None
+
+
+async def test_connection_error_retryable_without_status(monkeypatch):
+    _install_fake_openai(monkeypatch, error=_FakeConnectionError("connection refused"))
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
+    )
+    with pytest.raises(ProviderError) as excinfo:
+        await provider.complete(
+            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+        )
+    assert excinfo.value.retryable is True
+    assert excinfo.value.status is None
+
+
+async def test_unknown_error_without_status_is_not_retryable(monkeypatch):
+    _install_fake_openai(monkeypatch, error=ValueError("weird sdk bug"))
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
+    )
+    with pytest.raises(ProviderError) as excinfo:
+        await provider.complete(
+            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+        )
+    assert excinfo.value.retryable is False
+    assert excinfo.value.status is None
+
+
+async def test_original_error_is_chained_as_cause(monkeypatch):
+    original = _FakeStatusError("upstream 500", status_code=500)
+    _install_fake_openai(monkeypatch, error=original)
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
+    )
+    with pytest.raises(ProviderError) as excinfo:
+        await provider.complete(
+            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+        )
+    assert excinfo.value.__cause__ is original
