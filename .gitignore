@@ -1,0 +1,40 @@
+# --- Secrets & env (JANGAN pernah commit API keys) ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+**/api_keys*
+**/credentials*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Riset / runtime artifacts ---
+logs/
+*.log
+.eval_cache/
+.cache/
+runs/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
