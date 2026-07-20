@@ -210,7 +210,8 @@ async def test_missing_model_falls_back_to_configured(monkeypatch):
 
 async def test_missing_usage_is_estimated_not_zero(monkeypatch):
     # PATCH: usage=None -> Usage(estimated=True), BUKAN Usage(0, 0).
-    # _est(s) = max(1, len(s)//4): input "hello world" (11) -> 2 ; output "short reply here" (16) -> 4
+    # _est(s) = max(1, len(s)//4): input "hello world" (11) -> 2 ;
+    # output "short reply here" (16) -> 4
     _install_fake_openai(
         monkeypatch,
         response=_fake_response(content="short reply here", usage=None),
