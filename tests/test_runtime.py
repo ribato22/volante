@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from orchestrator.cost import CostMeter
+from orchestrator.providers.base import ProviderError
 from orchestrator.providers.fake import FakeProvider
 from orchestrator.registry import Registry
 from orchestrator.runtime import Runtime
@@ -191,3 +192,174 @@ def test_execute_fan_out_caps_concurrency() -> None:
 
     assert result.status == "success"
     assert probe.max_concurrent == 2  # Semaphore(fan_out) menahan yang ke-3
+
+
+class _RaisingProvider:
+    def __init__(self, name: str, err: Exception) -> None:
+        self.name = name
+        self._err = err
+        self.calls = 0
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        self.calls += 1
+        raise self._err
+
+
+class _HangingProvider:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.calls = 0
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        self.calls += 1
+        await asyncio.Event().wait()  # menggantung sampai dibatalkan oleh wait_for
+        raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _single_task_runtime(
+    cm: CostMeter,
+    provider: object,
+    *,
+    model_id: str,
+    projector: _StubProjector,
+    max_retries: int = 2,
+    call_timeout: float = 120.0,
+) -> tuple[Runtime, _StubSynthesizer]:
+    plan = [Task(id="T1", description="only", type="code", mode="one_shot")]
+    supervisor = _StubSupervisor(plan)
+    router = _StubRouter({"T1": model_id})
+    worker = Worker(providers={model_id: provider}, cost_meter=cm)
+    synthesizer = _StubSynthesizer()
+    runtime = Runtime(
+        supervisor,
+        router,
+        projector,
+        worker,
+        synthesizer,
+        Registry([]),  # totals kosong pada kegagalan tunggal -> cost_usd == 0.0
+        cm,
+        max_retries=max_retries,
+        call_timeout=call_timeout,
+    )
+    return runtime, synthesizer
+
+
+def test_non_retryable_error_fails_without_retry() -> None:
+    cm = CostMeter()
+    projector = _StubProjector()
+    failing = _RaisingProvider(
+        "m_fail", ProviderError("bad request", retryable=False, status=400)
+    )
+    runtime, synthesizer = _single_task_runtime(
+        cm, failing, model_id="m_fail", projector=projector
+    )
+
+    result = runtime.execute("do it")
+
+    assert result.status == "failed"
+    assert result.failed_task == "T1"
+    assert result.final is None
+    # Non-retryable => TEPAT satu panggilan provider (bukan 3x retry).
+    assert failing.calls == 1
+    assert synthesizer.calls == 0
+    # Close-out tetap terisi di jalur GAGAL.
+    assert result.usage_total == {}
+    assert result.cost_usd == 0.0
+    assert isinstance(result.duration_ms, int)
+    assert result.duration_ms >= 0
+
+
+def test_retryable_error_retries_then_fails_and_records_str_err(monkeypatch) -> None:
+    slept: list[float] = []
+
+    async def _fast_sleep(delay: float) -> None:
+        slept.append(delay)  # rekam backoff, tanpa tidur nyata (test cepat)
+
+    monkeypatch.setattr("orchestrator.runtime.asyncio.sleep", _fast_sleep)
+
+    cm = CostMeter()
+    projector = _StubProjector()
+    err = ProviderError("rate limited", retryable=True, status=429)
+    failing = _RaisingProvider("m_flaky", err)
+    runtime, _ = _single_task_runtime(
+        cm, failing, model_id="m_flaky", projector=projector, max_retries=2
+    )
+
+    result = runtime.execute("do it")
+
+    assert result.status == "failed"
+    assert result.failed_task == "T1"
+    # attempt 0..max_retries inklusif => max_retries + 1 = 3 percobaan.
+    assert failing.calls == 3
+    # Backoff antar percobaan (bukan setelah percobaan terakhir), eksponensial.
+    assert len(slept) == 2
+    assert slept[0] < slept[1]
+    # str(err) tersimpan di entry status gagal.
+    entries = projector.last_bb.entries()
+    status_entries = [e for e in entries if e.kind == "status"]
+    assert len(status_entries) == 1  # tak ada status "success"
+    assert "rate limited" in status_entries[0].payload
+
+
+def test_timeout_is_retryable_then_fails(monkeypatch) -> None:
+    async def _fast_sleep(delay: float) -> None:
+        return None
+
+    monkeypatch.setattr("orchestrator.runtime.asyncio.sleep", _fast_sleep)
+
+    cm = CostMeter()
+    projector = _StubProjector()
+    hanging = _HangingProvider("m_slow")
+    runtime, _ = _single_task_runtime(
+        cm, hanging, model_id="m_slow", projector=projector, call_timeout=0.01
+    )
+
+    result = runtime.execute("do it")
+
+    assert result.status == "failed"
+    assert result.failed_task == "T1"
+    # asyncio.wait_for -> TimeoutError diperlakukan retryable => 3 percobaan time-out.
+    assert hanging.calls == 3
+
+
+def test_fail_fast_keeps_partial_artifacts_and_stops() -> None:
+    cm = CostMeter()
+    plan = _plan_diamond()
+    supervisor = _StubSupervisor(plan)
+    # T2 dirutekan ke provider gagal (non-retryable); T1 sukses di wave yang sama.
+    router = _StubRouter({"T1": "m1", "T2": "m_fail", "T3": "m3"})
+    projector = _StubProjector()
+    failing = _RaisingProvider("m_fail", ProviderError("nope", retryable=False, status=400))
+    worker = Worker(
+        providers={
+            "m1": FakeProvider(responses=[_resp("art-1", "m1")], name="m1"),
+            "m_fail": failing,
+            "m3": FakeProvider(responses=[_resp("art-3", "m3")], name="m3"),
+        },
+        cost_meter=cm,
+    )
+    synthesizer = _StubSynthesizer()
+    runtime = Runtime(
+        supervisor,
+        router,
+        projector,
+        worker,
+        synthesizer,
+        _registry("m1", "m2", "m3"),
+        cm,
+        max_retries=2,
+    )
+
+    result = runtime.execute("build the thing")
+
+    assert result.status == "failed"
+    assert result.failed_task == "T2"
+    assert result.final is None
+    # T1 (sibling sukses) tersimpan; T2 gagal tanpa artifact; T3 (dependen) tak jalan.
+    assert result.partial_artifacts == {"T1": "art-1"}
+    assert "T3" not in result.partial_artifacts
+    assert failing.calls == 1  # non-retryable, tanpa retry
+    assert synthesizer.calls == 0
+    # Biaya T1 tetap ter-meter; close-out jalur gagal merefleksikannya.
+    assert set(result.usage_total) == {"m1"}
+    assert result.cost_usd == pytest.approx(0.003)

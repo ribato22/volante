@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 import uuid
 
 from orchestrator.blackboard import Blackboard
 from orchestrator.cost import CostMeter
 from orchestrator.projector import Projector
+from orchestrator.providers.base import ProviderError
 from orchestrator.registry import Registry
 from orchestrator.router import Router
 from orchestrator.supervisor import Supervisor
@@ -52,37 +54,68 @@ class Runtime:
         req.run_id = run_id
         req.task_id = task.id
         req.attempt = 0
-        async with sem:  # cap fan-out: maksimal `fan_out` task in-flight bersamaan
-            resp = await asyncio.wait_for(
-                self.worker.run_one_shot(req, model_id),
-                timeout=self.call_timeout,
-            )
-        now = time.time()
+        last_err: Exception | None = None
+        async with sem:  # cap fan-out di sekitar seluruh siklus retry task
+            # attempt 0..max_retries inklusif => (max_retries + 1) percobaan.
+            for attempt in range(self.max_retries + 1):
+                req.attempt = attempt
+                try:
+                    resp = await asyncio.wait_for(
+                        self.worker.run_one_shot(req, model_id),
+                        timeout=self.call_timeout,
+                    )
+                except (ProviderError, TimeoutError) as err:
+                    last_err = err
+                    # Retry HANYA: ProviderError.retryable True, atau timeout call.
+                    retryable = isinstance(err, TimeoutError) or (
+                        isinstance(err, ProviderError) and err.retryable
+                    )
+                    if retryable and attempt < self.max_retries:
+                        await asyncio.sleep(
+                            0.5 * 2**attempt + random.uniform(0, 0.25)
+                        )
+                        continue
+                    break  # non-retryable, atau retry habis
+                now = time.time()
+                bb.append(
+                    Entry(
+                        run_id=run_id,
+                        task_id=task.id,
+                        attempt=attempt,
+                        kind="artifact",
+                        payload=_text_of(resp.content),
+                        model_id=resp.model,
+                        usage=resp.usage,
+                        timestamp=now,
+                    )
+                )
+                bb.append(
+                    Entry(
+                        run_id=run_id,
+                        task_id=task.id,
+                        attempt=attempt,
+                        kind="status",
+                        payload="success",
+                        model_id=resp.model,
+                        usage=None,
+                        timestamp=now,
+                    )
+                )
+                return True
+        # gagal final: rekam str(err) di entry status agar replayable.
         bb.append(
             Entry(
                 run_id=run_id,
                 task_id=task.id,
-                attempt=0,
-                kind="artifact",
-                payload=_text_of(resp.content),
-                model_id=resp.model,
-                usage=resp.usage,
-                timestamp=now,
-            )
-        )
-        bb.append(
-            Entry(
-                run_id=run_id,
-                task_id=task.id,
-                attempt=0,
+                attempt=req.attempt,
                 kind="status",
-                payload="success",
-                model_id=resp.model,
+                payload=f"failed: {last_err}",
+                model_id=model_id,
                 usage=None,
-                timestamp=now,
+                timestamp=time.time(),
             )
         )
-        return True
+        return False
 
     def _finalize(
         self,
@@ -118,7 +151,6 @@ class Runtime:
                 if t.id not in done and all(dep in done for dep in t.depends_on)
             ]
             if not wave:
-                # tak ada progres (mestinya tak terjadi: plan sudah divalidasi acyclic)
                 return self._finalize(
                     bb, started, status="failed", final=None, failed_task=None
                 )
