@@ -15,8 +15,6 @@ from orchestrator.types import (
     Usage,
 )
 
-# chat.completions finish_reason -> canonical stop_reason (tabel lengkap).
-# Apa pun yang tidak terdaftar (termasuk None / unknown) jatuh ke "end_turn".
 _FINISH_REASON_MAP: dict[str, str] = {
     "stop": "end_turn",
     "length": "max_tokens",
@@ -31,12 +29,15 @@ class BackendConfig:
     """Konfigurasi wire untuk backend OpenAI-compatible.
 
     ``output_tokens_param`` adalah field chat.completions yang membatasi panjang
-    output. Disimpan di sini sebagai satu-satunya sumber kebenaran agar literal
-    ("max_tokens") tidak tersebar di kode pembangun request; backend yang mengeja
-    beda (mis. "max_completion_tokens") cukup ganti config, bukan edit kode.
+    output. Satu sumber kebenaran agar literal tidak tersebar di kode request.
     """
 
     output_tokens_param: str = "max_tokens"
+
+
+def _est(s: str) -> int:
+    """Estimasi token kasar, dipakai HANYA saat server tak mengirim usage."""
+    return max(1, len(s) // 4)
 
 
 def _to_chat_messages(messages: list[CanonicalMessage]) -> list[dict]:
@@ -46,6 +47,12 @@ def _to_chat_messages(messages: list[CanonicalMessage]) -> list[dict]:
         parts = [b.text for b in m.content if isinstance(b, TextBlock)]
         out.append({"role": m.role, "content": "".join(parts)})
     return out
+
+
+def _join_input_text(messages: list[CanonicalMessage]) -> str:
+    return "".join(
+        b.text for m in messages for b in m.content if isinstance(b, TextBlock)
+    )
 
 
 class OpenAICompatProvider:
@@ -77,16 +84,26 @@ class OpenAICompatProvider:
         latency_ms = int((time.monotonic() - start) * 1000)
 
         choice = resp.choices[0]
-        content: list[ContentBlock] = [TextBlock(text=choice.message.content)]
+        text_out = choice.message.content or ""
+        content: list[ContentBlock] = [TextBlock(text=text_out)]
         stop_reason = _FINISH_REASON_MAP.get(choice.finish_reason, "end_turn")
-        usage = Usage(
-            prompt_tokens=resp.usage.prompt_tokens,
-            completion_tokens=resp.usage.completion_tokens,
-        )
+
+        raw_usage = getattr(resp, "usage", None)
+        prompt_toks = getattr(raw_usage, "prompt_tokens", None)
+        completion_toks = getattr(raw_usage, "completion_tokens", None)
+        if prompt_toks is None or completion_toks is None:
+            usage = Usage(
+                prompt_tokens=_est(_join_input_text(req.messages)),
+                completion_tokens=_est(text_out),
+                estimated=True,
+            )
+        else:
+            usage = Usage(prompt_tokens=prompt_toks, completion_tokens=completion_toks)
+
         return CanonicalResponse(
             content=content,
             usage=usage,
-            model=resp.model,
+            model=resp.model or self.model,
             stop_reason=stop_reason,
             latency_ms=latency_ms,
         )

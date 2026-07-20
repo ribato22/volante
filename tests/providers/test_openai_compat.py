@@ -183,3 +183,77 @@ async def test_finish_reason_mapping_full_table(monkeypatch, finish, expected):
         CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
     )
     assert resp.stop_reason == expected
+
+
+async def test_none_content_becomes_empty_textblock(monkeypatch):
+    _install_fake_openai(monkeypatch, response=_fake_response(content=None))
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
+    )
+    resp = await provider.complete(
+        CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+    )
+    assert resp.content == [TextBlock(text="")]
+
+
+async def test_missing_model_falls_back_to_configured(monkeypatch):
+    _install_fake_openai(monkeypatch, response=_fake_response(model=None))
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
+    )
+    resp = await provider.complete(
+        CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+    )
+    assert resp.model == "llama3.2"
+
+
+async def test_missing_usage_is_estimated_not_zero(monkeypatch):
+    # PATCH: usage=None -> Usage(estimated=True), BUKAN Usage(0, 0).
+    # _est(s) = max(1, len(s)//4): input "hello world" (11) -> 2 ; output "short reply here" (16) -> 4
+    _install_fake_openai(
+        monkeypatch,
+        response=_fake_response(content="short reply here", usage=None),
+    )
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
+    )
+    resp = await provider.complete(
+        CanonicalRequest(messages=[text("user", "hello world")], max_tokens=16)
+    )
+    assert resp.usage == Usage(prompt_tokens=2, completion_tokens=4, estimated=True)
+    assert resp.usage.estimated is True
+    assert resp.usage != Usage(prompt_tokens=0, completion_tokens=0)
+
+
+async def test_partial_usage_missing_one_field_is_estimated(monkeypatch):
+    # usage ada tapi completion_tokens=None -> jatuh ke estimasi seluruhnya.
+    # input "hi there" (8) -> 2 ; output "x" (1) -> max(1, 0) = 1
+    partial = SimpleNamespace(prompt_tokens=10, completion_tokens=None)
+    _install_fake_openai(
+        monkeypatch, response=_fake_response(content="x", usage=partial)
+    )
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
+    )
+    resp = await provider.complete(
+        CanonicalRequest(messages=[text("user", "hi there")], max_tokens=16)
+    )
+    assert resp.usage.estimated is True
+    assert resp.usage.prompt_tokens == 2
+    assert resp.usage.completion_tokens == 1
+
+
+async def test_none_content_with_missing_usage_estimates_at_least_one(monkeypatch):
+    _install_fake_openai(
+        monkeypatch, response=_fake_response(content=None, usage=None)
+    )
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
+    )
+    resp = await provider.complete(
+        CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+    )
+    assert resp.content == [TextBlock(text="")]
+    assert resp.usage.estimated is True
+    assert resp.usage.prompt_tokens >= 1
+    assert resp.usage.completion_tokens >= 1
