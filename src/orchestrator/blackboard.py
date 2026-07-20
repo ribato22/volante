@@ -26,3 +26,10 @@ class Blackboard:
 
     def facts(self) -> list[str]:
         return [e.payload for e in self._log if e.kind == "fact"]
+
+    def status_of(self, task_id: str) -> str:
+        status = "pending"
+        for e in self._log:
+            if e.kind == "status" and e.task_id == task_id:
+                status = e.payload
+        return status

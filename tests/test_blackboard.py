@@ -95,3 +95,27 @@ def test_facts_returns_all_fact_payloads_in_order() -> None:
     bb.append(mk_entry(task_id="T2", kind="fact", payload="f2"))
 
     assert bb.facts() == ["f1", "f2"]
+
+
+def test_status_of_defaults_to_pending() -> None:
+    bb = Blackboard(goal="g", plan=[mk_task("T1")])
+    assert bb.status_of("T1") == "pending"
+    assert bb.status_of("unknown-task") == "pending"
+
+
+def test_status_of_returns_latest_status_entry_per_task() -> None:
+    bb = Blackboard(goal="g", plan=[mk_task("T1"), mk_task("T2")])
+    bb.append(mk_entry(task_id="T1", kind="status", payload="running", timestamp=1.0))
+    bb.append(mk_entry(task_id="T2", kind="status", payload="running", timestamp=2.0))
+    bb.append(mk_entry(task_id="T1", kind="status", payload="done", timestamp=3.0))
+
+    assert bb.status_of("T1") == "done"
+    assert bb.status_of("T2") == "running"
+
+
+def test_status_of_ignores_non_status_entries() -> None:
+    bb = Blackboard(goal="g", plan=[mk_task("T1")])
+    bb.append(mk_entry(task_id="T1", kind="artifact", payload="art"))
+    bb.append(mk_entry(task_id="T1", kind="fact", payload="a fact"))
+
+    assert bb.status_of("T1") == "pending"
