@@ -11,14 +11,15 @@ from orchestrator.types import (
     ModelInfo,
     RunResult,
     TextBlock,
+    ToolUseBlock,
     Usage,
 )
 
 FENCE = "`" * 3
 
-# Output "kuat": code (mungkin skor 0 di runner goal ini) + tanda test + README,
-# sehingga composite >= 0.30 apa pun reference_test-nya. Cukup untuk MENGALAHKAN
-# output kosong (composite 0.0) secara deterministik, tanpa bergantung skor kode.
+# Output teks "kuat": code (mungkin skor 0 di runner goal ini) + tanda test + README,
+# sehingga composite = 0.30 apa pun reference_test-nya. Mengalahkan output kosong
+# (composite 0.0) secara deterministik untuk arm baseline & orchestration.
 STRONG = (
     f"{FENCE}python\ndef solution():\n    return 1\n{FENCE}\n"
     "def test_it():\n    assert True\n"
@@ -26,26 +27,18 @@ STRONG = (
 )
 WEAK = ""
 
-COMPARE_KEYS = {
-    "orch_cost",
-    "base_cost",
-    "orch_ms",
-    "base_ms",
-    "orch_composite",
-    "base_composite",
-    "orch_estimated",
-    "base_estimated",
-    "winner",
-}
-AGG_KEYS = {
-    "orch_wins",
-    "base_wins",
-    "ties",
-    "orch_cost_total",
-    "base_cost_total",
-    "any_estimated",
-    "verdict",
-}
+SCORE_KEYS = {"code", "has_tests", "has_readme", "composite"}
+ARM_NAMES = {"baseline", "orchestration", "agentic"}
+AGG_KEYS = {"wins", "ties", "cost_total", "any_estimated", "verdict"}
+
+# Kode tool agentic: HANYA menulis solution.py rusak (tanpa test/readme) -> composite 0.
+_A_WEAK_CODE = "open('solution.py','w').write('def f():\\n    return 1\\n')\n"
+# Kode tool agentic: solution rusak + test_*.py + README -> composite 0.30 (test+readme).
+_A_MID_CODE = (
+    "open('solution.py','w').write('def f():\\n    return 1\\n')\n"
+    "open('test_x.py','w').write('def test_ok():\\n    assert True\\n')\n"
+    "open('README.md','w').write('# readme\\n')\n"
+)
 
 
 def _model(model_id: str = "strong-model") -> ModelInfo:
@@ -65,17 +58,32 @@ def _registry() -> Registry:
     return Registry([_model()])
 
 
-def _resp(text_val: str, *, pt: int = 10, ct: int = 20, estimated: bool = False):
+def _text_resp(text_val: str, *, estimated: bool = False) -> CanonicalResponse:
     return CanonicalResponse(
         content=[TextBlock(text=text_val)],
-        usage=Usage(pt, ct, estimated=estimated),
+        usage=Usage(10, 20, estimated=estimated),
         model="strong-model",
         stop_reason="end_turn",
         latency_ms=5,
     )
 
 
-# Biaya baseline per-respons di atas: 10/1000*0.003 + 20/1000*0.015 = 0.00033.
+def _tool_resp(code: str) -> CanonicalResponse:
+    return CanonicalResponse(
+        content=[ToolUseBlock(id="u1", name="run_python", input={"code": code})],
+        usage=Usage(10, 20),
+        model="strong-model",
+        stop_reason="tool_use",
+        latency_ms=5,
+    )
+
+
+def _agentic(code: str) -> list[CanonicalResponse]:
+    # Loop AgenticWorker mengonsumsi: tool_use -> eksekusi -> end_turn.
+    return [_tool_resp(code), _text_resp("done")]
+
+
+# Biaya baseline per-respons: 10/1000*0.003 + 20/1000*0.015 = 0.00033.
 BASE_COST_EACH = 10 / 1000 * 0.003 + 20 / 1000 * 0.015
 ORCH_COST_EACH = 0.01
 
@@ -112,7 +120,10 @@ def _factory(final_for, *, estimated: bool = False):
 
 async def test_run_suite_shape_and_orchestration_verdict():
     make_runtime, _ = _factory(lambda goal: STRONG)
-    provider = FakeProvider(responses=[_resp(WEAK), _resp(WEAK)])
+    provider = FakeProvider(responses=(
+        [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
+        + [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
+    ))
     result = await run_suite(
         EVAL_SUITE[:2], make_runtime, provider, "strong-model", _registry(), k=1
     )
@@ -121,47 +132,60 @@ async def test_run_suite_shape_and_orchestration_verdict():
     assert len(per_goal) == 2
     assert [g["id"] for g in per_goal] == ["slugify", "roman"]
     for g in per_goal:
-        assert COMPARE_KEYS <= set(g)
+        assert {"id", "winner", "scores"} <= set(g)
+        assert set(g["scores"]) == ARM_NAMES
+        for arm in ARM_NAMES:
+            assert SCORE_KEYS <= set(g["scores"][arm])
         assert g["winner"] == "orchestration"
     agg = result["aggregate"]
-    assert set(agg) == AGG_KEYS
-    assert agg["orch_wins"] == 2
-    assert agg["base_wins"] == 0
+    assert AGG_KEYS <= set(agg)
+    assert agg["wins"] == {"baseline": 0, "orchestration": 2, "agentic": 0}
     assert agg["ties"] == 0
+    assert set(agg["cost_total"]) == ARM_NAMES
+    assert agg["cost_total"]["orchestration"] == pytest.approx(2 * ORCH_COST_EACH)
+    assert agg["cost_total"]["baseline"] == pytest.approx(2 * BASE_COST_EACH)
     assert agg["verdict"] == "orchestration"
-    assert agg["orch_cost_total"] == pytest.approx(2 * ORCH_COST_EACH)
-    assert agg["base_cost_total"] == pytest.approx(2 * BASE_COST_EACH)
     assert agg["any_estimated"] is False
 
 
-async def test_run_suite_baseline_majority_verdict():
+async def test_run_suite_agentic_majority_verdict():
+    # baseline & orchestration lemah; agentic menulis test+readme -> agentic menang.
     make_runtime, _ = _factory(lambda goal: WEAK)
-    provider = FakeProvider(responses=[_resp(STRONG), _resp(STRONG)])
+    provider = FakeProvider(responses=(
+        [_text_resp(WEAK), *_agentic(_A_MID_CODE)]
+        + [_text_resp(WEAK), *_agentic(_A_MID_CODE)]
+    ))
     result = await run_suite(
         EVAL_SUITE[:2], make_runtime, provider, "strong-model", _registry(), k=1
     )
     agg = result["aggregate"]
-    assert agg["base_wins"] == 2
-    assert agg["orch_wins"] == 0
-    assert agg["verdict"] == "baseline"
+    assert agg["wins"]["agentic"] == 2
+    assert agg["wins"]["orchestration"] == 0
+    assert agg["wins"]["baseline"] == 0
+    assert agg["verdict"] == "agentic"
 
 
 async def test_run_suite_tie_verdict_on_split():
-    # slugify: orch kuat -> orch menang; roman: orch lemah, baseline kuat -> baseline.
+    # slugify: orch STRONG -> orch menang; roman: orch lemah, agentic MID -> agentic.
     make_runtime, _ = _factory(lambda goal: STRONG if "slugify" in goal else WEAK)
-    provider = FakeProvider(responses=[_resp(WEAK), _resp(STRONG)])
+    provider = FakeProvider(responses=(
+        [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
+        + [_text_resp(WEAK), *_agentic(_A_MID_CODE)]
+    ))
     result = await run_suite(
         EVAL_SUITE[:2], make_runtime, provider, "strong-model", _registry(), k=1
     )
     agg = result["aggregate"]
-    assert agg["orch_wins"] == 1
-    assert agg["base_wins"] == 1
+    assert agg["wins"]["orchestration"] == 1
+    assert agg["wins"]["agentic"] == 1
+    assert agg["wins"]["baseline"] == 0
     assert agg["verdict"] == "tie"
 
 
 async def test_run_suite_respects_k():
     make_runtime, calls = _factory(lambda goal: STRONG)
-    provider = FakeProvider(responses=[_resp(WEAK) for _ in range(4)])
+    per_iter = [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
+    provider = FakeProvider(responses=per_iter * 4)
     await run_suite(
         EVAL_SUITE[:2], make_runtime, provider, "strong-model", _registry(), k=2
     )
@@ -171,7 +195,10 @@ async def test_run_suite_respects_k():
 
 async def test_run_suite_any_estimated_flag():
     make_runtime, _ = _factory(lambda goal: STRONG, estimated=True)
-    provider = FakeProvider(responses=[_resp(WEAK), _resp(WEAK)])
+    provider = FakeProvider(responses=(
+        [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
+        + [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
+    ))
     result = await run_suite(
         EVAL_SUITE[:2], make_runtime, provider, "strong-model", _registry(), k=1
     )

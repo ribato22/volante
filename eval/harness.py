@@ -352,57 +352,86 @@ async def run_suite(
     registry: Registry,
     k: int = EVAL_K,
 ) -> dict[str, Any]:
-    """Jalankan seluruh suite lewat kedua arm (k kali/goal), agregat verdict.
+    """3-arm: baseline / orchestration / agentic-single (k×/goal), agregat verdict.
 
-    Tiap goal dinilai dengan runner tersembunyinya sendiri (t.reference_test);
-    isolasi subprocess score_code tak berubah. Kembalikan::
+    Tiap goal dinilai runner tersembunyinya sendiri (t.reference_test); isolasi
+    subprocess score_code tak berubah. Arm agentic memakai baseline_provider +
+    model_id yang sama (model identik) demi ekuitas. Kembalikan::
 
-        {"per_goal": [{"id", **compare(...)}],
-         "aggregate": {orch_wins, base_wins, ties, orch_cost_total,
-                       base_cost_total, any_estimated, verdict}}
+        {"per_goal": [{"id", "winner", "arms",
+                       "scores": {baseline, orchestration, agentic}}],
+         "aggregate": {"wins": {..}, "ties", "cost_total": {..},
+                       "any_estimated", "verdict"}}
 
-    Verdict overall = mayoritas goal (bukan satu task); seri -> "tie"."""
+    Verdict overall = mayoritas goal; seri -> "tie"."""
     per_goal: list[dict[str, Any]] = []
     for t in suite:
-        orch_scores: list[dict[str, float]] = []
-        base_scores: list[dict[str, float]] = []
-        orch_last: RunResult | None = None
-        base_last: BaselineResult | None = None
+        b_scores: list[dict[str, float]] = []
+        o_scores: list[dict[str, float]] = []
+        a_scores: list[dict[str, float]] = []
+        b_last: BaselineResult | None = None
+        o_last: RunResult | None = None
+        a_last: AgenticArmResult | None = None
         for _ in range(k):
-            orch_last = await run_orchestration(t.goal, make_runtime())
-            base_last = await run_baseline(
+            b_last = await run_baseline(t.goal, baseline_provider, model_id, registry)
+            o_last = await run_orchestration(t.goal, make_runtime())
+            a_last = await run_agentic_single(
                 t.goal, baseline_provider, model_id, registry
             )
-            orch_scores.append(score_task(orch_last.final or "", t.reference_test))
-            base_scores.append(score_task(base_last.output, t.reference_test))
-        cmp = compare(
-            orch_last, base_last, mean_scores(orch_scores), mean_scores(base_scores)
-        )
-        per_goal.append({"id": t.id, **cmp})
+            b_scores.append(score_task(b_last.output, t.reference_test))
+            o_scores.append(score_task(o_last.final or "", t.reference_test))
+            a_scores.append(score_agentic(a_last, t.reference_test))
+        b_mean = mean_scores(b_scores)
+        o_mean = mean_scores(o_scores)
+        a_mean = mean_scores(a_scores)
+        arms = {
+            "baseline": {
+                "composite": b_mean["composite"],
+                "cost": b_last.cost_usd,
+                "ms": b_last.duration_ms,
+                "estimated": any(u.estimated for u in b_last.usage_total.values()),
+            },
+            "orchestration": {
+                "composite": o_mean["composite"],
+                "cost": o_last.cost_usd,
+                "ms": o_last.duration_ms,
+                "estimated": any(u.estimated for u in o_last.usage_total.values()),
+            },
+            "agentic": {
+                "composite": a_mean["composite"],
+                "cost": a_last.cost_usd,
+                "ms": a_last.duration_ms,
+                "estimated": any(u.estimated for u in a_last.usage_total.values()),
+            },
+        }
+        cmp = compare_arms(arms)
+        per_goal.append({
+            "id": t.id,
+            "winner": cmp["winner"],
+            "arms": cmp["arms"],
+            "scores": {
+                "baseline": b_mean,
+                "orchestration": o_mean,
+                "agentic": a_mean,
+            },
+        })
 
-    orch_wins = sum(1 for g in per_goal if g["winner"] == "orchestration")
-    base_wins = sum(1 for g in per_goal if g["winner"] == "baseline")
+    names = ("baseline", "orchestration", "agentic")
+    wins = {n: sum(1 for g in per_goal if g["winner"] == n) for n in names}
     ties = sum(1 for g in per_goal if g["winner"] == "tie")
-    orch_cost_total = sum(g["orch_cost"] for g in per_goal)
-    base_cost_total = sum(g["base_cost"] for g in per_goal)
+    cost_total = {n: sum(g["arms"][n]["cost"] for g in per_goal) for n in names}
     any_estimated = any(
-        g["orch_estimated"] or g["base_estimated"] for g in per_goal
+        g["arms"][n]["estimated"] for g in per_goal for n in names
     )
-    if orch_wins > base_wins:
-        verdict = "orchestration"
-    elif base_wins > orch_wins:
-        verdict = "baseline"
-    else:
-        verdict = "tie"
-
+    best = max(wins.values())
+    leaders = [n for n in names if wins[n] == best]
+    verdict = leaders[0] if len(leaders) == 1 else "tie"
     return {
         "per_goal": per_goal,
         "aggregate": {
-            "orch_wins": orch_wins,
-            "base_wins": base_wins,
+            "wins": wins,
             "ties": ties,
-            "orch_cost_total": orch_cost_total,
-            "base_cost_total": base_cost_total,
+            "cost_total": cost_total,
             "any_estimated": any_estimated,
             "verdict": verdict,
         },
