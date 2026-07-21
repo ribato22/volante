@@ -313,32 +313,47 @@ def test_score_code_runner_sees_clean_argv():
     assert score_code("x = 1\n", argv_probe) == 1.0
 
 
-# --- kanal hasil ber-nonce (anti-forgery naif + sinyal 'tak-terukur' H2) -----
+# --- pemisahan proses runner<->solusi (forgery-defense robust) + sinyal H2 -----
 
 
-def test_score_reference_naive_forgery_rejected_and_unmeasured():
-    # Forgery naif: solusi cetak JSON sempurna + os._exit(0) SAAT import (sebelum
-    # runner mengemit). Tanpa nonce ia tak bisa membuat baris ber-tag -> ditolak.
+def test_score_reference_naive_forgery_rejected_and_measured_zero():
+    # Pemisahan proses: forgery (cetak JSON sempurna + os._exit saat import) kini
+    # membunuh SERVER, bukan runner. Runner tepercaya mengukur semua case gagal ->
+    # skor 0.0 TERUKUR (bukan 1.0 palsu). Solusi tak pernah menyentuh stdout/nonce runner.
     forgery = (
         "import json, os\n"
         "print(json.dumps({'passed': 999, 'total': 999}))\n"
         "os._exit(0)\n"
     )
     score, measured = harness._score_reference(forgery, REFERENCE_TEST)
-    assert score == 0.0
-    assert measured is False  # tak ada hasil tepercaya -> bukan 0.0 sungguhan
+    assert score == 0.0  # forgery TIDAK menghasilkan skor tinggi
+    assert measured is True  # runner mengukur kegagalan (server mati -> semua case gagal)
 
 
-def test_score_reference_forgery_cannot_guess_tag_even_reading_env():
-    # Solusi coba menebak format tag tanpa nonce (env pun tak memuat nonce).
-    forgery = (
-        "import json, os\n"
-        "print('AIORCH_RESULT::' + json.dumps({'passed': 999, 'total': 999}))\n"
+def test_score_reference_memory_read_forgery_cannot_reach_runner():
+    # Serangan canggih: solusi mencoba baca `_TAG` dari memori (scan sys.modules)
+    # lalu menyuntik baris ber-nonce. Di pemisahan proses ia jalan di SERVER: tak ada
+    # _TAG di sana, stdout-nya ke devnull, dan stdout runner (yang dibaca score_code)
+    # tak terjangkau. Skor tetap 0.0 -> forgery mustahil, bukan hanya sulit.
+    attack = (
+        "import sys, json, os\n"
+        "for _m in list(sys.modules.values()):\n"
+        "    _t = getattr(_m, '_TAG', None)\n"
+        "    if _t:\n"
+        "        print(_t + json.dumps({'passed': 999, 'total': 999}))\n"
         "os._exit(0)\n"
     )
-    score, measured = harness._score_reference(forgery, REFERENCE_TEST)
+    score, _ = harness._score_reference(attack, REFERENCE_TEST)
     assert score == 0.0
-    assert measured is False
+
+
+def test_score_reference_wrong_solution_via_server_is_measured_zero():
+    # Solusi yang import bersih tapi menghitung SALAH -> server melayani, runner
+    # membanding ke expected privat -> semua case gagal -> 0.0 terukur (bukan forgeable).
+    wrong = "def slugify(text):\n    return 'WRONG'\n"
+    score, measured = harness._score_reference(wrong, REFERENCE_TEST)
+    assert score == 0.0
+    assert measured is True
 
 
 def test_score_reference_broken_runner_is_unmeasured_not_zero():
@@ -379,11 +394,13 @@ def test_score_reference_good_solution_is_measured_one():
 def test_score_task_carries_measured_flag():
     ok = score_task(f"{FENCE}python\n{GOOD_CODE}{FENCE}", REFERENCE_TEST)
     assert ok["measured"] is True
+    # Forgery -> server mati -> runner mengukur semua case gagal: measured True, code 0.0
+    # (bukan 1.0 palsu). Sinyal 'unmeasured' (measured False) dicadangkan utk runner rusak.
     forged = score_task(
         "import json, os\nprint(json.dumps({'passed':9,'total':9}))\nos._exit(0)\n",
         REFERENCE_TEST,
     )
-    assert forged["measured"] is False
+    assert forged["measured"] is True
     assert forged["code"] == 0.0
 
 

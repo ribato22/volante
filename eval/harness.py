@@ -58,17 +58,72 @@ _SCORE_WRAPPER = (
 )
 
 
-# Kanal hasil ber-nonce (anti-forgery naif + pembeda 'tak-terukur' utk H2).
-# score_code meng-inject preamble ini SEBELUM body runner (tapi SETELAH baris
-# `from __future__` yang wajib paling atas). Preamble membaca nonce dari stdin —
-# yang sudah dikonsumsi sebelum `from solution import ...`, jadi solusi tak bisa
-# mencurinya dari stdin — lalu men-set `_TAG` yang dipakai runner untuk mengemit
-# `AIORCH_RESULT:<nonce>:{json}`. isatty guard = aman bila dijalankan manual.
+# Pemisahan proses (forgery-defense robust) + kanal hasil ber-nonce. score_code
+# meng-inject preamble ini SEBELUM body runner (SETELAH `from __future__`). Preamble:
+#   (1) baca nonce dari stdin (dikonsumsi sebelum apa pun) -> set `_TAG`;
+#   (2) spawn `_solution_server.py` di PROSES TERPISAH (satu-satunya yang import
+#       solution) dan definisikan `call_solution(fn, *args)` (RPC JSON-baris).
+# Runner memakai call_solution alih-alih `import solution`, jadi kode solusi tak
+# pernah jalan di proses runner: ia tak bisa membaca nonce/expected dari memori
+# maupun menyuntik baris ber-nonce ke stdout runner. isatty guard = aman manual.
 _RESULT_PREAMBLE = (
-    "import sys as _aiorch_sys\n"
-    "_TAG = '' if _aiorch_sys.stdin.isatty() else "
-    "'AIORCH_RESULT:' + _aiorch_sys.stdin.readline().strip() + ':'\n"
+    "import json as _aj, subprocess as _asp, sys as _asys, atexit as _aat\n"
+    "_TAG = '' if _asys.stdin.isatty() else "
+    "'AIORCH_RESULT:' + _asys.stdin.readline().strip() + ':'\n"
+    "_srv = _asp.Popen([_asys.executable, '_solution_server.py'], "
+    "stdin=_asp.PIPE, stdout=_asp.PIPE, text=True)\n"
+    "def _shutdown_srv():\n"
+    "    try:\n"
+    "        _srv.stdin.close()\n"
+    "    except Exception:\n"
+    "        pass\n"
+    "    _srv.terminate()\n"
+    "_aat.register(_shutdown_srv)\n"
+    "def call_solution(_fn, *_args):\n"
+    "    _srv.stdin.write(_aj.dumps({'fn': _fn, 'args': list(_args)}) + '\\n')\n"
+    "    _srv.stdin.flush()\n"
+    "    _line = _srv.stdout.readline()\n"
+    "    if not _line:\n"
+    "        raise RuntimeError('solution server exited')\n"
+    "    _r = _aj.loads(_line)\n"
+    "    if not _r.get('ok'):\n"
+    "        raise RuntimeError(_r.get('error', 'solution error'))\n"
+    "    return _r['result']\n"
 )
+
+
+def _solution_server_src(cpu: int) -> str:
+    """Sumber `_solution_server.py`: proses TERPISAH, satu-satunya yang meng-import
+    solution. Baca `{"fn","args"}` per baris stdin -> `getattr(sol, fn)(*args)` ->
+    tulis `{"ok",...}`. RLIMIT_CPU child-side (S2 parity). Tak pernah menerima nonce
+    atau expected -> solusi tak bisa memalsukan LULUS (harus benar-benar menghitung).
+    `except BaseException` di import & call: SystemExit solusi tak membunuh server."""
+    return "\n".join(
+        [
+            "import importlib, json, os, resource, sys",
+            f"_c = {cpu}",
+            "resource.setrlimit(resource.RLIMIT_CPU, (_c, _c))",
+            # Kanal RPC = dup stdout asli (pipe ke runner); lalu fd 1 -> devnull
+            # SEBELUM import solution, jadi output stdout solusi (print/write) dibuang
+            # dan tak bisa mengotori respons RPC. Robust thd polusi stdout saat import.
+            "_rpc = os.fdopen(os.dup(1), 'w')",
+            "os.dup2(os.open(os.devnull, os.O_WRONLY), 1)",
+            "try:",
+            "    _sol = importlib.import_module('solution')",
+            "except BaseException:",
+            "    _sol = None",
+            "for _line in sys.stdin:",
+            "    try:",
+            "        _req = json.loads(_line)",
+            "        _res = getattr(_sol, _req['fn'])(*_req['args'])",
+            "        _out = json.dumps({'ok': True, 'result': _res})",
+            "    except BaseException as _e:",
+            "        _out = json.dumps({'ok': False, 'error': str(_e)[:200]})",
+            "    _rpc.write(_out + '\\n')",
+            "    _rpc.flush()",
+            "",
+        ]
+    )
 
 
 def _inject_preamble(reference_test: str, nonce_tag_src: str) -> str:
@@ -151,19 +206,20 @@ def score_code(model_output: str, reference_test: str) -> float:
 def _score_reference(model_output: str, reference_test: str) -> tuple[float, bool]:
     """Ekstrak kode, jalankan runner referensi di subprocess terisolasi. Kembalikan
     (skor, measured): `measured=True` HANYA bila runner mengemit baris hasil
-    ber-nonce tepercaya; `measured=False` = tak terukur (timeout/crash/forgery/
-    runner rusak) dan skor dipaksa 0.0.
+    ber-nonce tepercaya; `measured=False` = tak terukur (timeout/crash/runner rusak)
+    dan skor dipaksa 0.0.
 
-    Kanal hasil ber-nonce (anti-forgery naif + sinyal H2): nonce acak dikirim via
-    stdin dan dikonsumsi preamble SEBELUM `import solution`, jadi solusi tak bisa
-    mencurinya; hanya baris `AIORCH_RESULT:<nonce>:{json}` dipercaya. Forgery naif
-    (`print(...); os._exit(0)` saat import) tak menghasilkan baris ber-tag -> tak
-    terukur -> 0.0. (Bukan batas keamanan vs pembaca-memori proses.)
+    Pemisahan proses (forgery-defense robust): runner (tepercaya) TAK meng-import
+    solution — ia menggerakkan `_solution_server.py` (proses terpisah) via
+    `call_solution` (RPC), memegang expected+nonce PRIVAT. Solusi hanya menerima input
+    di proses lain -> tak bisa membaca nonce/expected dari memori maupun menyuntik
+    baris ber-nonce ke stdout runner; untuk LULUS ia wajib benar-benar menghitung.
+    Hanya baris `AIORCH_RESULT:<nonce>:{json}` (dari runner) dipercaya.
 
-    Isolasi (S2, sekelas Sandbox): runner + `solution.py` jalan dalam process group
-    sendiri (`start_new_session=True`) dgn RLIMIT_CPU child-side; SELURUH grup
-    di-killpg pada SETIAP jalur keluar (timeout MAUPUN normal). Batas kepercayaan
-    tetap best-effort POSIX (setsid oleh solusi bisa lepas dari grup)."""
+    Isolasi (S2): runner via `_SCORE_WRAPPER` (RLIMIT_CPU + `start_new_session=True`);
+    server di-spawn runner tanpa setsid -> SEGRUP -> `killpg` (timeout MAUPUN tiap exit)
+    membunuh runner+server+fork. Server punya RLIMIT_CPU sendiri. Batas tetap best-effort
+    POSIX (setsid oleh solusi di server bisa lepas grup; tetap tak bisa forgery)."""
     code = extract_python(model_output)
     nonce = secrets.token_hex(16)
     tag = f"AIORCH_RESULT:{nonce}:"
@@ -171,6 +227,9 @@ def _score_reference(model_output: str, reference_test: str) -> tuple[float, boo
     with tempfile.TemporaryDirectory() as tmp:
         Path(tmp, "solution.py").write_text(code, encoding="utf-8")
         Path(tmp, "reference_runner.py").write_text(runner_src, encoding="utf-8")
+        Path(tmp, "_solution_server.py").write_text(
+            _solution_server_src(SCORE_CPU_S), encoding="utf-8"
+        )
         # Popen (bukan subprocess.run): agar timeout bisa killpg SELURUH grup.
         # subprocess.run hanya mem-proc.kill() anak langsung, lalu communicate reap
         # bisa MENGGANTUNG bila anak fork masih memegang pipe stdout.

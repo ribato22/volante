@@ -45,19 +45,10 @@ CASES = [
 
 def main() -> None:
     total = len(CASES)
-    try:
-        from solution import slugify
-    except Exception:
-        # Termasuk SyntaxError saat import solution -> skor akhirnya 0.0.
-        print(_TAG + json.dumps({"passed": 0, "total": total}))
-        return
-    if not callable(slugify):
-        print(_TAG + json.dumps({"passed": 0, "total": total}))
-        return
     passed = 0
     for text_in, expected in CASES:
         try:
-            if slugify(text_in) == expected:
+            if call_solution("slugify", text_in) == expected:
                 passed += 1
         except Exception:
             pass
@@ -145,31 +136,22 @@ ROMAN_REFERENCE_TEST = (
     '\n'
     'def main() -> None:\n'
     '    total = len(TO_ROMAN_CASES) + len(FROM_ROMAN_CASES) + len(ROUNDTRIP_NS)\n'
-    '    try:\n'
-    '        from solution import from_roman, to_roman\n'
-    '    except Exception:\n'
-    '        # Termasuk SyntaxError/ImportError saat import solution -> skor 0.0.\n'
-    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
-    '        return\n'
-    '    if not (callable(to_roman) and callable(from_roman)):\n'
-    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
-    '        return\n'
     '    passed = 0\n'
     '    for n, expected in TO_ROMAN_CASES:\n'
     '        try:\n'
-    '            if to_roman(n) == expected:\n'
+    '            if call_solution("to_roman", n) == expected:\n'
     '                passed += 1\n'
     '        except Exception:\n'
     '            pass\n'
     '    for s, expected in FROM_ROMAN_CASES:\n'
     '        try:\n'
-    '            if from_roman(s) == expected:\n'
+    '            if call_solution("from_roman", s) == expected:\n'
     '                passed += 1\n'
     '        except Exception:\n'
     '            pass\n'
     '    for n in ROUNDTRIP_NS:\n'
     '        try:\n'
-    '            if from_roman(to_roman(n)) == n:\n'
+    '            if call_solution("from_roman", call_solution("to_roman", n)) == n:\n'
     '                passed += 1\n'
     '        except Exception:\n'
     '            pass\n'
@@ -227,19 +209,10 @@ CALC_REFERENCE_TEST = (
     '\n'
     'def main() -> None:\n'
     '    total = len(CASES)\n'
-    '    try:\n'
-    '        from solution import evaluate\n'
-    '    except Exception:\n'
-    '        # Termasuk SyntaxError saat import solution -> skor akhirnya 0.0.\n'
-    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
-    '        return\n'
-    '    if not callable(evaluate):\n'
-    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
-    '        return\n'
     '    passed = 0\n'
     '    for expr_in, expected in CASES:\n'
     '        try:\n'
-    '            got = evaluate(expr_in)\n'
+    '            got = call_solution("evaluate", expr_in)\n'
     '            if isinstance(got, (int, float)) and abs(float(got) - expected) < TOL:\n'
     '                passed += 1\n'
     '        except Exception:\n'
@@ -336,19 +309,10 @@ CSV_STATS_REFERENCE_TEST = (
     '\n'
     'def main() -> None:\n'
     '    total = len(CASES)\n'
-    '    try:\n'
-    '        from solution import column_stats\n'
-    '    except Exception:\n'
-    '        # Termasuk SyntaxError saat import solution -> skor akhirnya 0.0.\n'
-    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
-    '        return\n'
-    '    if not callable(column_stats):\n'
-    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
-    '        return\n'
     '    passed = 0\n'
     '    for csv_text, expected in CASES:\n'
     '        try:\n'
-    '            if _close(column_stats(csv_text), expected):\n'
+    '            if _close(call_solution("column_stats", csv_text), expected):\n'
     '                passed += 1\n'
     '        except Exception:\n'
     '            pass\n'
@@ -395,19 +359,10 @@ JSON_FLATTEN_REFERENCE_TEST = (
     '\n'
     'def main() -> None:\n'
     '    total = len(CASES)\n'
-    '    try:\n'
-    '        from solution import flatten\n'
-    '    except Exception:\n'
-    '        # Termasuk SyntaxError saat import solution -> skor akhirnya 0.0.\n'
-    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
-    '        return\n'
-    '    if not callable(flatten):\n'
-    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
-    '        return\n'
     '    passed = 0\n'
     '    for d_in, expected in CASES:\n'
     '        try:\n'
-    '            if flatten(d_in) == expected:\n'
+    '            if call_solution("flatten", d_in) == expected:\n'
     '                passed += 1\n'
     '        except Exception:\n'
     '            pass\n'
