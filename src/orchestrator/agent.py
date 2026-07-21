@@ -10,6 +10,7 @@ from orchestrator.tools.base import ToolRegistry
 from orchestrator.types import (
     CanonicalMessage,
     CanonicalRequest,
+    CanonicalResponse,
     ContentBlock,
     TextBlock,
     ToolResultBlock,
@@ -70,7 +71,7 @@ class AgenticWorker:
 
     async def _complete_with_retry(
         self, provider: LLMProvider, req: CanonicalRequest
-    ) -> "object":
+    ) -> CanonicalResponse:
         last: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:

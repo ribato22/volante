@@ -81,8 +81,13 @@ async def test_parses_mixed_text_and_tool_use(monkeypatch) -> None:
 async def test_serializes_tool_result_in_messages(monkeypatch) -> None:
     p, client = _provider(monkeypatch, _FakeResp([_FakeBlock(type="text", text="ok")], "end_turn"))
     msgs = [
-        CanonicalMessage(role="assistant", content=[ToolUseBlock(id="u1", name="run_python", input={"code": "x"})]),
-        CanonicalMessage(role="user", content=[ToolResultBlock(tool_use_id="u1", content="exit=0")]),
+        CanonicalMessage(
+            role="assistant",
+            content=[ToolUseBlock(id="u1", name="run_python", input={"code": "x"})],
+        ),
+        CanonicalMessage(
+            role="user", content=[ToolResultBlock(tool_use_id="u1", content="exit=0")]
+        ),
     ]
     await p.complete(CanonicalRequest(messages=msgs, max_tokens=64))
     sent = client.messages.captured["messages"]

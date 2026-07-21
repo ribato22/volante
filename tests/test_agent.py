@@ -4,6 +4,7 @@ import pytest
 
 from orchestrator.agent import AgenticResult, AgenticWorker
 from orchestrator.cost import CostMeter
+from orchestrator.providers.base import ProviderError as _PE
 from orchestrator.providers.fake import FakeProvider
 from orchestrator.tools.base import ToolRegistry
 from orchestrator.types import (
@@ -49,7 +50,10 @@ async def test_loop_runs_tool_then_finishes() -> None:
     tools: ToolRegistry = {"run_python": tool}
     provider = FakeProvider(
         responses=[
-            _resp([ToolUseBlock(id="u1", name="run_python", input={"code": "print(1)"})], "tool_use"),
+            _resp(
+                [ToolUseBlock(id="u1", name="run_python", input={"code": "print(1)"})],
+                "tool_use",
+            ),
             _resp([TextBlock(text="done, tests pass")], "end_turn"),
         ]
     )
@@ -84,9 +88,6 @@ async def test_input_messages_not_mutated() -> None:
     await worker.run(req, "m1", tools)
 
     assert len(req.messages) == before  # bekerja pada salinan; input utuh
-
-
-from orchestrator.providers.base import ProviderError as _PE
 
 
 class _AlwaysToolUse:

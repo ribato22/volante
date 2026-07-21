@@ -34,7 +34,9 @@ class _Router:
 
 class _Projector:
     def project(self, task, model_id, bb) -> CanonicalRequest:
-        return CanonicalRequest(messages=[text("user", task.description)], max_tokens=64, task_id=task.id)
+        return CanonicalRequest(
+            messages=[text("user", task.description)], max_tokens=64, task_id=task.id
+        )
 
 
 class _Synth:
@@ -99,5 +101,5 @@ def test_two_agentic_tasks_get_isolated_workspaces(tmp_path: Path) -> None:
     rt.execute("goal")
 
     assert len(captured) == 2
-    assert captured[0] != captured[1]                    # workspace per-task, tak bertabrakan (satu run_id, id task beda)
+    assert captured[0] != captured[1]  # workspace per-task, tak bertabrakan (1 run_id, id beda)
     assert all("runs" in str(p) for p in captured)
