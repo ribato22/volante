@@ -17,6 +17,7 @@ from orchestrator.registry import Registry
 from orchestrator.router import Router
 from orchestrator.supervisor import Supervisor
 from orchestrator.synthesizer import Synthesizer
+from orchestrator.tools.base import ToolRegistry
 from orchestrator.tools.run_python import RunPythonTool
 from orchestrator.tools.sandbox import Sandbox, sandbox_for
 from orchestrator.types import ContentBlock, Entry, RunResult, Task, TextBlock
@@ -44,6 +45,7 @@ class Runtime:
         sandbox_factory: Callable[[Path], Sandbox] | None = None,
         runs_dir: Path | None = None,
         agentic_timeout: float = 600.0,
+        tools_factory: Callable[[Path], ToolRegistry] | None = None,
     ) -> None:
         self.supervisor = supervisor
         self.router = router
@@ -59,6 +61,7 @@ class Runtime:
         self.sandbox_factory = sandbox_factory
         self.runs_dir = Path(runs_dir) if runs_dir is not None else Path(".runs")
         self.agentic_timeout = agentic_timeout
+        self.tools_factory = tools_factory
 
     async def _run_task(
         self, task: Task, bb: Blackboard, run_id: str, sem: asyncio.Semaphore
@@ -139,9 +142,12 @@ class Runtime:
         if self.agentic_worker is None:
             raise RuntimeError(f"task {task.id} is agentic but no agentic_worker configured")
         workspace = self.runs_dir / run_id / task.id
-        factory = self.sandbox_factory or sandbox_for
-        sandbox = factory(workspace)
-        tools = {"run_python": RunPythonTool(sandbox)}
+        if self.tools_factory is not None:
+            tools = self.tools_factory(workspace)
+        else:
+            factory = self.sandbox_factory or sandbox_for
+            sandbox = factory(workspace)
+            tools = {"run_python": RunPythonTool(sandbox)}
         async with sem:
             try:
                 res = await asyncio.wait_for(

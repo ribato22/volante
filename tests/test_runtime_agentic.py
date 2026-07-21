@@ -103,3 +103,31 @@ def test_two_agentic_tasks_get_isolated_workspaces(tmp_path: Path) -> None:
     assert len(captured) == 2
     assert captured[0] != captured[1]  # workspace per-task, tak bertabrakan (1 run_id, id beda)
     assert all("runs" in str(p) for p in captured)
+
+
+def test_runtime_tools_factory_override(tmp_path: Path) -> None:
+    plan = [Task(id="t1", description="x", type="code", mode="agentic")]
+    seen: list[list[str]] = []
+
+    def _tf(ws):
+        seen.append(["run_python", "fetch_url"])
+        return {"run_python": object(), "fetch_url": object()}  # _FakeAgentic tak pakai isi tool
+
+    cm = CostMeter()
+    agentic = _FakeAgentic()
+    rt = Runtime(
+        _Sup(plan),
+        _Router(),
+        _Projector(),
+        Worker(providers={"m1": FakeProvider(name="m1")}, cost_meter=cm),
+        _Synth(),
+        Registry([_model("m1")]),
+        cm,
+        agentic_worker=agentic,
+        runs_dir=tmp_path / "runs",
+        tools_factory=_tf,
+    )
+    rt.execute("goal")
+
+    assert agentic.seen == [("t1", ["fetch_url", "run_python"])]  # tools dari factory dipakai
+    assert seen  # factory dipanggil
