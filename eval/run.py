@@ -36,33 +36,40 @@ if TYPE_CHECKING:
 
 
 def format_report(result: dict) -> str:
-    """Render hasil run_suite jadi tabel per-goal + baris VERDICT.
+    """Render hasil run_suite 3-arm jadi tabel per-goal + agregat + baris VERDICT.
 
-    Bila aggregate.any_estimated True, tambahkan peringatan memuat kata
-    "estimated" (sebagian biaya ditaksir karena provider tak mengirim usage)."""
+    Kolom composite per arm (baseline/orchestration/agentic) diambil dari
+    g["scores"][arm]["composite"]; pemenang per goal dari g["winner"]. Bila
+    aggregate.any_estimated True, tambahkan peringatan memuat kata "estimated"
+    (sebagian biaya ditaksir karena provider tak mengirim usage)."""
     per_goal = result["per_goal"]
     agg = result["aggregate"]
 
     header = (
-        f"{'GOAL':<14}{'WINNER':<15}{'ORCH':>6}{'BASE':>6}"
-        f"{'ORCH$':>11}{'BASE$':>11}{'ORCHms':>9}{'BASEms':>9}"
+        f"{'GOAL':<14}{'WINNER':<15}"
+        f"{'BASE':>7}{'ORCH':>7}{'AGEN':>7}"
     )
     lines: list[str] = [header, "-" * len(header)]
     for g in per_goal:
+        s = g["scores"]
         lines.append(
             f"{g['id']:<14}{g['winner']:<15}"
-            f"{g['orch_composite']:>6.2f}{g['base_composite']:>6.2f}"
-            f"{g['orch_cost']:>11.6f}{g['base_cost']:>11.6f}"
-            f"{g['orch_ms']:>9}{g['base_ms']:>9}"
+            f"{s['baseline']['composite']:>7.2f}"
+            f"{s['orchestration']['composite']:>7.2f}"
+            f"{s['agentic']['composite']:>7.2f}"
         )
     lines.append("-" * len(header))
+    wins = agg["wins"]
     lines.append(
-        f"wins: orchestration={agg['orch_wins']}  "
-        f"baseline={agg['base_wins']}  ties={agg['ties']}"
+        f"wins: baseline={wins['baseline']}  "
+        f"orchestration={wins['orchestration']}  "
+        f"agentic={wins['agentic']}  ties={agg['ties']}"
     )
+    cost = agg["cost_total"]
     lines.append(
-        f"totals: orch ${agg['orch_cost_total']:.6f}  "
-        f"base ${agg['base_cost_total']:.6f}"
+        f"totals: baseline ${cost['baseline']:.6f}  "
+        f"orchestration ${cost['orchestration']:.6f}  "
+        f"agentic ${cost['agentic']:.6f}"
     )
     lines.append(f"VERDICT: {str(agg['verdict']).upper()}")
     if agg["any_estimated"]:

@@ -2,40 +2,61 @@ from __future__ import annotations
 
 from eval.run import format_report
 
-
-def _per_goal(gid: str, winner: str = "orchestration", **kw) -> dict:
-    base = dict(
-        id=gid,
-        winner=winner,
-        orch_cost=0.01,
-        base_cost=0.002,
-        orch_ms=100,
-        base_ms=50,
-        orch_composite=0.7,
-        base_composite=0.3,
-        orch_estimated=False,
-        base_estimated=False,
-    )
-    base.update(kw)
-    return base
+_ARM_NAMES = ("baseline", "orchestration", "agentic")
 
 
-def _result(per_goal: list[dict], *, verdict: str = "orchestration",
-            any_estimated: bool = False, **agg) -> dict:
-    orch_wins = sum(1 for g in per_goal if g["winner"] == "orchestration")
-    base_wins = sum(1 for g in per_goal if g["winner"] == "baseline")
+def _scores(comp: float) -> dict:
+    return {"code": comp, "has_tests": 0.0, "has_readme": 0.0, "composite": comp}
+
+
+def _arm(comp: float, cost: float, ms: int = 1, est: bool = False) -> dict:
+    return {"composite": comp, "cost": cost, "ms": ms, "estimated": est}
+
+
+def _per_goal(
+    gid: str,
+    winner: str = "orchestration",
+    *,
+    b: float = 0.3,
+    o: float = 0.7,
+    a: float = 0.5,
+    b_cost: float = 0.002,
+    o_cost: float = 0.01,
+    a_cost: float = 0.005,
+    est: bool = False,
+) -> dict:
+    return {
+        "id": gid,
+        "winner": winner,
+        "arms": {
+            "baseline": _arm(b, b_cost, est=est),
+            "orchestration": _arm(o, o_cost),
+            "agentic": _arm(a, a_cost),
+        },
+        "scores": {
+            "baseline": _scores(b),
+            "orchestration": _scores(o),
+            "agentic": _scores(a),
+        },
+    }
+
+
+def _result(
+    per_goal: list[dict], *, verdict: str = "orchestration", any_estimated: bool = False
+) -> dict:
+    wins = {n: sum(1 for g in per_goal if g["winner"] == n) for n in _ARM_NAMES}
     ties = sum(1 for g in per_goal if g["winner"] == "tie")
-    aggregate = dict(
-        orch_wins=orch_wins,
-        base_wins=base_wins,
-        ties=ties,
-        orch_cost_total=sum(g["orch_cost"] for g in per_goal),
-        base_cost_total=sum(g["base_cost"] for g in per_goal),
-        any_estimated=any_estimated,
-        verdict=verdict,
-    )
-    aggregate.update(agg)
-    return {"per_goal": per_goal, "aggregate": aggregate}
+    cost_total = {n: sum(g["arms"][n]["cost"] for g in per_goal) for n in _ARM_NAMES}
+    return {
+        "per_goal": per_goal,
+        "aggregate": {
+            "wins": wins,
+            "ties": ties,
+            "cost_total": cost_total,
+            "any_estimated": any_estimated,
+            "verdict": verdict,
+        },
+    }
 
 
 def test_format_report_lists_every_goal_id():
@@ -45,6 +66,12 @@ def test_format_report_lists_every_goal_id():
     assert "roman" in report
 
 
+def test_format_report_names_all_three_arms():
+    report = format_report(_result([_per_goal("slugify")]))
+    for name in _ARM_NAMES:
+        assert name in report
+
+
 def test_format_report_returns_str():
     report = format_report(_result([_per_goal("slugify")]))
     assert isinstance(report, str)
@@ -52,14 +79,14 @@ def test_format_report_returns_str():
 
 
 def test_format_report_has_verdict_line_with_value():
-    report = format_report(_result([_per_goal("slugify")], verdict="orchestration"))
+    report = format_report(_result([_per_goal("slugify")], verdict="agentic"))
     verdict_lines = [ln for ln in report.splitlines() if "VERDICT:" in ln]
     assert len(verdict_lines) == 1
-    assert "ORCHESTRATION" in verdict_lines[0].upper()
+    assert "AGENTIC" in verdict_lines[0].upper()
 
 
 def test_format_report_mentions_estimated_when_flagged():
-    per = [_per_goal("slugify", orch_estimated=True)]
+    per = [_per_goal("slugify", est=True)]
     report = format_report(_result(per, any_estimated=True))
     assert "estimated" in report.lower()
 
