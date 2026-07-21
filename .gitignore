@@ -31,6 +31,7 @@ logs/
 .eval_cache/
 .cache/
 runs/
+.docker_it_ws/
 
 # --- OS / editor ---
 .DS_Store
