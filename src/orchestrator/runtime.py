@@ -18,7 +18,7 @@ from orchestrator.router import Router
 from orchestrator.supervisor import Supervisor
 from orchestrator.synthesizer import Synthesizer
 from orchestrator.tools.run_python import RunPythonTool
-from orchestrator.tools.sandbox import Sandbox
+from orchestrator.tools.sandbox import Sandbox, sandbox_for
 from orchestrator.types import ContentBlock, Entry, RunResult, Task, TextBlock
 from orchestrator.worker import Worker
 
@@ -139,7 +139,7 @@ class Runtime:
         if self.agentic_worker is None:
             raise RuntimeError(f"task {task.id} is agentic but no agentic_worker configured")
         workspace = self.runs_dir / run_id / task.id
-        factory = self.sandbox_factory or (lambda ws: Sandbox(ws))
+        factory = self.sandbox_factory or sandbox_for
         sandbox = factory(workspace)
         tools = {"run_python": RunPythonTool(sandbox)}
         async with sem:

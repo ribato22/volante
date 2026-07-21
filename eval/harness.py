@@ -15,7 +15,7 @@ from orchestrator.agent import AgenticWorker
 from orchestrator.cost import CostMeter
 from orchestrator.providers.base import ProviderError
 from orchestrator.tools.run_python import RunPythonTool
-from orchestrator.tools.sandbox import Sandbox
+from orchestrator.tools.sandbox import sandbox_for
 from orchestrator.types import CanonicalRequest, TextBlock, text
 
 if TYPE_CHECKING:
@@ -202,7 +202,7 @@ async def run_agentic_single(
     start = time.perf_counter()
     with tempfile.TemporaryDirectory() as tmp:
         ws = Path(tmp)
-        tools = {"run_python": RunPythonTool(Sandbox(ws))}
+        tools = {"run_python": RunPythonTool(sandbox_for(ws))}
         req = CanonicalRequest(
             messages=[text("user", goal + _AGENTIC_SUFFIX)],
             max_tokens=mi.max_output_tokens,

@@ -82,3 +82,12 @@ class Sandbox:
             exit_code=proc.returncode if proc.returncode is not None else -1,
             timed_out=False,
         )
+
+
+def sandbox_for(workspace):
+    """Pilih impl sandbox via env AIORCH_SANDBOX ("subprocess" default | "docker")."""
+    import os
+    if os.environ.get("AIORCH_SANDBOX", "subprocess").lower() == "docker":
+        from orchestrator.tools.docker_sandbox import DockerSandbox
+        return DockerSandbox(workspace)
+    return Sandbox(workspace)
