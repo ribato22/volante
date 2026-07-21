@@ -13,7 +13,7 @@ from eval.harness import (
     score_code,
     score_task,
 )
-from eval.tasks import SLUGIFY_GOAL
+from eval.tasks import REFERENCE_TEST, SLUGIFY_GOAL
 
 from orchestrator.providers.fake import FakeProvider
 from orchestrator.registry import Registry
@@ -142,29 +142,29 @@ def test_extract_python_falls_back_to_raw_text():
 
 
 def test_score_code_perfect_fenced_scores_one():
-    assert score_code(f"{FENCE}python\n{GOOD_CODE}{FENCE}") == 1.0
+    assert score_code(f"{FENCE}python\n{GOOD_CODE}{FENCE}", REFERENCE_TEST) == 1.0
 
 
 def test_score_code_markdown_wrapped_extracted_then_positive():
     doc = f"Sure! Here it is:\n\n{FENCE}python\n{GOOD_CODE}{FENCE}\n\nHope it helps."
-    assert score_code(doc) > 0.0
+    assert score_code(doc, REFERENCE_TEST) > 0.0
 
 
 def test_score_code_partial_between_zero_and_one():
     partial = "def slugify(text):\n    return text.replace(' ', '-')\n"
-    score = score_code(partial)
+    score = score_code(partial, REFERENCE_TEST)
     assert 0.0 < score < 1.0
 
 
 def test_score_code_syntax_error_scores_zero():
-    assert score_code("def slugify(text) return x") == 0.0
+    assert score_code("def slugify(text) return x", REFERENCE_TEST) == 0.0
 
 
 def test_score_code_infinite_loop_times_out_to_zero(monkeypatch):
     # Timeout default 15s; dipangkas agar test cepat, tetap membuktikan while-True -> 0.0.
     monkeypatch.setattr(harness, "SCORE_TIMEOUT_S", 2.0)
     looping = "def slugify(text):\n    while True:\n        pass\n"
-    assert score_code(looping) == 0.0
+    assert score_code(looping, REFERENCE_TEST) == 0.0
 
 
 def test_clean_env_strips_api_keys_keeps_path(monkeypatch):
@@ -186,7 +186,7 @@ def test_score_task_full_composite():
         "def test_slugify():\n    assert True\n\n"
         "## README\nRun with pytest.\n"
     )
-    result = score_task(body)
+    result = score_task(body, REFERENCE_TEST)
     assert result["code"] == 1.0
     assert result["has_tests"] == 1.0
     assert result["has_readme"] == 1.0
@@ -195,7 +195,7 @@ def test_score_task_full_composite():
 
 def test_score_task_code_only_weighting():
     body = f"{FENCE}python\n{GOOD_CODE}{FENCE}\n"
-    result = score_task(body)
+    result = score_task(body, REFERENCE_TEST)
     assert result["code"] == 1.0
     assert result["has_tests"] == 0.0
     assert result["has_readme"] == 0.0
@@ -204,12 +204,12 @@ def test_score_task_code_only_weighting():
 
 def test_score_task_detects_tests_and_readme_independently():
     only_tests = "def test_x():\n    assert True\n"
-    r1 = score_task(only_tests)
+    r1 = score_task(only_tests, REFERENCE_TEST)
     assert r1["has_tests"] == 1.0
     assert r1["has_readme"] == 0.0
 
     only_readme = "# My Project\nSome description of the tool.\n"
-    r2 = score_task(only_readme)
+    r2 = score_task(only_readme, REFERENCE_TEST)
     assert r2["has_tests"] == 0.0
     assert r2["has_readme"] == 1.0
 
@@ -227,7 +227,7 @@ async def test_run_baseline_returns_baseline_result():
     # 120/1000*0.003 + 240/1000*0.015 = 0.00036 + 0.0036
     assert result.cost_usd == pytest.approx(0.00396)
     assert result.duration_ms >= 0
-    assert score_code(result.output) == 1.0
+    assert score_code(result.output, REFERENCE_TEST) == 1.0
 
 
 async def test_run_baseline_uses_model_max_output_and_temp_zero():
@@ -262,7 +262,7 @@ async def test_run_orchestration_delegates_to_public_aexecute():
     out = await run_orchestration(SLUGIFY_GOAL, _Rt())
     assert calls == [SLUGIFY_GOAL]
     assert isinstance(out, RunResult)
-    assert score_code(out.final) == 1.0
+    assert score_code(out.final, REFERENCE_TEST) == 1.0
 
 
 # --- compare (dict shape + *_estimated + winner by composite/cost) ---------
@@ -328,7 +328,12 @@ async def test_compare_via_fakeprovider_full_path():
     provider = FakeProvider(responses=[_code_response()])
     base = await run_baseline(SLUGIFY_GOAL, provider, "strong-model", _registry())
     orch = await run_orchestration(SLUGIFY_GOAL, _StubRuntime(GOOD_CODE))
-    result = compare(orch, base, score_task(orch.final), score_task(base.output))
+    result = compare(
+        orch,
+        base,
+        score_task(orch.final, REFERENCE_TEST),
+        score_task(base.output, REFERENCE_TEST),
+    )
     assert set(result) == {
         "orch_cost",
         "base_cost",
@@ -366,7 +371,8 @@ async def test_run_eval_runs_k_times_and_returns_compare_dict():
         return rt
 
     result = await run_eval(
-        SLUGIFY_GOAL, make_runtime, provider, "strong-model", _registry(), k=2
+        SLUGIFY_GOAL, REFERENCE_TEST, make_runtime, provider, "strong-model",
+        _registry(), k=2,
     )
     assert len(runtimes) == 2  # tiap sisi berjalan EVAL_K=2 kali
     assert set(result) >= {"orch_composite", "base_composite", "winner"}

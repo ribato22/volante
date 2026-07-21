@@ -11,8 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from eval.tasks import REFERENCE_TEST
-
 from orchestrator.cost import CostMeter
 from orchestrator.types import CanonicalRequest, TextBlock, text
 
@@ -65,15 +63,18 @@ def _clean_env() -> dict[str, str]:
     return {"PATH": os.environ.get("PATH", "")}
 
 
-def score_code(model_output: str) -> float:
+def score_code(model_output: str, reference_test: str) -> float:
     """Ekstrak kode, jalankan runner referensi di subprocess terisolasi, kembalikan
     passed/total dari JSON stdout. SyntaxError/timeout/nonzero -> 0.0.
 
-    Dipakai SAMA untuk output orkestrasi maupun baseline (ekuitas penilaian)."""
+    `reference_test` adalah SUMBER runner (EvalTask.reference_test) yang dites;
+    di-param-kan agar suite multi-goal memakai runner berbeda per goal. Isolasi
+    subprocess tak berubah. Dipakai SAMA untuk output orkestrasi maupun baseline
+    (ekuitas penilaian)."""
     code = extract_python(model_output)
     with tempfile.TemporaryDirectory() as tmp:
         Path(tmp, "solution.py").write_text(code, encoding="utf-8")
-        Path(tmp, "reference_runner.py").write_text(REFERENCE_TEST, encoding="utf-8")
+        Path(tmp, "reference_runner.py").write_text(reference_test, encoding="utf-8")
         try:
             proc = subprocess.run(
                 [sys.executable, "reference_runner.py"],
@@ -98,9 +99,11 @@ def score_code(model_output: str) -> float:
     return max(0.0, min(1.0, passed / total))
 
 
-def score_task(output: str) -> dict[str, float]:
-    """Skor komposit berbobot: code .7 / has_tests .15 / has_readme .15."""
-    code = score_code(output)
+def score_task(output: str, reference_test: str) -> dict[str, float]:
+    """Skor komposit berbobot: code .7 / has_tests .15 / has_readme .15.
+
+    `reference_test` diteruskan apa adanya ke score_code (runner per-goal)."""
+    code = score_code(output, reference_test)
     has_tests = 1.0 if "def test_" in output else 0.0
     has_readme = (
         1.0
@@ -206,6 +209,7 @@ def mean_scores(scores: list[dict[str, float]]) -> dict[str, float]:
 
 async def run_eval(
     goal: str,
+    reference_test: str,
     make_runtime: Callable[[], Runtime],
     provider: LLMProvider,
     model_id: str,
@@ -214,10 +218,9 @@ async def run_eval(
 ) -> dict[str, Any]:
     """Jalankan tiap sisi k kali; rata-ratakan skor score_task via mean_scores; compare.
 
-    make_runtime() dipanggil per iterasi karena aexecute bersifat sekali-jalan.
-    CATATAN N=1: dengan goal slugify deterministik tiap run identik, sehingga ini
-    hanya memipa-bersihkan (smoke) plumbing harness. JANGAN tarik verdict dari
-    angka. Backlog: 3-5 goal komposit lebih berat sebelum percaya angka."""
+    `reference_test` adalah runner tersembunyi milik goal (EvalTask.reference_test);
+    dipakai untuk menilai kedua sisi secara adil. make_runtime() dipanggil per
+    iterasi karena aexecute bersifat sekali-jalan."""
     orch_scores: list[dict[str, float]] = []
     base_scores: list[dict[str, float]] = []
     orch_last: RunResult | None = None
@@ -225,8 +228,8 @@ async def run_eval(
     for _ in range(k):
         orch_last = await run_orchestration(goal, make_runtime())
         base_last = await run_baseline(goal, provider, model_id, registry)
-        orch_scores.append(score_task(orch_last.final or ""))
-        base_scores.append(score_task(base_last.output))
+        orch_scores.append(score_task(orch_last.final or "", reference_test))
+        base_scores.append(score_task(base_last.output, reference_test))
     return compare(
         orch_last, base_last, mean_scores(orch_scores), mean_scores(base_scores)
     )
