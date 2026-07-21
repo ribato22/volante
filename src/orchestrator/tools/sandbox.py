@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import signal
-import subprocess
 import sys
+from asyncio import create_subprocess_exec as _spawn
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +38,13 @@ class ExecResult:
     timed_out: bool
 
 
+def _killpg(proc: asyncio.subprocess.Process) -> None:
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
 class Sandbox:
     """Eksekusi Python best-effort di satu workspace (POSIX). Satu Sandbox per
     agentic-task; file bertahan antar pemanggilan `run`."""
@@ -47,22 +55,30 @@ class Sandbox:
         self.timeout_s = timeout_s
         self.cpu_s = cpu_s
 
-    def run(self, code: str) -> ExecResult:
+    async def run(self, code: str) -> ExecResult:
         script = self.workspace / "_snippet.py"
         script.write_text(code, encoding="utf-8")
-        proc = subprocess.Popen(
-            [sys.executable, "-c", _WRAPPER, str(self.cpu_s), str(script)],
+        proc = await _spawn(
+            sys.executable, "-c", _WRAPPER, str(self.cpu_s), str(script),
             cwd=str(self.workspace),
             env=_clean_env(self.workspace),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
             start_new_session=True,  # grup proses sendiri → killpg bunuh cucu juga
         )
         try:
-            out, err = proc.communicate(timeout=self.timeout_s)
-            return ExecResult(stdout=out, stderr=err, exit_code=proc.returncode, timed_out=False)
-        except subprocess.TimeoutExpired:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            out, err = proc.communicate()
-            return ExecResult(stdout=out or "", stderr=err or "", exit_code=-9, timed_out=True)
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=self.timeout_s)
+        except TimeoutError:
+            _killpg(proc)
+            await proc.wait()
+            return ExecResult(stdout="", stderr="", exit_code=-9, timed_out=True)
+        except asyncio.CancelledError:
+            _killpg(proc)
+            await proc.wait()
+            raise
+        return ExecResult(
+            stdout=out.decode(errors="replace"),
+            stderr=err.decode(errors="replace"),
+            exit_code=proc.returncode if proc.returncode is not None else -1,
+            timed_out=False,
+        )
