@@ -347,6 +347,30 @@ def test_score_reference_memory_read_forgery_cannot_reach_runner():
     assert score == 0.0
 
 
+def test_score_reference_filesystem_read_forgery_cannot_harvest_expected():
+    # Verifikasi-adversarial (CRITICAL yg diperbaiki): solusi mencoba membaca
+    # `reference_runner.py` (yang memuat CASES+expected) dari cwd server untuk
+    # mengembalikan jawaban tanpa menghitung. Preamble MENGHAPUS file itu sebelum
+    # spawn server -> open gagal -> tak ada expected dipanen -> skor 0.0.
+    forgery = (
+        "import ast\n"
+        "_ANS = {}\n"
+        "try:\n"
+        "    with open('reference_runner.py', encoding='utf-8') as _f:\n"
+        "        _tree = ast.parse(_f.read())\n"
+        "    for _n in ast.walk(_tree):\n"
+        "        if isinstance(_n, ast.Assign) and getattr(_n.targets[0], 'id', '') == 'CASES':\n"
+        "            for _i, _e in ast.literal_eval(_n.value):\n"
+        "                _ANS[_i] = _e\n"
+        "except Exception:\n"
+        "    pass\n"
+        "def slugify(text):\n"
+        "    return _ANS.get(text, 'NOT-A-REAL-SLUGIFY')\n"
+    )
+    score, _ = harness._score_reference(forgery, REFERENCE_TEST)
+    assert score == 0.0  # expected tak terjangkau -> forgery gagal
+
+
 def test_score_reference_wrong_solution_via_server_is_measured_zero():
     # Solusi yang import bersih tapi menghitung SALAH -> server melayani, runner
     # membanding ke expected privat -> semua case gagal -> 0.0 terukur (bukan forgeable).

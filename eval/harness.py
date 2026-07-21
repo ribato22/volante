@@ -67,9 +67,14 @@ _SCORE_WRAPPER = (
 # pernah jalan di proses runner: ia tak bisa membaca nonce/expected dari memori
 # maupun menyuntik baris ber-nonce ke stdout runner. isatty guard = aman manual.
 _RESULT_PREAMBLE = (
-    "import json as _aj, subprocess as _asp, sys as _asys, atexit as _aat\n"
+    "import json as _aj, os as _aos, subprocess as _asp, sys as _asys, atexit as _aat\n"
     "_TAG = '' if _asys.stdin.isatty() else "
     "'AIORCH_RESULT:' + _asys.stdin.readline().strip() + ':'\n"
+    # KRITIS (pemisahan FILESYSTEM): hapus source runner (yang memuat CASES+expected)
+    # SETELAH runpy me-load-nya ke memori tapi SEBELUM spawn server. Jadi solusi di
+    # server tak bisa `open('reference_runner.py')` untuk memanen jawaban. Fail-closed:
+    # bila remove gagal, preamble raise -> runner crash -> tak-terukur (bukan forgery).
+    "_aos.remove('reference_runner.py')\n"
     "_srv = _asp.Popen([_asys.executable, '_solution_server.py'], "
     "stdin=_asp.PIPE, stdout=_asp.PIPE, text=True)\n"
     "def _shutdown_srv():\n"
@@ -103,11 +108,14 @@ def _solution_server_src(cpu: int) -> str:
             "import importlib, json, os, resource, sys",
             f"_c = {cpu}",
             "resource.setrlimit(resource.RLIMIT_CPU, (_c, _c))",
-            # Kanal RPC = dup stdout asli (pipe ke runner); lalu fd 1 -> devnull
-            # SEBELUM import solution, jadi output stdout solusi (print/write) dibuang
-            # dan tak bisa mengotori respons RPC. Robust thd polusi stdout saat import.
+            # Kanal RPC = dup stdout asli (pipe ke runner); lalu fd 1 DAN fd 2 ->
+            # devnull SEBELUM import solution, jadi output stdout/stderr solusi dibuang
+            # (tak mengotori RPC; tak membanjiri buffer stderr parent). Robust thd
+            # polusi stdio saat import.
             "_rpc = os.fdopen(os.dup(1), 'w')",
-            "os.dup2(os.open(os.devnull, os.O_WRONLY), 1)",
+            "_dn = os.open(os.devnull, os.O_WRONLY)",
+            "os.dup2(_dn, 1)",
+            "os.dup2(_dn, 2)",
             "try:",
             "    _sol = importlib.import_module('solution')",
             "except BaseException:",
