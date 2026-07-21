@@ -294,6 +294,19 @@ def compare(
     }
 
 
+def compare_arms(arms: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """N-way: winner = composite tertinggi; seri komposit -> termurah; masih seri -> "tie"."""
+    best = max(a["composite"] for a in arms.values())
+    top = [name for name, a in arms.items() if a["composite"] == best]
+    if len(top) == 1:
+        winner = top[0]
+    else:
+        cheapest = min(arms[name]["cost"] for name in top)
+        cheap_top = [name for name in top if arms[name]["cost"] == cheapest]
+        winner = cheap_top[0] if len(cheap_top) == 1 else "tie"
+    return {"arms": arms, "winner": winner}
+
+
 def mean_scores(scores: list[dict[str, float]]) -> dict[str, float]:
     """Rata-rata per-kunci dari daftar dict score_task (untuk agregasi k-run)."""
     if not scores:
