@@ -1,6 +1,7 @@
 # src/orchestrator/providers/openai_compat.py
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 
@@ -13,6 +14,8 @@ from orchestrator.types import (
     CanonicalResponse,
     ContentBlock,
     TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
     Usage,
 )
 
@@ -47,11 +50,35 @@ def _est(s: str) -> int:
 
 
 def _to_chat_messages(messages: list[CanonicalMessage]) -> list[dict]:
-    """Canonical messages -> chat.completions messages (text-only, Fase 0-1)."""
+    """Canonical -> chat.completions messages, termasuk tool_use/tool_result."""
     out: list[dict] = []
     for m in messages:
-        parts = [b.text for b in m.content if isinstance(b, TextBlock)]
-        out.append({"role": m.role, "content": "".join(parts)})
+        tool_results = [b for b in m.content if isinstance(b, ToolResultBlock)]
+        if tool_results:
+            for tr in tool_results:
+                out.append(
+                    {"role": "tool", "tool_call_id": tr.tool_use_id, "content": tr.content}
+                )
+            continue
+        tool_uses = [b for b in m.content if isinstance(b, ToolUseBlock)]
+        text_out = "".join(b.text for b in m.content if isinstance(b, TextBlock))
+        if tool_uses:
+            out.append(
+                {
+                    "role": m.role,
+                    "content": text_out or None,
+                    "tool_calls": [
+                        {
+                            "id": b.id,
+                            "type": "function",
+                            "function": {"name": b.name, "arguments": json.dumps(b.input)},
+                        }
+                        for b in tool_uses
+                    ],
+                }
+            )
+            continue
+        out.append({"role": m.role, "content": text_out})
     return out
 
 
@@ -109,6 +136,19 @@ class OpenAICompatProvider:
             "temperature": req.temperature,
             self.config.output_tokens_param: req.max_tokens,
         }
+        if req.tools:
+            create_kwargs["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.input_schema,
+                    },
+                }
+                for t in req.tools
+            ]
+            create_kwargs["tool_choice"] = "auto"
         start = time.monotonic()
         try:
             resp = await self._client.chat.completions.create(**create_kwargs)
