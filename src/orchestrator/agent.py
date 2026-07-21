@@ -129,7 +129,7 @@ class AgenticWorker:
             results: list[ContentBlock] = []
             for b in tool_uses:
                 if b.name in tools:
-                    content = await asyncio.to_thread(tools[b.name].run, b.input)
+                    content = await tools[b.name].run(b.input)
                 else:
                     content = f"error: unknown tool {b.name!r}"
                 results.append(ToolResultBlock(tool_use_id=b.id, content=content))

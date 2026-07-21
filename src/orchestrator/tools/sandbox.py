@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Wrapper dijalankan DI DALAM proses anak: set RLIMIT_CPU sebelum menjalankan
-# snippet. Ini menghindari preexec_fn (fork-unsafe & tak thread-safe di bawah
-# asyncio.to_thread). RLIMIT_AS (memori) sengaja TIDAK diset — praktis tak
+# snippet. Ini menghindari preexec_fn (fork-unsafe & tak aman di event loop
+# asyncio). RLIMIT_AS (memori) sengaja TIDAK diset — praktis tak
 # ditegakkan di macOS; timeout adalah backstop nyata.
 _WRAPPER = (
     "import resource,runpy,sys;"

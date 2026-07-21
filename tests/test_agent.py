@@ -25,7 +25,7 @@ class _RecordingTool:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    def run(self, args: dict) -> str:
+    async def run(self, args: dict) -> str:
         self.calls.append(args)
         return "exit=0\nstdout:\nOK\n"
 
