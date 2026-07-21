@@ -198,3 +198,101 @@ class OpenAICompatProvider:
             stop_reason=stop_reason,
             latency_ms=latency_ms,
         )
+
+    async def stream(self, req: CanonicalRequest, on_text) -> CanonicalResponse:
+        create_kwargs: dict = {
+            "model": self.model,
+            "messages": _to_chat_messages(req.messages),
+            "temperature": req.temperature,
+            self.config.output_tokens_param: req.max_tokens,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if req.tools:
+            create_kwargs["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.input_schema,
+                    },
+                }
+                for t in req.tools
+            ]
+            create_kwargs["tool_choice"] = "auto"
+
+        start = time.monotonic()
+        text_parts: list[str] = []
+        tool_acc: dict[int, dict] = {}
+        finish_reason: str | None = None
+        usage_obj = None
+        model_name = self.model
+        try:
+            stream = await self._client.chat.completions.create(**create_kwargs)
+            async for chunk in stream:
+                if getattr(chunk, "usage", None):
+                    usage_obj = chunk.usage
+                if getattr(chunk, "model", None):
+                    model_name = chunk.model
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                delta = choice.delta
+                piece = getattr(delta, "content", None)
+                if piece:
+                    text_parts.append(piece)
+                    on_text(piece)
+                for tc in getattr(delta, "tool_calls", None) or []:
+                    acc = tool_acc.setdefault(
+                        tc.index, {"id": None, "name": None, "arguments": ""}
+                    )
+                    if tc.id:
+                        acc["id"] = tc.id
+                    fn = getattr(tc, "function", None)
+                    if fn is not None:
+                        if getattr(fn, "name", None):
+                            acc["name"] = fn.name
+                        if getattr(fn, "arguments", None):
+                            acc["arguments"] += fn.arguments
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+        except Exception as err:
+            retryable, status = _classify_error(err)
+            raise ProviderError(str(err), retryable=retryable, status=status) from err
+        latency_ms = int((time.monotonic() - start) * 1000)
+
+        text_out = "".join(text_parts)
+        content: list[ContentBlock] = []
+        if text_out:
+            content.append(TextBlock(text=text_out))
+        for idx in sorted(tool_acc):
+            acc = tool_acc[idx]
+            raw = acc["arguments"] or ""
+            try:
+                args = json.loads(raw) if raw else {}
+            except (ValueError, TypeError):
+                args = {}
+            content.append(ToolUseBlock(id=acc["id"] or "", name=acc["name"] or "", input=args))
+        if not content:
+            content = [TextBlock(text="")]
+        stop_reason = _FINISH_REASON_MAP.get(finish_reason, "end_turn")
+
+        prompt_toks = getattr(usage_obj, "prompt_tokens", None)
+        completion_toks = getattr(usage_obj, "completion_tokens", None)
+        if prompt_toks is None or completion_toks is None:
+            usage = Usage(
+                prompt_tokens=_est(_join_input_text(req.messages)),
+                completion_tokens=_est(text_out),
+                estimated=True,
+            )
+        else:
+            usage = Usage(prompt_tokens=prompt_toks, completion_tokens=completion_toks)
+
+        return CanonicalResponse(
+            content=content,
+            usage=usage,
+            model=model_name,
+            stop_reason=stop_reason,
+            latency_ms=latency_ms,
+        )
