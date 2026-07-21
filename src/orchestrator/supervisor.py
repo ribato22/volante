@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from orchestrator.cost import CostMeter
@@ -37,14 +38,20 @@ class Supervisor:
         self._cost_meter = cost_meter
         self._used = False
 
-    async def plan(self, goal: str) -> list[Task]:
+    async def plan(
+        self, goal: str, on_text: Callable[[str], None] | None = None
+    ) -> list[Task]:
         if self._used:
             raise RuntimeError(
                 "Supervisor.plan is non-re-entrant; use a fresh Supervisor per run"
             )
         self._used = True
         req = self._build_request(goal)
-        resp = await self._provider.complete(req)
+        # on_text -> streaming (progres planning live); else complete (nol regresi).
+        if on_text is not None:
+            resp = await self._provider.stream(req, on_text)
+        else:
+            resp = await self._provider.complete(req)
         # PATCH v2.1: tagih panggilan planning ke model_id SETELAH complete()
         # sukses dan SEBELUM validasi -> panggilan yang benar-benar dieksekusi
         # tetap terhitung meski plan-nya ternyata invalid.

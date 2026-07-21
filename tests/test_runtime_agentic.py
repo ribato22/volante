@@ -23,7 +23,7 @@ class _Sup:
     def __init__(self, plan) -> None:
         self._plan = plan
 
-    async def plan(self, goal: str):
+    async def plan(self, goal: str, on_text=None):
         return list(self._plan)
 
 
@@ -40,7 +40,7 @@ class _Projector:
 
 
 class _Synth:
-    async def synthesize(self, goal, bb) -> str:
+    async def synthesize(self, goal, bb, on_text=None) -> str:
         return "synth"
 
 

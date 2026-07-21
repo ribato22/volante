@@ -222,6 +222,18 @@ async def test_plan_rejects_unknown_dependency() -> None:
         await sup.plan("a dangling-dependency goal")
 
 
+async def test_plan_streams_when_on_text_given() -> None:
+    # on_text -> jalur stream (teruskan teks respons planner); hasil parse tetap benar.
+    provider = FakeProvider(responses=[_resp(_one_task_plan())])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+    chunks: list[str] = []
+
+    tasks = await sup.plan("plan me", on_text=chunks.append)
+
+    assert [t.id for t in tasks] == ["t1"]
+    assert "".join(chunks) == _one_task_plan()  # teks plan ter-stream
+
+
 async def test_plan_rejects_empty_plan() -> None:
     # Regresi: plan kosong [] lolos DAG-check (Kahn resolved==0==len) dan bikin
     # aexecute lapor "success" tanpa kerja. Harus ditolak ValueError.

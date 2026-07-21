@@ -68,8 +68,10 @@ class _StubSupervisor:
         self._plan = plan
         self.calls = 0
 
-    async def plan(self, goal: str) -> list[Task]:
+    async def plan(self, goal: str, on_text=None) -> list[Task]:
         self.calls += 1
+        if on_text is not None:
+            on_text("[plan]")  # buktikan Runtime meneruskan callback ke plan
         return list(self._plan)
 
 
@@ -96,8 +98,10 @@ class _StubSynthesizer:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def synthesize(self, goal: str, bb: object) -> str:
+    async def synthesize(self, goal: str, bb: object, on_text=None) -> str:
         self.calls += 1
+        if on_text is not None:
+            on_text("[synth]")  # buktikan Runtime meneruskan callback ke sintesis
         keys = ",".join(sorted(bb.current_artifacts().keys()))
         return f"synth[{keys}]"
 
@@ -161,6 +165,61 @@ def test_execute_happy_path_dag_populates_cost_fields() -> None:
     assert result.cost_usd == pytest.approx(0.009)
     assert isinstance(result.duration_ms, int)
     assert result.duration_ms >= 0
+
+
+def test_execute_routes_on_text_to_plan_and_synth_not_workers() -> None:
+    # Streaming: aexecute(on_text) meneruskan callback ke supervisor.plan +
+    # synthesizer.synthesize (fase sekuensial). Worker paralel TIDAK di-stream
+    # (Runtime tak meneruskan on_text ke worker) -> hanya marker plan/synth muncul.
+    cm = CostMeter()
+    plan = _plan_diamond()
+    supervisor = _StubSupervisor(plan)
+    router = _StubRouter({"T1": "m1", "T2": "m2", "T3": "m3"})
+    projector = _StubProjector()
+    worker = Worker(
+        providers={
+            "m1": FakeProvider(responses=[_resp("art-1", "m1")], name="m1"),
+            "m2": FakeProvider(responses=[_resp("art-2", "m2")], name="m2"),
+            "m3": FakeProvider(responses=[_resp("art-3", "m3")], name="m3"),
+        },
+        cost_meter=cm,
+    )
+    synthesizer = _StubSynthesizer()
+    runtime = Runtime(
+        supervisor, router, projector, worker, synthesizer,
+        _registry("m1", "m2", "m3"), cm,
+    )
+    chunks: list[str] = []
+
+    result = runtime.execute("build", on_text=chunks.append)
+
+    assert result.status == "success"
+    # Hanya marker fase sekuensial; tak ada teks worker (art-1/2/3) yang ter-stream.
+    assert chunks == ["[plan]", "[synth]"]
+    assert not any("art-" in c for c in chunks)
+
+
+def test_execute_without_on_text_streams_nothing() -> None:
+    # Nol regresi: tanpa on_text, plan/synth pakai complete (stub tak memancarkan
+    # marker). Perilaku default tak berubah.
+    cm = CostMeter()
+    supervisor = _StubSupervisor(_plan_diamond())
+    router = _StubRouter({"T1": "m1", "T2": "m2", "T3": "m3"})
+    worker = Worker(
+        providers={
+            "m1": FakeProvider(responses=[_resp("a", "m1")], name="m1"),
+            "m2": FakeProvider(responses=[_resp("a", "m2")], name="m2"),
+            "m3": FakeProvider(responses=[_resp("a", "m3")], name="m3"),
+        },
+        cost_meter=cm,
+    )
+    runtime = Runtime(
+        supervisor, router, _StubProjector(), worker, _StubSynthesizer(),
+        _registry("m1", "m2", "m3"), cm,
+    )
+
+    result = runtime.execute("build")  # tanpa on_text
+    assert result.status == "success"
 
 
 def test_execute_fan_out_caps_concurrency() -> None:

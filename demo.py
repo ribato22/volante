@@ -4,6 +4,7 @@ Set env (or a .env you export) first, then:
 
     uv run python demo.py            # show detected providers + usage
     uv run python demo.py agentic    # one cross-provider agentic coding task (run_python loop)
+    uv run python demo.py orchestrate  # full supervisor->workers->synth, planning+synth stream live
     uv run python demo.py eval       # 3-arm eval suite (baseline vs orchestration vs agentic)
 
 Env read: ANTHROPIC_API_KEY, MOONSHOT_API_KEY (+MOONSHOT_BASE_URL), OLLAMA_BASE_URL,
@@ -118,10 +119,43 @@ async def demo_agentic() -> None:
     print(f"cost: ${cm.cost_usd(registry):.6f}")
 
 
+async def demo_orchestrate() -> None:
+    """Orkestrasi penuh (supervisor -> workers paralel -> synthesizer) dengan fase
+    SEKUENSIAL (planning + sintesis) ter-stream live via on_text. Worker paralel tak
+    di-stream (teks antar-task akan bercampur). Butuh provider terkonfigurasi."""
+    from eval.run import build_providers_from_env, make_runtime_factory
+
+    try:
+        registry, providers, model_id = build_providers_from_env()
+    except RuntimeError as exc:
+        print(str(exc))
+        return
+    make_runtime = make_runtime_factory(registry, providers, model_id)
+    runtime = make_runtime()
+    goal = (
+        "Write a short haiku about concurrency, then explain the haiku in one sentence."
+    )
+    print(f"Orchestrate demo — planner/synth model={model_id}\n")
+
+    def _emit(s: str) -> None:
+        print(s, end="", flush=True)
+
+    print("(planning + synthesis stream live)\n")
+    result = await runtime.aexecute(goal, on_text=_emit)
+    print(f"\n\nSTATUS: {result.status}")
+    if result.final:
+        print("\nFINAL:\n" + result.final.strip())
+    if result.failed_task:
+        print(f"failed_task: {result.failed_task}")
+    print(f"\ncost: ${result.cost_usd:.6f}")
+
+
 def main() -> None:
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     if mode == "agentic":
         asyncio.run(demo_agentic())
+    elif mode == "orchestrate":
+        asyncio.run(demo_orchestrate())
     elif mode == "eval":
         from eval.run import main as eval_main
 

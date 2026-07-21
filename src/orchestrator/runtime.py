@@ -242,10 +242,15 @@ class Runtime:
             duration_ms=int((time.perf_counter() - started) * 1000),
         )
 
-    async def aexecute(self, goal: str) -> RunResult:
+    async def aexecute(
+        self, goal: str, on_text: Callable[[str], None] | None = None
+    ) -> RunResult:
+        # on_text men-stream fase SEKUENSIAL (planning + sintesis) — worker paralel
+        # sengaja TIDAK di-stream (teks antar-task akan bercampur). None = complete
+        # di semua fase (nol regresi).
         started = time.perf_counter()
         run_id = uuid.uuid4().hex
-        plan = await self.supervisor.plan(goal)
+        plan = await self.supervisor.plan(goal, on_text)
         bb = Blackboard(goal, plan)
         sem = asyncio.Semaphore(self.fan_out)
         done: set[str] = set()
@@ -269,11 +274,13 @@ class Runtime:
                         bb, started, status="failed", final=None, failed_task=t.id
                     )
                 done.add(t.id)
-        final = await self.synthesizer.synthesize(goal, bb)
+        final = await self.synthesizer.synthesize(goal, bb, on_text)
         shutil.rmtree(self.runs_dir / run_id, ignore_errors=True)
         return self._finalize(
             bb, started, status="success", final=final, failed_task=None
         )
 
-    def execute(self, goal: str) -> RunResult:
-        return asyncio.run(self.aexecute(goal))
+    def execute(
+        self, goal: str, on_text: Callable[[str], None] | None = None
+    ) -> RunResult:
+        return asyncio.run(self.aexecute(goal, on_text))

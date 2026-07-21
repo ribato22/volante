@@ -138,6 +138,20 @@ async def test_synthesize_records_usage_keyed_by_model_id() -> None:
     assert totals["synth-model"].completion_tokens == 6
 
 
+async def test_synthesize_streams_when_on_text_given() -> None:
+    meter = CostMeter()
+    provider = FakeProvider(responses=[_resp("FINAL-REPORT", completion=6)])
+    synth = Synthesizer(provider=provider, model_id="synth-model", cost_meter=meter)
+    bb = _bb_with_artifacts()
+    chunks: list[str] = []
+
+    out = await synth.synthesize("Write a report", bb, on_text=chunks.append)
+
+    assert out == "FINAL-REPORT"
+    assert "".join(chunks) == "FINAL-REPORT"  # teks sintesis ter-stream
+    assert meter.totals()["synth-model"].completion_tokens == 6  # cost tetap tercatat
+
+
 async def test_synthesize_propagates_estimated_flag() -> None:
     meter = CostMeter()
     provider = FakeProvider(responses=[_resp("FINAL", estimated=True)])

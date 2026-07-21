@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from orchestrator.blackboard import Blackboard
 from orchestrator.cost import CostMeter
 from orchestrator.providers.base import LLMProvider
@@ -20,7 +22,12 @@ class Synthesizer:
         self._model_id = model_id
         self._cost_meter = cost_meter
 
-    async def synthesize(self, goal: str, bb: Blackboard) -> str:
+    async def synthesize(
+        self,
+        goal: str,
+        bb: Blackboard,
+        on_text: Callable[[str], None] | None = None,
+    ) -> str:
         artifacts = bb.current_artifacts()
         sections = [
             f"## {task_id}\n{payload}" for task_id, payload in artifacts.items()
@@ -36,7 +43,11 @@ class Synthesizer:
             messages=[text("user", prompt)],
             max_tokens=2048,
         )
-        resp = await self._provider.complete(req)
+        # on_text -> streaming (progres sintesis live); else complete (nol regresi).
+        if on_text is not None:
+            resp = await self._provider.stream(req, on_text)
+        else:
+            resp = await self._provider.complete(req)
         self._cost_meter.add(self._model_id, resp.usage)
         parts = [b.text for b in resp.content if isinstance(b, TextBlock)]
         return "".join(parts)

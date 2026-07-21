@@ -140,6 +140,21 @@ async def test_run_one_shot_unknown_model_raises_and_records_nothing() -> None:
     assert meter.has_estimated() is False
 
 
+async def test_run_one_shot_streams_when_on_text_given() -> None:
+    # on_text -> jalur stream FakeProvider (teruskan teks tiap TextBlock); tanpa
+    # on_text -> complete (gate). Cost tetap tercatat di kedua jalur.
+    meter = CostMeter()
+    fake = FakeProvider(responses=[_resp("streamed-out", prompt=3, completion=2)], name="b")
+    worker = Worker(providers={"model-b": fake}, cost_meter=meter)
+    chunks: list[str] = []
+
+    out = await worker.run_one_shot(_req(), "model-b", on_text=chunks.append)
+
+    assert out.content[0].text == "streamed-out"
+    assert "".join(chunks) == "streamed-out"  # teks ter-stream ke callback
+    assert meter.totals()["model-b"].completion_tokens == 2
+
+
 async def test_run_one_shot_provider_error_records_nothing() -> None:
     # add() harus dipanggil SETELAH complete() sukses: bila complete() meledak,
     # error diteruskan dan CostMeter tetap kosong.
