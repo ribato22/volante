@@ -1,6 +1,7 @@
 # src/orchestrator/providers/openai_compat.py
 from __future__ import annotations
 
+import inspect
 import json
 import time
 from dataclasses import dataclass
@@ -110,6 +111,20 @@ def _classify_error(err: BaseException) -> tuple[bool, int | None]:
     if status is not None:
         return (status in _RETRYABLE_STATUSES or status >= 500), status
     return _is_network_error(err), None
+
+
+async def _aclose_quietly(stream: object) -> None:
+    """Tutup stream best-effort (early-stop/cancel) supaya koneksi tak bocor. Async
+    generator punya aclose(); openai AsyncStream punya close(). Galat close ditelan."""
+    closer = getattr(stream, "aclose", None) or getattr(stream, "close", None)
+    if closer is None:
+        return
+    try:
+        result = closer()
+        if inspect.isawaitable(result):
+            await result
+    except Exception:  # noqa: BLE001 — cleanup best-effort
+        pass
 
 
 class OpenAICompatProvider:
@@ -230,33 +245,39 @@ class OpenAICompatProvider:
         model_name = self.model
         try:
             stream = await self._client.chat.completions.create(**create_kwargs)
-            async for chunk in stream:
-                if getattr(chunk, "usage", None):
-                    usage_obj = chunk.usage
-                if getattr(chunk, "model", None):
-                    model_name = chunk.model
-                if not chunk.choices:
-                    continue
-                choice = chunk.choices[0]
-                delta = choice.delta
-                piece = getattr(delta, "content", None)
-                if piece:
-                    text_parts.append(piece)
-                    on_text(piece)
-                for tc in getattr(delta, "tool_calls", None) or []:
-                    acc = tool_acc.setdefault(
-                        tc.index, {"id": None, "name": None, "arguments": ""}
-                    )
-                    if tc.id:
-                        acc["id"] = tc.id
-                    fn = getattr(tc, "function", None)
-                    if fn is not None:
-                        if getattr(fn, "name", None):
-                            acc["name"] = fn.name
-                        if getattr(fn, "arguments", None):
-                            acc["arguments"] += fn.arguments
-                if choice.finish_reason:
-                    finish_reason = choice.finish_reason
+            # finally menutup stream pada exit NORMAL, early-stop (break), MAUPUN
+            # CancelledError (timeout) -> koneksi tak bocor.
+            try:
+                async for chunk in stream:
+                    if getattr(chunk, "usage", None):
+                        usage_obj = chunk.usage
+                    if getattr(chunk, "model", None):
+                        model_name = chunk.model
+                    if not chunk.choices:
+                        continue
+                    choice = chunk.choices[0]
+                    delta = choice.delta
+                    piece = getattr(delta, "content", None)
+                    if piece:
+                        text_parts.append(piece)
+                        if on_text(piece):  # truthy -> cooperative stop
+                            break
+                    for tc in getattr(delta, "tool_calls", None) or []:
+                        acc = tool_acc.setdefault(
+                            tc.index, {"id": None, "name": None, "arguments": ""}
+                        )
+                        if tc.id:
+                            acc["id"] = tc.id
+                        fn = getattr(tc, "function", None)
+                        if fn is not None:
+                            if getattr(fn, "name", None):
+                                acc["name"] = fn.name
+                            if getattr(fn, "arguments", None):
+                                acc["arguments"] += fn.arguments
+                    if choice.finish_reason:
+                        finish_reason = choice.finish_reason
+            finally:
+                await _aclose_quietly(stream)
         except Exception as err:
             retryable, status = _classify_error(err)
             raise ProviderError(str(err), retryable=retryable, status=status) from err

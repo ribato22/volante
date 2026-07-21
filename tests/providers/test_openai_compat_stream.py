@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from orchestrator.providers.openai_compat import OpenAICompatProvider
@@ -59,6 +61,87 @@ async def test_stream_text(monkeypatch) -> None:
     assert "".join(got) == "hello"
     assert isinstance(res.content[0], TextBlock)
     assert res.usage.prompt_tokens == 5
+
+
+class _SpyStream:
+    """Stream mock ber-aclose (seperti async generator / openai AsyncStream) untuk
+    memverifikasi penutupan pada early-stop / cancel."""
+
+    def __init__(self, chunks, hang_after=None):
+        self._chunks = chunks
+        self._hang_after = hang_after
+        self.closed = False
+
+    def __aiter__(self):
+        return self._agen()
+
+    async def _agen(self):
+        for i, c in enumerate(self._chunks):
+            yield c
+            if self._hang_after is not None and i == self._hang_after:
+                await asyncio.Event().wait()  # gantung sampai dibatalkan
+
+    async def aclose(self):
+        self.closed = True
+
+
+def _provider_with_stream(monkeypatch, stream_obj):
+    class _Completions:
+        async def create(self, **kw):
+            return stream_obj
+
+    class _Chat:
+        completions = _Completions()
+
+    class _Client:
+        chat = _Chat()
+
+    monkeypatch.setattr(
+        "orchestrator.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client()
+    )
+    return OpenAICompatProvider(base_url="http://x/v1", api_key="k", model="kimi-x")
+
+
+@pytest.mark.asyncio
+async def test_stream_early_stop_forwards_partial_and_closes(monkeypatch) -> None:
+    # on_text truthy -> berhenti; chunk berikutnya tak diproses; stream ditutup.
+    stream = _SpyStream(
+        [_chunk(content="a"), _chunk(content="b"), _chunk(content="c", finish_reason="stop")]
+    )
+    p = _provider_with_stream(monkeypatch, stream)
+    got: list[str] = []
+
+    def cb(s: str) -> bool:
+        got.append(s)
+        return True  # stop setelah chunk pertama
+
+    res = await p.stream(
+        CanonicalRequest(messages=[text("user", "hi")], max_tokens=16), cb
+    )
+    assert got == ["a"]
+    assert "".join(b.text for b in res.content if isinstance(b, TextBlock)) == "a"
+    assert stream.closed is True  # finally menutup stream pada early-stop
+
+
+@pytest.mark.asyncio
+async def test_stream_cancellation_closes_stream(monkeypatch) -> None:
+    # Cancel di tengah stream -> CancelledError merambat + finally menutup koneksi.
+    stream = _SpyStream([_chunk(content="a"), _chunk(content="b")], hang_after=0)
+    p = _provider_with_stream(monkeypatch, stream)
+    started = asyncio.Event()
+
+    def cb(s: str) -> None:
+        started.set()
+
+    task = asyncio.create_task(
+        p.stream(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16), cb)
+    )
+    await started.wait()  # chunk pertama telah diproses -> gen kini menggantung
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert stream.closed is True  # ditutup meski dibatalkan
 
 
 @pytest.mark.asyncio

@@ -41,7 +41,16 @@ class FakeProvider:
 
     async def stream(self, req: CanonicalRequest, on_text) -> CanonicalResponse:
         resp = await self.complete(req)
+        emitted: list[str] = []
         for b in resp.content:
             if isinstance(b, TextBlock):
-                on_text(b.text)
+                emitted.append(b.text)
+                if on_text(b.text):  # truthy -> stop early, kembalikan parsial
+                    return CanonicalResponse(
+                        content=[TextBlock(text="".join(emitted))],
+                        usage=resp.usage,
+                        model=resp.model,
+                        stop_reason=resp.stop_reason,
+                        latency_ms=resp.latency_ms,
+                    )
         return resp

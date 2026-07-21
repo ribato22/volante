@@ -171,14 +171,38 @@ class AnthropicProvider:
                 for t in req.tools
             ]
         start = time.perf_counter()
+        parts: list[str] = []
+        stopped = False
+        final = None
         try:
+            # `async with` menutup stream pada exit NORMAL, early-stop, MAUPUN
+            # CancelledError (timeout) -> tak ada koneksi bocor.
             async with self._client.messages.stream(**kwargs) as s:
                 async for delta in s.text_stream:
-                    on_text(delta)
-                final = await s.get_final_message()
+                    parts.append(delta)
+                    if on_text(delta):  # truthy -> cooperative stop
+                        stopped = True
+                        break
+                if not stopped:
+                    final = await s.get_final_message()
         except Exception as exc:  # noqa: BLE001 — mapped below
             raise _to_provider_error(exc) from exc
         latency_ms = int((time.perf_counter() - start) * 1000)
+        if stopped:
+            # Early-stop: get_final_message tak tersedia; bangun response parsial dari
+            # teks terakumulasi (tool_use/usage server tak lengkap -> estimasi bertanda).
+            text_out = "".join(parts)
+            return CanonicalResponse(
+                content=[TextBlock(text=text_out)],
+                usage=Usage(
+                    prompt_tokens=_est(_prompt_text(req)),
+                    completion_tokens=_est(text_out),
+                    estimated=True,
+                ),
+                model=self.model,
+                stop_reason="end_turn",
+                latency_ms=latency_ms,
+            )
         content = _extract_content(final)
         usage = _extract_usage(final, req, content)
         return CanonicalResponse(

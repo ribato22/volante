@@ -29,17 +29,18 @@ def _text_of(content: list[ContentBlock]) -> str:
 
 
 def _task_cb(
-    on_worker_text: Callable[[str, str], None] | None, task_id: str
-) -> Callable[[str], None] | None:
+    on_worker_text: Callable[[str, str], object] | None, task_id: str
+) -> Callable[[str], object] | None:
     """Bungkus `on_worker_text(task_id, delta)` menjadi `on_text(delta)` ber-label,
     supaya stream worker paralel bisa diurai per-task oleh konsumen. None -> None
-    (tak streaming). Caveat: seperti streaming ber-retry lain, kegagalan retryable
-    di tengah stream akan memancarkan ulang teks parsial (lihat AgenticWorker)."""
+    (tak streaming). Nilai kembalian diteruskan (truthy = early-stop, konsisten
+    dengan kontrak on_text). Caveat: seperti streaming ber-retry lain, kegagalan
+    retryable di tengah stream akan memancarkan ulang teks parsial (lihat AgenticWorker)."""
     if on_worker_text is None:
         return None
 
-    def cb(delta: str) -> None:
-        on_worker_text(task_id, delta)
+    def cb(delta: str) -> object:
+        return on_worker_text(task_id, delta)
 
     return cb
 

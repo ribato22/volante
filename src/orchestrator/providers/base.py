@@ -6,6 +6,12 @@ from typing import Protocol, runtime_checkable
 
 from orchestrator.types import CanonicalRequest, CanonicalResponse
 
+# Callback progres streaming. Mengembalikan nilai TRUTHY = minta stream berhenti
+# lebih awal (cooperative cancel): adapter menutup koneksi dan mengembalikan response
+# terakumulasi sejauh ini. Mengembalikan None/falsy (kontrak lama) = lanjut — jadi
+# callback `-> None` yang sudah ada tak berubah perilaku (nol regresi).
+OnText = Callable[[str], object]
+
 
 @runtime_checkable
 class LLMProvider(Protocol):
@@ -14,18 +20,20 @@ class LLMProvider(Protocol):
     async def complete(self, req: CanonicalRequest) -> CanonicalResponse: ...
 
     async def stream(
-        self, req: CanonicalRequest, on_text: Callable[[str], None]
+        self, req: CanonicalRequest, on_text: OnText
     ) -> CanonicalResponse: ...
 
 
 async def call_provider(
     provider: LLMProvider,
     req: CanonicalRequest,
-    on_text: Callable[[str], None] | None = None,
+    on_text: OnText | None = None,
 ) -> CanonicalResponse:
     """Panggil provider: `stream` (progres teks live) bila `on_text` diberi, else
     `complete`. Satu sumber kebenaran untuk pilihan stream-vs-complete yang dipakai
-    Supervisor, Synthesizer, Worker, dan AgenticWorker (hindari duplikasi 4×)."""
+    Supervisor, Synthesizer, Worker, dan AgenticWorker (hindari duplikasi 4×).
+
+    `on_text` boleh mengembalikan truthy untuk menghentikan stream lebih awal."""
     if on_text is not None:
         return await provider.stream(req, on_text)
     return await provider.complete(req)
