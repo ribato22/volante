@@ -50,8 +50,10 @@ class _FakeAgentic:
     def __init__(self) -> None:
         self.seen: list[tuple[str, list[str]]] = []
 
-    async def run(self, req, model_id, tools):
+    async def run(self, req, model_id, tools, on_text=None):
         self.seen.append((req.task_id, sorted(tools.keys())))
+        if on_text is not None:
+            on_text(f"chunk:{req.task_id}")  # buktikan Runtime meneruskan callback ber-label
         return AgenticResult(
             final_text=f"done:{req.task_id}",
             usage_total={model_id: Usage(prompt_tokens=10, completion_tokens=4)},
@@ -89,6 +91,18 @@ def test_agentic_task_routed_to_agentic_worker(tmp_path: Path) -> None:
     assert res.status == "success"
     assert agentic.seen == [("t1", ["run_python"])]     # dialihkan + tools per-task
     assert res.partial_artifacts["t1"] == "done:t1"     # final_text jadi artifact
+
+
+def test_agentic_task_streams_labeled_by_task_id(tmp_path: Path) -> None:
+    # on_worker_text meneruskan on_text ber-label ke agentic_worker.run juga.
+    plan = [Task(id="t1", description="fix", type="code", mode="agentic")]
+    rt, _ = _build(plan, tmp_path)
+    events: list[tuple[str, str]] = []
+
+    res = rt.execute("goal", on_worker_text=lambda tid, d: events.append((tid, d)))
+
+    assert res.status == "success"
+    assert events == [("t1", "chunk:t1")]  # teks agentic ter-label task_id
 
 
 def test_two_agentic_tasks_get_isolated_workspaces(tmp_path: Path) -> None:

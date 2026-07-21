@@ -28,6 +28,22 @@ def _text_of(content: list[ContentBlock]) -> str:
     return "".join(b.text for b in content if isinstance(b, TextBlock))
 
 
+def _task_cb(
+    on_worker_text: Callable[[str, str], None] | None, task_id: str
+) -> Callable[[str], None] | None:
+    """Bungkus `on_worker_text(task_id, delta)` menjadi `on_text(delta)` ber-label,
+    supaya stream worker paralel bisa diurai per-task oleh konsumen. None -> None
+    (tak streaming). Caveat: seperti streaming ber-retry lain, kegagalan retryable
+    di tengah stream akan memancarkan ulang teks parsial (lihat AgenticWorker)."""
+    if on_worker_text is None:
+        return None
+
+    def cb(delta: str) -> None:
+        on_worker_text(task_id, delta)
+
+    return cb
+
+
 class Runtime:
     def __init__(
         self,
@@ -64,7 +80,12 @@ class Runtime:
         self.tools_factory = tools_factory
 
     async def _run_task(
-        self, task: Task, bb: Blackboard, run_id: str, sem: asyncio.Semaphore
+        self,
+        task: Task,
+        bb: Blackboard,
+        run_id: str,
+        sem: asyncio.Semaphore,
+        on_worker_text: Callable[[str, str], None] | None = None,
     ) -> bool:
         # Penjaga fail-fast: eksepsi TAK-terduga (KeyError provider di agent,
         # ValueError worker, OSError/FileNotFoundError sandbox, RuntimeError konfig)
@@ -75,7 +96,9 @@ class Runtime:
         model_id = "unknown"
         try:
             model_id = self.router.route(task)
-            return await self._run_task_body(task, bb, run_id, sem, model_id)
+            return await self._run_task_body(
+                task, bb, run_id, sem, model_id, on_worker_text
+            )
         except (ProviderError, TimeoutError):
             raise  # sudah ditangani di jalur masing-masing; tak akan sampai sini
         except Exception as err:  # noqa: BLE001 - konversi jadi kegagalan tercatat
@@ -100,13 +123,18 @@ class Runtime:
         run_id: str,
         sem: asyncio.Semaphore,
         model_id: str,
+        on_worker_text: Callable[[str, str], None] | None = None,
     ) -> bool:
         req = self.projector.project(task, model_id, bb)
         req.run_id = run_id
         req.task_id = task.id
         req.attempt = 0
         if task.mode == "agentic":
-            return await self._run_agentic(task, bb, run_id, sem, model_id, req)
+            return await self._run_agentic(
+                task, bb, run_id, sem, model_id, req, on_worker_text
+            )
+        # Stream one-shot ter-label task.id (output paralel terurai per-task).
+        worker_cb = _task_cb(on_worker_text, task.id)
         last_err: Exception | None = None
         async with sem:  # cap fan-out di sekitar seluruh siklus retry task
             # attempt 0..max_retries inklusif => (max_retries + 1) percobaan.
@@ -114,7 +142,7 @@ class Runtime:
                 req.attempt = attempt
                 try:
                     resp = await asyncio.wait_for(
-                        self.worker.run_one_shot(req, model_id),
+                        self.worker.run_one_shot(req, model_id, worker_cb),
                         timeout=self.call_timeout,
                     )
                 except (ProviderError, TimeoutError) as err:
@@ -171,7 +199,7 @@ class Runtime:
         return False
 
     async def _run_agentic(
-        self, task, bb, run_id: str, sem, model_id: str, req
+        self, task, bb, run_id: str, sem, model_id: str, req, on_worker_text=None
     ) -> bool:
         if self.agentic_worker is None:
             raise RuntimeError(f"task {task.id} is agentic but no agentic_worker configured")
@@ -182,10 +210,11 @@ class Runtime:
             factory = self.sandbox_factory or sandbox_for
             sandbox = factory(workspace)
             tools = {"run_python": RunPythonTool(sandbox)}
+        worker_cb = _task_cb(on_worker_text, task.id)  # stream agentic ter-label
         async with sem:
             try:
                 res = await asyncio.wait_for(
-                    self.agentic_worker.run(req, model_id, tools),
+                    self.agentic_worker.run(req, model_id, tools, worker_cb),
                     timeout=self.agentic_timeout,
                 )
             except (ProviderError, TimeoutError) as err:
@@ -243,11 +272,15 @@ class Runtime:
         )
 
     async def aexecute(
-        self, goal: str, on_text: Callable[[str], None] | None = None
+        self,
+        goal: str,
+        on_text: Callable[[str], None] | None = None,
+        on_worker_text: Callable[[str, str], None] | None = None,
     ) -> RunResult:
-        # on_text men-stream fase SEKUENSIAL (planning + sintesis) — worker paralel
-        # sengaja TIDAK di-stream (teks antar-task akan bercampur). None = complete
-        # di semua fase (nol regresi).
+        # on_text men-stream fase SEKUENSIAL (planning + sintesis). on_worker_text
+        # men-stream teks TIAP task (one-shot & agentic) ter-label task_id, sehingga
+        # output worker PARALEL bisa diurai per-task (bukan bercampur). Keduanya
+        # None = complete di semua fase (nol regresi).
         started = time.perf_counter()
         run_id = uuid.uuid4().hex
         plan = await self.supervisor.plan(goal, on_text)
@@ -265,7 +298,7 @@ class Runtime:
                     bb, started, status="failed", final=None, failed_task=None
                 )
             results = await asyncio.gather(
-                *(self._run_task(t, bb, run_id, sem) for t in wave)
+                *(self._run_task(t, bb, run_id, sem, on_worker_text) for t in wave)
             )
             for t, ok in zip(wave, results, strict=True):
                 if not ok:
@@ -281,6 +314,9 @@ class Runtime:
         )
 
     def execute(
-        self, goal: str, on_text: Callable[[str], None] | None = None
+        self,
+        goal: str,
+        on_text: Callable[[str], None] | None = None,
+        on_worker_text: Callable[[str, str], None] | None = None,
     ) -> RunResult:
-        return asyncio.run(self.aexecute(goal, on_text))
+        return asyncio.run(self.aexecute(goal, on_text, on_worker_text))

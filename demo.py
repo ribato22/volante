@@ -140,8 +140,12 @@ async def demo_orchestrate() -> None:
     def _emit(s: str) -> None:
         print(s, end="", flush=True)
 
-    print("(planning + synthesis stream live)\n")
-    result = await runtime.aexecute(goal, on_text=_emit)
+    def _emit_worker(task_id: str, s: str) -> None:
+        # Worker paralel: prefix task_id agar output antar-task terurai.
+        print(f"[{task_id}] {s}", end="", flush=True)
+
+    print("(planning + workers + synthesis stream live)\n")
+    result = await runtime.aexecute(goal, on_text=_emit, on_worker_text=_emit_worker)
     print(f"\n\nSTATUS: {result.status}")
     if result.final:
         print("\nFINAL:\n" + result.final.strip())

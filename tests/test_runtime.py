@@ -199,6 +199,34 @@ def test_execute_routes_on_text_to_plan_and_synth_not_workers() -> None:
     assert not any("art-" in c for c in chunks)
 
 
+def test_execute_streams_workers_labeled_by_task_id() -> None:
+    # on_worker_text(task_id, delta): tiap worker one-shot stream teksnya ter-label
+    # task_id -> output PARALEL terurai per-task (bukan bercampur). Urutan bisa
+    # bervariasi (paralel) -> banding sebagai set.
+    cm = CostMeter()
+    plan = _plan_diamond()
+    supervisor = _StubSupervisor(plan)
+    router = _StubRouter({"T1": "m1", "T2": "m2", "T3": "m3"})
+    worker = Worker(
+        providers={
+            "m1": FakeProvider(responses=[_resp("art-1", "m1")], name="m1"),
+            "m2": FakeProvider(responses=[_resp("art-2", "m2")], name="m2"),
+            "m3": FakeProvider(responses=[_resp("art-3", "m3")], name="m3"),
+        },
+        cost_meter=cm,
+    )
+    runtime = Runtime(
+        supervisor, router, _StubProjector(), worker, _StubSynthesizer(),
+        _registry("m1", "m2", "m3"), cm,
+    )
+    events: list[tuple[str, str]] = []
+
+    result = runtime.execute("build", on_worker_text=lambda tid, d: events.append((tid, d)))
+
+    assert result.status == "success"
+    assert set(events) == {("T1", "art-1"), ("T2", "art-2"), ("T3", "art-3")}
+
+
 def test_execute_without_on_text_streams_nothing() -> None:
     # Nol regresi: tanpa on_text, plan/synth pakai complete (stub tak memancarkan
     # marker). Perilaku default tak berubah.
