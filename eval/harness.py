@@ -173,6 +173,10 @@ class AgenticArmResult:
     usage_total: dict[str, Usage]
     cost_usd: float
     duration_ms: int
+    # Non-None bila loop agentic gagal terminal (ProviderError: infra/auth/network
+    # ATAU loop-exhausted/over-budget). Membedakan "arm gagal dijalankan" dari
+    # "solusi benar-benar buruk (0.0)"; disurface ke report agar verdict tak bias.
+    error: str | None = None
 
 
 def _scan_workspace(ws: Path) -> tuple[bool, bool]:
@@ -200,6 +204,7 @@ async def run_agentic_single(
     worker = AgenticWorker({model_id: provider}, meter, max_iters=8)
     mi = registry.get(model_id)
     start = time.perf_counter()
+    error: str | None = None
     with tempfile.TemporaryDirectory() as tmp:
         ws = Path(tmp)
         tools = {"run_python": RunPythonTool(sandbox_for(ws))}
@@ -214,9 +219,13 @@ async def run_agentic_single(
             res = await worker.run(req, model_id, tools)
             final_text = res.final_text
             usage_total = res.usage_total
-        except ProviderError:
+        except ProviderError as exc:
+            # Jangan telan diam-diam: catat sebab. Solusi di disk (bila model sempat
+            # menulisnya sebelum gagal) tetap dinilai; kalau tak ada, error yang
+            # disurface membedakan kegagalan arm dari solusi 0.0 sungguhan.
             final_text = ""
             usage_total = meter.totals()
+            error = f"{type(exc).__name__}: {exc}"
         sol = ws / "solution.py"
         if sol.exists():
             solution_code = sol.read_text(encoding="utf-8", errors="ignore")
@@ -231,6 +240,7 @@ async def run_agentic_single(
         usage_total=usage_total,
         cost_usd=meter.cost_usd(registry),
         duration_ms=duration_ms,
+        error=error,
     )
 
 
@@ -369,6 +379,7 @@ async def run_suite(
         b_scores: list[dict[str, float]] = []
         o_scores: list[dict[str, float]] = []
         a_scores: list[dict[str, float]] = []
+        a_errors: list[str] = []
         b_last: BaselineResult | None = None
         o_last: RunResult | None = None
         a_last: AgenticArmResult | None = None
@@ -381,6 +392,8 @@ async def run_suite(
             b_scores.append(score_task(b_last.output, t.reference_test))
             o_scores.append(score_task(o_last.final or "", t.reference_test))
             a_scores.append(score_agentic(a_last, t.reference_test))
+            if a_last.error is not None:
+                a_errors.append(a_last.error)
         b_mean = mean_scores(b_scores)
         o_mean = mean_scores(o_scores)
         a_mean = mean_scores(a_scores)
@@ -402,6 +415,10 @@ async def run_suite(
                 "cost": a_last.cost_usd,
                 "ms": a_last.duration_ms,
                 "estimated": any(u.estimated for u in a_last.usage_total.values()),
+                # Jumlah iterasi (dari k) yang gagal terminal + sampel sebab.
+                # composite-nya bisa 0.0 karena INFRA, bukan kapabilitas.
+                "errors": len(a_errors),
+                "error_sample": a_errors[0] if a_errors else None,
             },
         }
         cmp = compare_arms(arms)
@@ -423,6 +440,9 @@ async def run_suite(
     any_estimated = any(
         g["arms"][n]["estimated"] for g in per_goal for n in names
     )
+    # Total iterasi agentic yang gagal terminal: bila > 0, sebagian skor 0.0 arm
+    # agentic bisa jadi infra/provider, bukan kapabilitas — verdict harus dibaca hati2.
+    agentic_errors = sum(g["arms"]["agentic"].get("errors", 0) for g in per_goal)
     best = max(wins.values())
     leaders = [n for n in names if wins[n] == best]
     verdict = leaders[0] if len(leaders) == 1 else "tie"
@@ -433,6 +453,7 @@ async def run_suite(
             "ties": ties,
             "cost_total": cost_total,
             "any_estimated": any_estimated,
+            "agentic_errors": agentic_errors,
             "verdict": verdict,
         },
     }

@@ -222,6 +222,65 @@ async def test_plan_rejects_unknown_dependency() -> None:
         await sup.plan("a dangling-dependency goal")
 
 
+async def test_plan_rejects_empty_plan() -> None:
+    # Regresi: plan kosong [] lolos DAG-check (Kahn resolved==0==len) dan bikin
+    # aexecute lapor "success" tanpa kerja. Harus ditolak ValueError.
+    provider = FakeProvider(responses=[_resp("[]")])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+
+    with pytest.raises(ValueError, match="empty"):
+        await sup.plan("a goal the planner refuses to decompose")
+
+
+async def test_plan_rejects_empty_plan_inside_fence() -> None:
+    provider = FakeProvider(responses=[_resp("```json\n[]\n```")])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+
+    with pytest.raises(ValueError, match="empty"):
+        await sup.plan("a goal")
+
+
+async def test_plan_null_depends_on_is_clean_valueerror_not_typeerror() -> None:
+    # Regresi: depends_on: null (key ada, nilai JSON null) dulu -> TypeError mentah
+    # tak tertangkap. Sekarang null diperlakukan [] -> plan valid 1-task.
+    plan_json = json.dumps(
+        [
+            {
+                "id": "solo",
+                "description": "do it",
+                "type": "code",
+                "mode": "one_shot",
+                "depends_on": None,
+            }
+        ]
+    )
+    provider = FakeProvider(responses=[_resp(plan_json)])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+
+    tasks = await sup.plan("a goal with null depends_on")
+    assert [t.id for t in tasks] == ["solo"]
+    assert tasks[0].depends_on == []
+
+
+async def test_plan_non_list_depends_on_rejected() -> None:
+    plan_json = json.dumps(
+        [
+            {
+                "id": "solo",
+                "description": "do it",
+                "type": "code",
+                "mode": "one_shot",
+                "depends_on": "t0",
+            }
+        ]
+    )
+    provider = FakeProvider(responses=[_resp(plan_json)])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+
+    with pytest.raises(ValueError, match="depends_on"):
+        await sup.plan("a goal with malformed depends_on")
+
+
 async def test_plan_is_non_reentrant() -> None:
     provider = FakeProvider(responses=[_resp(_one_task_plan())])
     sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())

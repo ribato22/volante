@@ -94,3 +94,18 @@ def test_format_report_mentions_estimated_when_flagged():
 def test_format_report_omits_estimated_when_all_measured():
     report = format_report(_result([_per_goal("slugify")], any_estimated=False))
     assert "estimated" not in report.lower()
+
+
+def test_format_report_warns_when_agentic_arm_errored():
+    # H1 surfacing: aggregate.agentic_errors > 0 harus memunculkan peringatan agar
+    # skor 0.0 arm agentic tak dibaca sebagai hasil kapabilitas.
+    result = _result([_per_goal("slugify")])
+    result["aggregate"]["agentic_errors"] = 2
+    report = format_report(result)
+    assert "agentic arm failed" in report.lower()
+    assert "2 run" in report
+
+
+def test_format_report_no_agentic_warning_when_clean():
+    report = format_report(_result([_per_goal("slugify")]))
+    assert "agentic arm failed" not in report.lower()

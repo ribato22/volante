@@ -66,7 +66,41 @@ class Runtime:
     async def _run_task(
         self, task: Task, bb: Blackboard, run_id: str, sem: asyncio.Semaphore
     ) -> bool:
-        model_id = self.router.route(task)
+        # Penjaga fail-fast: eksepsi TAK-terduga (KeyError provider di agent,
+        # ValueError worker, OSError/FileNotFoundError sandbox, RuntimeError konfig)
+        # TIDAK boleh lolos ke asyncio.gather. Kalau lolos: sibling se-wave jadi
+        # orphan (subprocess/container bocor) dan tulisan cost/blackboard pasca-gagal
+        # tetap terjadi. Di sini direkam sebagai status gagal (replayable) lalu
+        # fail-fast lewat return False — bukan crash yang membuang state.
+        model_id = "unknown"
+        try:
+            model_id = self.router.route(task)
+            return await self._run_task_body(task, bb, run_id, sem, model_id)
+        except (ProviderError, TimeoutError):
+            raise  # sudah ditangani di jalur masing-masing; tak akan sampai sini
+        except Exception as err:  # noqa: BLE001 - konversi jadi kegagalan tercatat
+            bb.append(
+                Entry(
+                    run_id=run_id,
+                    task_id=task.id,
+                    attempt=0,
+                    kind="status",
+                    payload=f"failed: {type(err).__name__}: {err}",
+                    model_id=model_id,
+                    usage=None,
+                    timestamp=time.time(),
+                )
+            )
+            return False
+
+    async def _run_task_body(
+        self,
+        task: Task,
+        bb: Blackboard,
+        run_id: str,
+        sem: asyncio.Semaphore,
+        model_id: str,
+    ) -> bool:
         req = self.projector.project(task, model_id, bb)
         req.run_id = run_id
         req.task_id = task.id

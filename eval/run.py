@@ -77,6 +77,13 @@ def format_report(result: dict) -> str:
             "WARNING: some costs are estimated (a provider returned no usage); "
             "treat the cost comparison with caution."
         )
+    agentic_errors = agg.get("agentic_errors", 0)
+    if agentic_errors:
+        lines.append(
+            f"WARNING: agentic arm failed {agentic_errors} run(s) with a terminal "
+            "error (infra/provider or loop-exhausted); its 0.0 scores may reflect "
+            "failure, not capability — do not read the verdict as a capability result."
+        )
     return "\n".join(lines)
 
 

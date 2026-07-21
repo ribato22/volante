@@ -91,8 +91,11 @@ class AgenticWorker:
                     await asyncio.sleep(0.5 * 2**attempt + random.uniform(0, 0.25))
                     continue
                 break
-        # Semua kegagalan keluar loop bersifat NON-retryable ke Runtime.
-        raise ProviderError(str(last), retryable=False)
+        # Semua kegagalan keluar loop bersifat NON-retryable ke Runtime. Rantai
+        # `from last` + status HTTP dipertahankan agar traceback/diagnosa tak hilang.
+        raise ProviderError(
+            str(last), retryable=False, status=getattr(last, "status", None)
+        ) from last
 
     async def run(
         self,

@@ -322,6 +322,61 @@ def test_timeout_is_retryable_then_fails(monkeypatch) -> None:
     assert hanging.calls == 3
 
 
+def test_unexpected_exception_is_recorded_not_raised() -> None:
+    # Regresi A1: eksepsi TAK-terduga (bukan ProviderError/TimeoutError) dari sebuah
+    # task TIDAK boleh lolos ke asyncio.gather (crash + sibling orphan). Harus jadi
+    # status gagal tercatat + RunResult(status="failed"), bukan exception mentah.
+    cm = CostMeter()
+    projector = _StubProjector()
+    boom = _RaisingProvider("m_boom", ValueError("kaboom"))
+    runtime, synthesizer = _single_task_runtime(
+        cm, boom, model_id="m_boom", projector=projector
+    )
+
+    result = runtime.execute("do it")  # tidak melempar
+
+    assert result.status == "failed"
+    assert result.failed_task == "T1"
+    assert synthesizer.calls == 0
+    # ValueError non-retryable -> satu panggilan (bukan retry).
+    assert boom.calls == 1
+    status_entries = [e for e in projector.last_bb.entries() if e.kind == "status"]
+    assert len(status_entries) == 1
+    assert "ValueError" in status_entries[0].payload
+    assert "kaboom" in status_entries[0].payload
+
+
+def test_unexpected_exception_in_wave_stops_and_preserves_sibling() -> None:
+    # A1 dalam konteks wave: T2 melempar KeyError tak-terduga, T1 (sibling) sukses.
+    # Run harus fail-fast dengan sibling tersimpan, tanpa exception lolos.
+    cm = CostMeter()
+    plan = _plan_diamond()
+    supervisor = _StubSupervisor(plan)
+    router = _StubRouter({"T1": "m1", "T2": "m_boom", "T3": "m3"})
+    projector = _StubProjector()
+    boom = _RaisingProvider("m_boom", KeyError("missing"))
+    worker = Worker(
+        providers={
+            "m1": FakeProvider(responses=[_resp("art-1", "m1")], name="m1"),
+            "m_boom": boom,
+            "m3": FakeProvider(responses=[_resp("art-3", "m3")], name="m3"),
+        },
+        cost_meter=cm,
+    )
+    synthesizer = _StubSynthesizer()
+    runtime = Runtime(
+        supervisor, router, projector, worker, synthesizer,
+        _registry("m1", "m2", "m3"), cm,
+    )
+
+    result = runtime.execute("build")
+
+    assert result.status == "failed"
+    assert result.failed_task == "T2"
+    assert result.partial_artifacts == {"T1": "art-1"}
+    assert synthesizer.calls == 0
+
+
 def test_fail_fast_keeps_partial_artifacts_and_stops() -> None:
     cm = CostMeter()
     plan = _plan_diamond()

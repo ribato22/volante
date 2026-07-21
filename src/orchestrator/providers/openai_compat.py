@@ -281,9 +281,12 @@ class OpenAICompatProvider:
         prompt_toks = getattr(usage_obj, "prompt_tokens", None)
         completion_toks = getattr(usage_obj, "completion_tokens", None)
         if prompt_toks is None or completion_toks is None:
+            # Sertakan argumen tool_call dalam estimasi output — simetris dengan
+            # complete(); tanpa ini completion di-undercount saat ada tool call.
+            tool_args = "".join(acc["arguments"] or "" for acc in tool_acc.values())
             usage = Usage(
                 prompt_tokens=_est(_join_input_text(req.messages)),
-                completion_tokens=_est(text_out),
+                completion_tokens=_est(text_out + tool_args),
                 estimated=True,
             )
         else:

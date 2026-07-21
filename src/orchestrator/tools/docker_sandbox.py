@@ -56,6 +56,21 @@ class DockerSandbox:
         except OSError:
             pass
 
+    async def _terminate(self, proc: asyncio.subprocess.Process, name: str) -> None:
+        # Bunuh container by-name DAN klien `docker run` (proc). Kalau container
+        # belum ada (image masih di-pull), `docker kill` no-op → tanpa proc.kill()
+        # + wait berbatas, `proc.wait()` menggantung tak-terhingga & timeout luar
+        # jadi percuma. proc.wait() dibatasi agar timeout benar-benar menggigit.
+        await self._kill(name)
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except TimeoutError:
+            pass
+
     async def run(self, code: str) -> ExecResult:
         (self.workspace / "_snippet.py").write_text(code, encoding="utf-8")
         name = "aiorch_" + uuid.uuid4().hex[:12]
@@ -67,12 +82,10 @@ class DockerSandbox:
         try:
             out, err = await asyncio.wait_for(proc.communicate(), timeout=self.timeout_s)
         except TimeoutError:
-            await self._kill(name)
-            await proc.wait()
+            await self._terminate(proc, name)
             return ExecResult(stdout="", stderr="", exit_code=-9, timed_out=True)
         except asyncio.CancelledError:
-            await self._kill(name)
-            await proc.wait()
+            await self._terminate(proc, name)
             raise
         return ExecResult(
             stdout=out.decode(errors="replace"),

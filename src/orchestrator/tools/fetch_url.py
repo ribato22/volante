@@ -9,8 +9,14 @@ from orchestrator.types import ToolSpec
 
 class FetchUrlTool:
     """Tool web HOST-MEDIATED: orchestrator (tepercaya) fetch URL ter-allowlist dan
-    kembalikan teks; kode model tetap di sandbox --network none. Kanal exfil dibatasi
-    allowlist domain (+ no-redirect + size cap + timeout)."""
+    kembalikan teks. Kanal exfil dibatasi allowlist domain (+ no-redirect + size cap
+    + timeout).
+
+    PENTING soal ancaman: pengurungan prompt-injection (kode model tak bisa
+    mengeksfiltrasi via jaringan) hanya utuh saat sandbox = DockerSandbox
+    (AIORCH_SANDBOX=docker, `--network none`). Di sandbox subprocess default,
+    kode model punya jaringan+disk host, jadi allowlist tool ini bukan satu-satunya
+    kanal keluar — ia membatasi eksfil LEWAT tool, bukan lewat sandbox."""
 
     name = "fetch_url"
 

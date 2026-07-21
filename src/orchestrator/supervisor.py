@@ -93,13 +93,23 @@ def _build_tasks(data: list[Any]) -> list[Task]:
     for i, item in enumerate(data):
         if not isinstance(item, dict):
             raise ValueError(f"plan item #{i} is not a JSON object")
+        # depends_on: key absen ATAU JSON null -> [] (bukan TypeError mentah).
+        # Tipe non-array ditolak sebagai plan invalid (ValueError bersih), bukan
+        # lolos ke iterasi yang melempar TypeError tak-tertangkap.
+        raw_deps = item.get("depends_on")
+        if raw_deps is None:
+            raw_deps = []
+        if not isinstance(raw_deps, list):
+            raise ValueError(
+                f"plan item #{i} 'depends_on' must be a JSON array, got {type(raw_deps).__name__}"
+            )
         try:
             task = Task(
                 id=str(item["id"]),
                 description=str(item["description"]),
                 type=str(item["type"]),
                 mode=str(item["mode"]),
-                depends_on=[str(d) for d in item.get("depends_on", [])],
+                depends_on=[str(d) for d in raw_deps],
             )
         except KeyError as exc:
             raise ValueError(f"plan item #{i} missing required key {exc}") from exc
@@ -108,6 +118,10 @@ def _build_tasks(data: list[Any]) -> list[Task]:
 
 
 def _validate(tasks: list[Task]) -> None:
+    # Plan kosong = no-op yang, tanpa penjagaan ini, lolos DAG-check (Kahn:
+    # resolved==0==len) dan bikin aexecute lapor "success" tanpa kerja apa pun.
+    if not tasks:
+        raise ValueError("plan is empty: planner returned no tasks")
     ids = [t.id for t in tasks]
     if len(ids) != len(set(ids)):
         raise ValueError("plan contains duplicate task ids")

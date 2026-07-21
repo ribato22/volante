@@ -3,9 +3,11 @@ from __future__ import annotations
 import pytest
 from eval.harness import AgenticArmResult, run_agentic_single, score_agentic
 
+from orchestrator.providers.base import ProviderError
 from orchestrator.providers.fake import FakeProvider
 from orchestrator.registry import Registry
 from orchestrator.types import (
+    CanonicalRequest,
     CanonicalResponse,
     ModelInfo,
     TextBlock,
@@ -78,6 +80,36 @@ async def test_run_agentic_single_captures_workspace() -> None:
     assert res.has_readme is True
     assert res.duration_ms >= 0
     assert res.usage_total["m1"].completion_tokens == 4  # 2 turn x 2
+
+
+class _FailProvider:
+    name = "m1"
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        raise ProviderError("infra down", retryable=False)
+
+    async def stream(self, req: CanonicalRequest, on_text) -> CanonicalResponse:
+        raise ProviderError("infra down", retryable=False)
+
+
+@pytest.mark.asyncio
+async def test_run_agentic_single_surfaces_provider_failure() -> None:
+    # Regresi H1: kegagalan terminal arm agentic TIDAK boleh diam-diam jadi 0.0
+    # tak-terbedakan. res.error harus terisi supaya report bisa memisahkan
+    # "arm gagal jalan" dari "solusi buruk sungguhan".
+    res = await run_agentic_single("goal", _FailProvider(), "m1", Registry([_model("m1")]))
+    assert isinstance(res, AgenticArmResult)
+    assert res.error is not None
+    assert "ProviderError" in res.error
+    assert "infra down" in res.error
+    assert res.solution_code == ""  # tak ada file ditulis sebelum gagal
+
+
+@pytest.mark.asyncio
+async def test_run_agentic_single_success_has_no_error() -> None:
+    provider = FakeProvider(responses=[_resp([TextBlock(text="done")], "end_turn")])
+    res = await run_agentic_single("goal", provider, "m1", Registry([_model("m1")]))
+    assert res.error is None
 
 
 def test_score_agentic_good_vs_broken() -> None:
