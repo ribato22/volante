@@ -38,3 +38,10 @@ class FakeProvider:
             stop_reason="end_turn",
             latency_ms=0,
         )
+
+    async def stream(self, req: CanonicalRequest, on_text) -> CanonicalResponse:
+        resp = await self.complete(req)
+        for b in resp.content:
+            if isinstance(b, TextBlock):
+                on_text(b.text)
+        return resp

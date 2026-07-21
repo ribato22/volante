@@ -1,6 +1,7 @@
 # src/orchestrator/providers/base.py
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from orchestrator.types import CanonicalRequest, CanonicalResponse
@@ -11,6 +12,10 @@ class LLMProvider(Protocol):
     name: str
 
     async def complete(self, req: CanonicalRequest) -> CanonicalResponse: ...
+
+    async def stream(
+        self, req: CanonicalRequest, on_text: Callable[[str], None]
+    ) -> CanonicalResponse: ...
 
 
 class ProviderError(Exception):

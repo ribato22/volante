@@ -21,6 +21,9 @@ class _Conforming:
             latency_ms=0,
         )
 
+    async def stream(self, req: CanonicalRequest, on_text) -> CanonicalResponse:
+        return await self.complete(req)
+
 
 class _MissingComplete:
     name = "missing"
