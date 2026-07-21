@@ -84,3 +84,59 @@ async def test_input_messages_not_mutated() -> None:
     await worker.run(req, "m1", tools)
 
     assert len(req.messages) == before  # bekerja pada salinan; input utuh
+
+
+from orchestrator.providers.base import ProviderError as _PE
+
+
+class _AlwaysToolUse:
+    """Provider yang selalu minta tool → memaksa loop mentok max_iters."""
+
+    name = "loopy"
+
+    async def complete(self, req):
+        return _resp([ToolUseBlock(id="u", name="run_python", input={"code": "1"})], "tool_use")
+
+
+class _Flaky:
+    """Gagal retryable sekali, lalu end_turn."""
+
+    name = "flaky"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(self, req):
+        self.calls += 1
+        if self.calls == 1:
+            raise _PE("429 rate limit", retryable=True, status=429)
+        return _resp([TextBlock(text="recovered")], "end_turn")
+
+
+@pytest.mark.asyncio
+async def test_max_iters_exhausted_raises_non_retryable() -> None:
+    tools: ToolRegistry = {"run_python": _RecordingTool()}
+    worker = AgenticWorker({"m1": _AlwaysToolUse()}, CostMeter(), max_iters=3)
+    with pytest.raises(_PE) as ei:
+        await worker.run(_req(), "m1", tools)
+    assert ei.value.retryable is False
+    assert "exhausted" in str(ei.value)
+
+
+@pytest.mark.asyncio
+async def test_retryable_error_handled_in_loop() -> None:
+    tools: ToolRegistry = {"run_python": _RecordingTool()}
+    provider = _Flaky()
+    res = await AgenticWorker({"m1": provider}, CostMeter(), max_retries=2).run(_req(), "m1", tools)
+    assert res.final_text == "recovered"
+    assert provider.calls == 2  # gagal sekali (retryable), sukses di percobaan kedua
+
+
+@pytest.mark.asyncio
+async def test_transcript_budget_guard_fails_early() -> None:
+    tools: ToolRegistry = {"run_python": _RecordingTool()}
+    worker = AgenticWorker({"m1": _AlwaysToolUse()}, CostMeter(), max_iters=8, char_budget=1)
+    with pytest.raises(_PE) as ei:
+        await worker.run(_req(), "m1", tools)
+    assert ei.value.retryable is False
+    assert "budget" in str(ei.value)
