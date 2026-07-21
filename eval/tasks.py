@@ -16,8 +16,15 @@ SLUGIFY_GOAL: str = (
 # sandbox sebagai `reference_runner.py`, lalu menjalankannya di subprocess
 # terisolasi (env bersih tanpa *_API_KEY/*_KEY). Ia mengimpor `slugify` dari
 # `solution` (kode yang dinilai) dan mencetak satu baris JSON
-# {"passed": int, "total": int} ke stdout. Disimpan sebagai string privat agar
-# solusi yang di-generate tidak bisa mengimpor & meng-echo jawaban yang benar.
+# {"passed": int, "total": int} ke stdout via `_TAG`. Disimpan sebagai string
+# privat agar solusi yang di-generate tidak bisa mengimpor & meng-echo jawaban.
+#
+# Kanal hasil ber-nonce: `_TAG` TIDAK didefinisikan di sini — score_code
+# meng-inject preamble tepercaya yang membaca nonce dari stdin (sebelum `import
+# solution`) dan men-set `_TAG = "AIORCH_RESULT:<nonce>:"`. Hanya baris ber-tag
+# itu yang dipercaya score_code, sehingga solusi tak bisa memalsukan skor lewat
+# stdout injection naif. (Runner memakai `_TAG` sebagai global yang disediakan
+# preamble; ia dieksekusi HANYA lewat score_code, bukan standalone.)
 REFERENCE_TEST: str = '''\
 from __future__ import annotations
 
@@ -42,10 +49,10 @@ def main() -> None:
         from solution import slugify
     except Exception:
         # Termasuk SyntaxError saat import solution -> skor akhirnya 0.0.
-        print(json.dumps({"passed": 0, "total": total}))
+        print(_TAG + json.dumps({"passed": 0, "total": total}))
         return
     if not callable(slugify):
-        print(json.dumps({"passed": 0, "total": total}))
+        print(_TAG + json.dumps({"passed": 0, "total": total}))
         return
     passed = 0
     for text_in, expected in CASES:
@@ -54,7 +61,7 @@ def main() -> None:
                 passed += 1
         except Exception:
             pass
-    print(json.dumps({"passed": passed, "total": total}))
+    print(_TAG + json.dumps({"passed": passed, "total": total}))
 
 
 if __name__ == "__main__":
@@ -69,7 +76,8 @@ class EvalTask:
 
     reference_test adalah SUMBER Python (stdlib saja) yang mengimpor nama
     yang diharapkan dari `solution`, menjalankan sekumpulan case, dan mencetak
-    satu baris JSON {"passed": int, "total": int}."""
+    satu baris `_TAG + json({"passed": int, "total": int})`. `_TAG` di-inject
+    score_code (kanal ber-nonce); runner tak dijalankan standalone."""
 
     id: str
     goal: str
@@ -141,10 +149,10 @@ ROMAN_REFERENCE_TEST = (
     '        from solution import from_roman, to_roman\n'
     '    except Exception:\n'
     '        # Termasuk SyntaxError/ImportError saat import solution -> skor 0.0.\n'
-    '        print(json.dumps({"passed": 0, "total": total}))\n'
+    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
     '        return\n'
     '    if not (callable(to_roman) and callable(from_roman)):\n'
-    '        print(json.dumps({"passed": 0, "total": total}))\n'
+    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
     '        return\n'
     '    passed = 0\n'
     '    for n, expected in TO_ROMAN_CASES:\n'
@@ -165,7 +173,7 @@ ROMAN_REFERENCE_TEST = (
     '                passed += 1\n'
     '        except Exception:\n'
     '            pass\n'
-    '    print(json.dumps({"passed": passed, "total": total}))\n'
+    '    print(_TAG + json.dumps({"passed": passed, "total": total}))\n'
     '\n'
     '\n'
     'if __name__ == "__main__":\n'
@@ -223,10 +231,10 @@ CALC_REFERENCE_TEST = (
     '        from solution import evaluate\n'
     '    except Exception:\n'
     '        # Termasuk SyntaxError saat import solution -> skor akhirnya 0.0.\n'
-    '        print(json.dumps({"passed": 0, "total": total}))\n'
+    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
     '        return\n'
     '    if not callable(evaluate):\n'
-    '        print(json.dumps({"passed": 0, "total": total}))\n'
+    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
     '        return\n'
     '    passed = 0\n'
     '    for expr_in, expected in CASES:\n'
@@ -236,7 +244,7 @@ CALC_REFERENCE_TEST = (
     '                passed += 1\n'
     '        except Exception:\n'
     '            pass\n'
-    '    print(json.dumps({"passed": passed, "total": total}))\n'
+    '    print(_TAG + json.dumps({"passed": passed, "total": total}))\n'
     '\n'
     '\n'
     'if __name__ == "__main__":\n'
@@ -332,10 +340,10 @@ CSV_STATS_REFERENCE_TEST = (
     '        from solution import column_stats\n'
     '    except Exception:\n'
     '        # Termasuk SyntaxError saat import solution -> skor akhirnya 0.0.\n'
-    '        print(json.dumps({"passed": 0, "total": total}))\n'
+    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
     '        return\n'
     '    if not callable(column_stats):\n'
-    '        print(json.dumps({"passed": 0, "total": total}))\n'
+    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
     '        return\n'
     '    passed = 0\n'
     '    for csv_text, expected in CASES:\n'
@@ -344,7 +352,7 @@ CSV_STATS_REFERENCE_TEST = (
     '                passed += 1\n'
     '        except Exception:\n'
     '            pass\n'
-    '    print(json.dumps({"passed": passed, "total": total}))\n'
+    '    print(_TAG + json.dumps({"passed": passed, "total": total}))\n'
     '\n'
     '\n'
     'if __name__ == "__main__":\n'
@@ -391,10 +399,10 @@ JSON_FLATTEN_REFERENCE_TEST = (
     '        from solution import flatten\n'
     '    except Exception:\n'
     '        # Termasuk SyntaxError saat import solution -> skor akhirnya 0.0.\n'
-    '        print(json.dumps({"passed": 0, "total": total}))\n'
+    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
     '        return\n'
     '    if not callable(flatten):\n'
-    '        print(json.dumps({"passed": 0, "total": total}))\n'
+    '        print(_TAG + json.dumps({"passed": 0, "total": total}))\n'
     '        return\n'
     '    passed = 0\n'
     '    for d_in, expected in CASES:\n'
@@ -403,7 +411,7 @@ JSON_FLATTEN_REFERENCE_TEST = (
     '                passed += 1\n'
     '        except Exception:\n'
     '            pass\n'
-    '    print(json.dumps({"passed": passed, "total": total}))\n'
+    '    print(_TAG + json.dumps({"passed": passed, "total": total}))\n'
     '\n'
     '\n'
     'if __name__ == "__main__":\n'

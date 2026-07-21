@@ -109,3 +109,17 @@ def test_format_report_warns_when_agentic_arm_errored():
 def test_format_report_no_agentic_warning_when_clean():
     report = format_report(_result([_per_goal("slugify")]))
     assert "agentic arm failed" not in report.lower()
+
+
+def test_format_report_warns_when_goal_unmeasured():
+    # H2 surfacing: aggregate.unmeasured_goals non-kosong -> peringatan runner rusak.
+    result = _result([_per_goal("slugify")])
+    result["aggregate"]["unmeasured_goals"] = ["slugify"]
+    report = format_report(result)
+    assert "no trusted result" in report.lower()
+    assert "slugify" in report
+
+
+def test_format_report_no_unmeasured_warning_when_all_measured():
+    report = format_report(_result([_per_goal("slugify")]))
+    assert "no trusted result" not in report.lower()

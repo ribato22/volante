@@ -84,6 +84,15 @@ def format_report(result: dict) -> str:
             "error (infra/provider or loop-exhausted); its 0.0 scores may reflect "
             "failure, not capability — do not read the verdict as a capability result."
         )
+    unmeasured = agg.get("unmeasured_goals", [])
+    if unmeasured:
+        joined = ", ".join(unmeasured)
+        lines.append(
+            f"WARNING: goal(s) [{joined}] produced NO trusted result on ANY arm — "
+            "the reference runner likely crashed/emitted nothing (a broken scorer, "
+            "not a real 0.0). These scores are harness artifacts; fix the runner "
+            "before trusting the verdict."
+        )
     return "\n".join(lines)
 
 

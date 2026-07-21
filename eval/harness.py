@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import signal
 import subprocess
 import sys
@@ -56,6 +57,28 @@ _SCORE_WRAPPER = (
 )
 
 
+# Kanal hasil ber-nonce (anti-forgery naif + pembeda 'tak-terukur' utk H2).
+# score_code meng-inject preamble ini SEBELUM body runner (tapi SETELAH baris
+# `from __future__` yang wajib paling atas). Preamble membaca nonce dari stdin —
+# yang sudah dikonsumsi sebelum `from solution import ...`, jadi solusi tak bisa
+# mencurinya dari stdin — lalu men-set `_TAG` yang dipakai runner untuk mengemit
+# `AIORCH_RESULT:<nonce>:{json}`. isatty guard = aman bila dijalankan manual.
+_RESULT_PREAMBLE = (
+    "import sys as _aiorch_sys\n"
+    "_TAG = '' if _aiorch_sys.stdin.isatty() else "
+    "'AIORCH_RESULT:' + _aiorch_sys.stdin.readline().strip() + ':'\n"
+)
+
+
+def _inject_preamble(reference_test: str, nonce_tag_src: str) -> str:
+    """Sisipkan preamble hasil SETELAH baris `from __future__` (bila ada) — impor
+    __future__ wajib jadi statement pertama file, jadi tak boleh didahului."""
+    first, sep, rest = reference_test.partition("\n")
+    if first.startswith("from __future__"):
+        return first + "\n" + nonce_tag_src + rest
+    return nonce_tag_src + reference_test
+
+
 def _killpg(pgid: int) -> None:
     """SIGKILL seluruh process group `pgid`.
 
@@ -104,24 +127,35 @@ def _clean_env() -> dict[str, str]:
 
 
 def score_code(model_output: str, reference_test: str) -> float:
-    """Ekstrak kode, jalankan runner referensi di subprocess terisolasi, kembalikan
-    passed/total dari JSON stdout. SyntaxError/timeout/nonzero -> 0.0.
+    """Skor code 0..1 dari runner referensi (lihat _score_reference). 0.0 mencakup
+    baik 'terukur tapi 0 lulus' maupun 'tak terukur' — pakai _score_reference bila
+    perlu membedakannya (mis. deteksi runner rusak, H2)."""
+    return _score_reference(model_output, reference_test)[0]
 
-    `reference_test` adalah SUMBER runner (EvalTask.reference_test) yang dites;
-    di-param-kan agar suite multi-goal memakai runner berbeda per goal. Dipakai
-    SAMA untuk output orkestrasi maupun baseline (ekuitas penilaian).
 
-    Isolasi (S2, sekelas Sandbox): runner + `solution.py` (kode model) jalan dalam
-    process group sendiri (`start_new_session=True`) dgn RLIMIT_CPU child-side. SELURUH
-    grup di-killpg pada SETIAP jalur keluar (timeout MAUPUN penyelesaian normal) — jadi
-    anak fork yang tetap hidup di grup tak menyintasi score_code, bukan hanya kasus
-    timeout. Batas kepercayaan tetap best-effort POSIX (setsid oleh solusi bisa lepas
-    dari grup). CATATAN: ini isolasi PROSES, bukan autentikasi output — solusi masih
-    bisa mencetak JSON palsu saat import (masalah pre-existing, lihat follow-up)."""
+def _score_reference(model_output: str, reference_test: str) -> tuple[float, bool]:
+    """Ekstrak kode, jalankan runner referensi di subprocess terisolasi. Kembalikan
+    (skor, measured): `measured=True` HANYA bila runner mengemit baris hasil
+    ber-nonce tepercaya; `measured=False` = tak terukur (timeout/crash/forgery/
+    runner rusak) dan skor dipaksa 0.0.
+
+    Kanal hasil ber-nonce (anti-forgery naif + sinyal H2): nonce acak dikirim via
+    stdin dan dikonsumsi preamble SEBELUM `import solution`, jadi solusi tak bisa
+    mencurinya; hanya baris `AIORCH_RESULT:<nonce>:{json}` dipercaya. Forgery naif
+    (`print(...); os._exit(0)` saat import) tak menghasilkan baris ber-tag -> tak
+    terukur -> 0.0. (Bukan batas keamanan vs pembaca-memori proses.)
+
+    Isolasi (S2, sekelas Sandbox): runner + `solution.py` jalan dalam process group
+    sendiri (`start_new_session=True`) dgn RLIMIT_CPU child-side; SELURUH grup
+    di-killpg pada SETIAP jalur keluar (timeout MAUPUN normal). Batas kepercayaan
+    tetap best-effort POSIX (setsid oleh solusi bisa lepas dari grup)."""
     code = extract_python(model_output)
+    nonce = secrets.token_hex(16)
+    tag = f"AIORCH_RESULT:{nonce}:"
+    runner_src = _inject_preamble(reference_test, _RESULT_PREAMBLE)
     with tempfile.TemporaryDirectory() as tmp:
         Path(tmp, "solution.py").write_text(code, encoding="utf-8")
-        Path(tmp, "reference_runner.py").write_text(reference_test, encoding="utf-8")
+        Path(tmp, "reference_runner.py").write_text(runner_src, encoding="utf-8")
         # Popen (bukan subprocess.run): agar timeout bisa killpg SELURUH grup.
         # subprocess.run hanya mem-proc.kill() anak langsung, lalu communicate reap
         # bisa MENGGANTUNG bila anak fork masih memegang pipe stdout.
@@ -129,6 +163,7 @@ def score_code(model_output: str, reference_test: str) -> float:
             [sys.executable, "-c", _SCORE_WRAPPER, str(SCORE_CPU_S), "reference_runner.py"],
             cwd=tmp,
             env=_clean_env(),
+            stdin=subprocess.PIPE,  # kanal nonce (dikonsumsi preamble sebelum solusi)
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -136,22 +171,27 @@ def score_code(model_output: str, reference_test: str) -> float:
         )
         try:
             try:
-                out, _err = proc.communicate(timeout=SCORE_TIMEOUT_S)
+                out, _err = proc.communicate(input=f"{nonce}\n", timeout=SCORE_TIMEOUT_S)
             except subprocess.TimeoutExpired:
                 _killpg(proc.pid)
                 try:
                     proc.communicate(timeout=5)  # reap grup yang sudah di-SIGKILL
                 except subprocess.TimeoutExpired:
                     pass
-                return 0.0
-            if proc.returncode != 0:
-                return 0.0
+                return (0.0, False)
+            # Percaya HANYA baris ber-tag (nonce cocok); ambil yang terakhir cocok.
+            payload = None
+            for line in out.splitlines():
+                if line.startswith(tag):
+                    payload = line[len(tag):]
+            if payload is None:
+                return (0.0, False)  # tak ada hasil tepercaya -> tak terukur
             try:
-                data = json.loads(out.strip().splitlines()[-1])
+                data = json.loads(payload)
                 total = int(data["total"])
                 passed = int(data["passed"])
-            except (ValueError, KeyError, IndexError):
-                return 0.0
+            except (ValueError, KeyError):
+                return (0.0, False)  # baris ber-tag rusak -> tak terukur
         finally:
             # killpg TIAP jalur keluar: anak fork yang MELEPAS pipe (close fd 1/2)
             # lalu spin membuat runner selesai NORMAL (bukan timeout) -> tanpa ini
@@ -159,15 +199,17 @@ def score_code(model_output: str, reference_test: str) -> float:
             # (killpg kedua ini no-op/ProcessLookupError, ditelan _killpg).
             _killpg(proc.pid)
     if total <= 0:
-        return 0.0
-    return max(0.0, min(1.0, passed / total))
+        return (0.0, True)  # terukur, tapi runner melaporkan total 0
+    return (max(0.0, min(1.0, passed / total)), True)
 
 
 def score_task(output: str, reference_test: str) -> dict[str, float]:
     """Skor komposit berbobot: code .7 / has_tests .15 / has_readme .15.
 
-    `reference_test` diteruskan apa adanya ke score_code (runner per-goal)."""
-    code = score_code(output, reference_test)
+    `reference_test` diteruskan apa adanya ke score_code (runner per-goal). Key
+    non-numerik `measured` (bool) ikut dibawa untuk sinyal H2; mean_scores
+    mengabaikannya saat merata-rata."""
+    code, measured = _score_reference(output, reference_test)
     has_tests = 1.0 if "def test_" in output else 0.0
     has_readme = (
         1.0
@@ -180,6 +222,7 @@ def score_task(output: str, reference_test: str) -> dict[str, float]:
         "has_tests": has_tests,
         "has_readme": has_readme,
         "composite": composite,
+        "measured": measured,
     }
 
 
@@ -303,8 +346,9 @@ async def run_agentic_single(
 
 
 def score_agentic(res: AgenticArmResult, reference_test: str) -> dict[str, float]:
-    """Skor komposit arm agentic dari workspace (analog score_task, file-aware)."""
-    code = score_code(res.solution_code, reference_test)
+    """Skor komposit arm agentic dari workspace (analog score_task, file-aware).
+    Membawa `measured` (bool) untuk sinyal H2, seperti score_task."""
+    code, measured = _score_reference(res.solution_code, reference_test)
     ht = 1.0 if res.has_tests else 0.0
     hr = 1.0 if res.has_readme else 0.0
     return {
@@ -312,6 +356,7 @@ def score_agentic(res: AgenticArmResult, reference_test: str) -> dict[str, float
         "has_tests": ht,
         "has_readme": hr,
         "composite": 0.7 * code + 0.15 * ht + 0.15 * hr,
+        "measured": measured,
     }
 
 
@@ -376,11 +421,18 @@ def compare_arms(arms: dict[str, dict[str, Any]]) -> dict[str, Any]:
 
 
 def mean_scores(scores: list[dict[str, float]]) -> dict[str, float]:
-    """Rata-rata per-kunci dari daftar dict score_task (untuk agregasi k-run)."""
+    """Rata-rata per-kunci dari daftar dict score_task (untuk agregasi k-run).
+
+    Hanya kunci numerik yang dirata-ratakan; kunci bool seperti `measured` (bool
+    adalah subclass int) sengaja dilewati — agregasinya ditangani run_suite."""
     if not scores:
         return {"code": 0.0, "has_tests": 0.0, "has_readme": 0.0, "composite": 0.0}
     n = len(scores)
-    keys = scores[0].keys()
+    keys = [
+        k
+        for k, v in scores[0].items()
+        if isinstance(v, (int, float)) and not isinstance(v, bool)
+    ]
     return {k: sum(s[k] for s in scores) / n for k in keys}
 
 
@@ -455,24 +507,32 @@ async def run_suite(
         b_mean = mean_scores(b_scores)
         o_mean = mean_scores(o_scores)
         a_mean = mean_scores(a_scores)
+        # measured per-arm: True bila ADA iterasi yang menghasilkan hasil ber-nonce
+        # tepercaya. Semua arm unmeasured utk satu goal = sinyal kuat runner rusak (H2).
+        b_measured = any(s.get("measured", True) for s in b_scores)
+        o_measured = any(s.get("measured", True) for s in o_scores)
+        a_measured = any(s.get("measured", True) for s in a_scores)
         arms = {
             "baseline": {
                 "composite": b_mean["composite"],
                 "cost": b_last.cost_usd,
                 "ms": b_last.duration_ms,
                 "estimated": any(u.estimated for u in b_last.usage_total.values()),
+                "measured": b_measured,
             },
             "orchestration": {
                 "composite": o_mean["composite"],
                 "cost": o_last.cost_usd,
                 "ms": o_last.duration_ms,
                 "estimated": any(u.estimated for u in o_last.usage_total.values()),
+                "measured": o_measured,
             },
             "agentic": {
                 "composite": a_mean["composite"],
                 "cost": a_last.cost_usd,
                 "ms": a_last.duration_ms,
                 "estimated": any(u.estimated for u in a_last.usage_total.values()),
+                "measured": a_measured,
                 # Jumlah iterasi (dari k) yang gagal terminal + sampel sebab.
                 # composite-nya bisa 0.0 karena INFRA, bukan kapabilitas.
                 "errors": len(a_errors),
@@ -501,6 +561,13 @@ async def run_suite(
     # Total iterasi agentic yang gagal terminal: bila > 0, sebagian skor 0.0 arm
     # agentic bisa jadi infra/provider, bukan kapabilitas — verdict harus dibaca hati2.
     agentic_errors = sum(g["arms"]["agentic"].get("errors", 0) for g in per_goal)
+    # Goal yang TAK SATU arm pun terukur (tak ada hasil ber-nonce tepercaya) = sinyal
+    # kuat runner referensi-nya rusak (H2): skor 0.0-nya artefak harness, bukan solusi.
+    unmeasured_goals = [
+        g["id"]
+        for g in per_goal
+        if not any(g["arms"][n].get("measured", True) for n in names)
+    ]
     best = max(wins.values())
     leaders = [n for n in names if wins[n] == best]
     verdict = leaders[0] if len(leaders) == 1 else "tie"
@@ -512,6 +579,7 @@ async def run_suite(
             "cost_total": cost_total,
             "any_estimated": any_estimated,
             "agentic_errors": agentic_errors,
+            "unmeasured_goals": unmeasured_goals,
             "verdict": verdict,
         },
     }

@@ -306,11 +306,95 @@ def test_score_code_runner_sees_clean_argv():
     argv_probe = (
         "import json, sys\n"
         "extra = sys.argv[1:]\n"  # harus kosong; '15'/duplikat = kebocoran wrapper
-        "print(json.dumps({'passed': 0 if extra else 1, 'total': 1}))\n"
+        "print(_TAG + json.dumps({'passed': 0 if extra else 1, 'total': 1}))\n"
         "sys.exit(0)\n"
     )
     # Solusi apa pun; skor 1.0 HANYA jika runner melihat argv bersih.
     assert score_code("x = 1\n", argv_probe) == 1.0
+
+
+# --- kanal hasil ber-nonce (anti-forgery naif + sinyal 'tak-terukur' H2) -----
+
+
+def test_score_reference_naive_forgery_rejected_and_unmeasured():
+    # Forgery naif: solusi cetak JSON sempurna + os._exit(0) SAAT import (sebelum
+    # runner mengemit). Tanpa nonce ia tak bisa membuat baris ber-tag -> ditolak.
+    forgery = (
+        "import json, os\n"
+        "print(json.dumps({'passed': 999, 'total': 999}))\n"
+        "os._exit(0)\n"
+    )
+    score, measured = harness._score_reference(forgery, REFERENCE_TEST)
+    assert score == 0.0
+    assert measured is False  # tak ada hasil tepercaya -> bukan 0.0 sungguhan
+
+
+def test_score_reference_forgery_cannot_guess_tag_even_reading_env():
+    # Solusi coba menebak format tag tanpa nonce (env pun tak memuat nonce).
+    forgery = (
+        "import json, os\n"
+        "print('AIORCH_RESULT::' + json.dumps({'passed': 999, 'total': 999}))\n"
+        "os._exit(0)\n"
+    )
+    score, measured = harness._score_reference(forgery, REFERENCE_TEST)
+    assert score == 0.0
+    assert measured is False
+
+
+def test_score_reference_broken_runner_is_unmeasured_not_zero():
+    # H2: runner referensi rusak (crash sebelum emit) -> TAK terukur, bukan 0.0 palsu.
+    broken_runner = "raise RuntimeError('scorer bug: import failed')\n"
+    score, measured = harness._score_reference(GOOD_CODE, broken_runner)
+    assert score == 0.0
+    assert measured is False
+
+
+def test_score_reference_runner_emitting_untagged_is_unmeasured():
+    # Runner yang mencetak JSON TANPA _TAG (tak ikut kontrak) -> tak dipercaya.
+    untagged = (
+        "import json\n"
+        "print(json.dumps({'passed': 8, 'total': 8}))\n"
+    )
+    score, measured = harness._score_reference(GOOD_CODE, untagged)
+    assert score == 0.0
+    assert measured is False
+
+
+def test_score_reference_syntax_error_solution_is_measured_zero():
+    # Solusi rusak (SyntaxError) DINILAI: runner menangkap import gagal & mengemit
+    # passed=0 ber-tag -> measured True, skor 0.0 (0.0 sungguhan, bukan artefak).
+    score, measured = harness._score_reference("def slugify(text) return x", REFERENCE_TEST)
+    assert score == 0.0
+    assert measured is True
+
+
+def test_score_reference_good_solution_is_measured_one():
+    score, measured = harness._score_reference(
+        f"{FENCE}python\n{GOOD_CODE}{FENCE}", REFERENCE_TEST
+    )
+    assert score == 1.0
+    assert measured is True
+
+
+def test_score_task_carries_measured_flag():
+    ok = score_task(f"{FENCE}python\n{GOOD_CODE}{FENCE}", REFERENCE_TEST)
+    assert ok["measured"] is True
+    forged = score_task(
+        "import json, os\nprint(json.dumps({'passed':9,'total':9}))\nos._exit(0)\n",
+        REFERENCE_TEST,
+    )
+    assert forged["measured"] is False
+    assert forged["code"] == 0.0
+
+
+def test_mean_scores_ignores_measured_bool():
+    # mean_scores hanya merata-ratakan kunci numerik; `measured` (bool) dilewati.
+    s1 = {"code": 1.0, "has_tests": 1.0, "has_readme": 0.0, "composite": 0.85, "measured": True}
+    s2 = {"code": 0.0, "has_tests": 1.0, "has_readme": 0.0, "composite": 0.15, "measured": False}
+    avg = mean_scores([s1, s2])
+    assert "measured" not in avg
+    assert avg["code"] == 0.5
+    assert avg["composite"] == pytest.approx(0.5)
 
 
 def test_clean_env_strips_api_keys_keeps_path(monkeypatch):
