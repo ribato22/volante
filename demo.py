@@ -1,0 +1,131 @@
+"""End-to-end demo of the AI orchestration engine (run MANUALLY; needs real providers).
+
+Set env (or a .env you export) first, then:
+
+    uv run python demo.py            # show detected providers + usage
+    uv run python demo.py agentic    # one cross-provider agentic coding task (run_python loop)
+    uv run python demo.py eval       # 3-arm eval suite (baseline vs orchestration vs agentic)
+
+Env read: ANTHROPIC_API_KEY, MOONSHOT_API_KEY (+MOONSHOT_BASE_URL), OLLAMA_BASE_URL,
+AIORCH_SANDBOX=docker (real container isolation; needs Docker up; default subprocess),
+DEMO_FETCH_ALLOWLIST=example.com,docs.python.org (adds fetch_url tool to the agentic run).
+
+Only the pure helpers (detect_providers / pick_agentic_model / _fmt_turns) are unit-tested;
+the two run modes touch the network and are executed by you.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+import uuid
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from orchestrator.agent import TurnRecord
+    from orchestrator.registry import Registry
+
+
+def detect_providers(env: dict[str, str]) -> list[str]:
+    """Nama provider yang terkonfigurasi di env (urut Anthropic, Kimi, Ollama)."""
+    found: list[str] = []
+    if env.get("ANTHROPIC_API_KEY"):
+        found.append("anthropic")
+    if env.get("MOONSHOT_API_KEY"):
+        found.append("kimi")
+    if env.get("OLLAMA_BASE_URL"):
+        found.append("ollama")
+    return found
+
+
+def pick_agentic_model(registry: Registry, providers: dict) -> str | None:
+    """Model tool-capable pertama yang punya provider; jika tak ada, jatuh ke model
+    terkonfigurasi pertama (loop tetap jalan — model mungkin tak memanggil tool)."""
+    for m in registry.all():
+        if m.supports_tools and m.id in providers:
+            return m.id
+    for m in registry.all():
+        if m.id in providers:
+            return m.id
+    return None
+
+
+def _fmt_turns(turns: list[TurnRecord]) -> str:
+    lines: list[str] = []
+    for t in turns:
+        payload = " ".join(t.payload.split())[:140]
+        lines.append(f"  [{t.index}] {t.kind:<12} {payload}")
+    return "\n".join(lines)
+
+
+async def demo_agentic() -> None:
+    """Satu task agentic (perbaiki kode buggy pakai run_python) di model tool-capable
+    apa pun yang terkonfigurasi — Anthropic ATAU Kimi (lintas-penyedia)."""
+    from eval.run import build_providers_from_env
+
+    from orchestrator.agent import AgenticWorker
+    from orchestrator.cost import CostMeter
+    from orchestrator.tools.factory import build_agentic_tools
+    from orchestrator.types import CanonicalRequest, text
+
+    registry, providers, _ = build_providers_from_env()
+    model_id = pick_agentic_model(registry, providers)
+    if model_id is None:
+        print("No provider configured. Set ANTHROPIC_API_KEY / MOONSHOT_API_KEY / OLLAMA_BASE_URL.")
+        return
+    sandbox = os.environ.get("AIORCH_SANDBOX", "subprocess")
+    print(f"Agentic demo — model={model_id}  sandbox={sandbox}\n")
+
+    ws = Path(".runs") / "demo" / uuid.uuid4().hex[:8]
+    allow = os.environ.get("DEMO_FETCH_ALLOWLIST")
+    domains = {d.strip() for d in allow.split(",") if d.strip()} if allow else None
+    tools = build_agentic_tools(ws, allowed_domains=domains)
+
+    goal = (
+        "There is a bug: add(a, b) currently returns a - b. In a file named solution.py, "
+        "implement add(a, b) correctly so it returns a + b. Also write a pytest test that "
+        "asserts add(2, 3) == 5. Use the run_python tool to execute your test and iterate "
+        "until it passes. When the test passes, reply with the word DONE."
+    )
+    cm = CostMeter()
+    worker = AgenticWorker(providers, cm)
+    mi = registry.get(model_id)
+    req = CanonicalRequest(
+        messages=[text("user", goal)],
+        max_tokens=mi.max_output_tokens,
+        temperature=0.0,
+        task_id="demo",
+    )
+    res = await worker.run(req, model_id, tools)
+
+    print("TRANSCRIPT:")
+    print(_fmt_turns(res.turns))
+    print("\nFINAL:\n" + res.final_text.strip())
+    total = res.usage_total.get(model_id)
+    if total is not None:
+        est = " (estimated)" if total.estimated else ""
+        print(
+            f"\nusage[{model_id}]: prompt={total.prompt_tokens} "
+            f"completion={total.completion_tokens}{est}"
+        )
+    print(f"cost: ${cm.cost_usd(registry):.6f}")
+
+
+def main() -> None:
+    mode = sys.argv[1] if len(sys.argv) > 1 else ""
+    if mode == "agentic":
+        asyncio.run(demo_agentic())
+    elif mode == "eval":
+        from eval.run import main as eval_main
+
+        asyncio.run(eval_main())
+    else:
+        found = detect_providers(dict(os.environ))
+        print(__doc__ or "")
+        print("Detected providers: " + (", ".join(found) if found else "NONE (set env keys above)"))
+
+
+if __name__ == "__main__":
+    main()
