@@ -159,7 +159,19 @@ class OpenAICompatProvider:
 
         choice = resp.choices[0]
         text_out = choice.message.content or ""
-        content: list[ContentBlock] = [TextBlock(text=text_out)]
+        tool_calls = getattr(choice.message, "tool_calls", None) or []
+        content: list[ContentBlock] = []
+        if text_out:
+            content.append(TextBlock(text=text_out))
+        for tc in tool_calls:
+            raw = getattr(tc.function, "arguments", "") or ""
+            try:
+                args = json.loads(raw) if raw else {}
+            except (ValueError, TypeError):
+                args = {}
+            content.append(ToolUseBlock(id=tc.id, name=tc.function.name, input=args))
+        if not content:
+            content = [TextBlock(text="")]
         stop_reason = _FINISH_REASON_MAP.get(choice.finish_reason, "end_turn")
 
         raw_usage = getattr(resp, "usage", None)
@@ -168,7 +180,12 @@ class OpenAICompatProvider:
         if prompt_toks is None or completion_toks is None:
             usage = Usage(
                 prompt_tokens=_est(_join_input_text(req.messages)),
-                completion_tokens=_est(text_out),
+                completion_tokens=_est(
+                    text_out
+                    + "".join(
+                        getattr(tc.function, "arguments", "") or "" for tc in tool_calls
+                    )
+                ),
                 estimated=True,
             )
         else:

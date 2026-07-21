@@ -103,3 +103,44 @@ async def test_serializes_tool_use_and_tool_result_messages(monkeypatch) -> None
     tool_msg = next(m for m in sent if m["role"] == "tool")
     assert tool_msg["tool_call_id"] == "c1"
     assert tool_msg["content"] == "exit=0"
+
+
+class _TC:
+    def __init__(self, id, name, arguments) -> None:
+        self.id = id
+        self.type = "function"
+        self.function = _Fn(name, arguments)
+
+
+class _Fn:
+    def __init__(self, name, arguments) -> None:
+        self.name = name
+        self.arguments = arguments
+
+
+@pytest.mark.asyncio
+async def test_parses_tool_calls_response(monkeypatch) -> None:
+    msg = _Msg(content=None, tool_calls=[_TC("c1", "run_python", '{"code": "print(1)"}')])
+    p, _ = _provider(monkeypatch, _Resp(_Choice(msg, "tool_calls")))
+    out = await p.complete(CanonicalRequest(messages=[text("user", "go")], max_tokens=64))
+    assert out.stop_reason == "tool_use"
+    assert isinstance(out.content[0], ToolUseBlock)
+    assert out.content[0].id == "c1"
+    assert out.content[0].input == {"code": "print(1)"}
+
+
+@pytest.mark.asyncio
+async def test_parses_mixed_text_and_tool_calls(monkeypatch) -> None:
+    msg = _Msg(content="let me run", tool_calls=[_TC("c2", "run_python", "{}")])
+    p, _ = _provider(monkeypatch, _Resp(_Choice(msg, "tool_calls")))
+    out = await p.complete(CanonicalRequest(messages=[text("user", "go")], max_tokens=64))
+    kinds = [type(b).__name__ for b in out.content]
+    assert kinds == ["TextBlock", "ToolUseBlock"]
+
+
+@pytest.mark.asyncio
+async def test_malformed_arguments_becomes_empty_dict(monkeypatch) -> None:
+    msg = _Msg(content=None, tool_calls=[_TC("c3", "run_python", "not-json{")])
+    p, _ = _provider(monkeypatch, _Resp(_Choice(msg, "tool_calls")))
+    out = await p.complete(CanonicalRequest(messages=[text("user", "go")], max_tokens=64))
+    assert out.content[0].input == {}
