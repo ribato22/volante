@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from orchestrator.cost import CostMeter
-from orchestrator.providers.base import LLMProvider
+from orchestrator.providers.base import LLMProvider, call_provider
 from orchestrator.types import (
     CanonicalRequest,
     CanonicalResponse,
@@ -48,10 +48,7 @@ class Supervisor:
         self._used = True
         req = self._build_request(goal)
         # on_text -> streaming (progres planning live); else complete (nol regresi).
-        if on_text is not None:
-            resp = await self._provider.stream(req, on_text)
-        else:
-            resp = await self._provider.complete(req)
+        resp = await call_provider(self._provider, req, on_text)
         # PATCH v2.1: tagih panggilan planning ke model_id SETELAH complete()
         # sukses dan SEBELUM validasi -> panggilan yang benar-benar dieksekusi
         # tetap terhitung meski plan-nya ternyata invalid.

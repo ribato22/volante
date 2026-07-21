@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from orchestrator.cost import CostMeter
-from orchestrator.providers.base import LLMProvider, ProviderError
+from orchestrator.providers.base import LLMProvider, ProviderError, call_provider
 from orchestrator.tools.base import ToolRegistry
 from orchestrator.types import (
     CanonicalMessage,
@@ -79,9 +79,7 @@ class AgenticWorker:
         last: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
-                if on_text is not None:
-                    return await provider.stream(req, on_text)
-                return await provider.complete(req)
+                return await call_provider(provider, req, on_text)
             except (ProviderError, TimeoutError) as err:
                 last = err
                 retryable = isinstance(err, TimeoutError) or (

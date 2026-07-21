@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from orchestrator.cost import CostMeter
-from orchestrator.providers.base import LLMProvider
+from orchestrator.providers.base import LLMProvider, call_provider
 from orchestrator.types import CanonicalRequest, CanonicalResponse
 
 
@@ -31,12 +31,9 @@ class Worker:
             raise ValueError(
                 f"no provider registered for model_id={model_id!r}"
             ) from exc
-        # on_text -> streaming; else complete (nol regresi). Catatan: Runtime TIDAK
-        # men-stream worker paralel (output antar-task akan bercampur); param ini
-        # untuk pemanggil langsung / skenario satu-worker.
-        if on_text is not None:
-            resp = await provider.stream(req, on_text)
-        else:
-            resp = await provider.complete(req)
+        # on_text -> streaming; else complete (nol regresi). Runtime meneruskan
+        # callback ber-label per-task (lihat _task_cb) sehingga worker paralel pun
+        # bisa diurai per-task oleh konsumen.
+        resp = await call_provider(provider, req, on_text)
         self._cost_meter.add(model_id, resp.usage)
         return resp

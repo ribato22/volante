@@ -5,8 +5,14 @@ import inspect
 
 import pytest
 
-from orchestrator.providers.base import LLMProvider, ProviderError
-from orchestrator.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage
+from orchestrator.providers.base import LLMProvider, ProviderError, call_provider
+from orchestrator.types import (
+    CanonicalRequest,
+    CanonicalResponse,
+    TextBlock,
+    Usage,
+    text,
+)
 
 
 class _Conforming:
@@ -80,3 +86,52 @@ def test_provider_error_is_raisable_and_carries_flags() -> None:
         raise ProviderError("server exploded", retryable=True, status=503)
     assert excinfo.value.retryable is True
     assert excinfo.value.status == 503
+
+
+# --- call_provider (helper stream-vs-complete tunggal) ---
+
+
+class _MethodSpy:
+    name = "spy"
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        self.calls.append("complete")
+        return _resp("c")
+
+    async def stream(self, req: CanonicalRequest, on_text) -> CanonicalResponse:
+        self.calls.append("stream")
+        on_text("streamed")
+        return _resp("s")
+
+
+def _resp(s: str) -> CanonicalResponse:
+    return CanonicalResponse(
+        content=[TextBlock(text=s)],
+        usage=Usage(prompt_tokens=0, completion_tokens=0),
+        model="spy",
+        stop_reason="end_turn",
+        latency_ms=0,
+    )
+
+
+def _req() -> CanonicalRequest:
+    return CanonicalRequest(messages=[text("user", "hi")], max_tokens=8)
+
+
+async def test_call_provider_dispatches_complete_without_on_text() -> None:
+    spy = _MethodSpy()
+    resp = await call_provider(spy, _req())
+    assert spy.calls == ["complete"]
+    assert resp.content[0].text == "c"
+
+
+async def test_call_provider_dispatches_stream_with_on_text() -> None:
+    spy = _MethodSpy()
+    chunks: list[str] = []
+    resp = await call_provider(spy, _req(), chunks.append)
+    assert spy.calls == ["stream"]
+    assert chunks == ["streamed"]
+    assert resp.content[0].text == "s"

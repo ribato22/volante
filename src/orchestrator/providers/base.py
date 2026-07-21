@@ -18,6 +18,19 @@ class LLMProvider(Protocol):
     ) -> CanonicalResponse: ...
 
 
+async def call_provider(
+    provider: LLMProvider,
+    req: CanonicalRequest,
+    on_text: Callable[[str], None] | None = None,
+) -> CanonicalResponse:
+    """Panggil provider: `stream` (progres teks live) bila `on_text` diberi, else
+    `complete`. Satu sumber kebenaran untuk pilihan stream-vs-complete yang dipakai
+    Supervisor, Synthesizer, Worker, dan AgenticWorker (hindari duplikasi 4×)."""
+    if on_text is not None:
+        return await provider.stream(req, on_text)
+    return await provider.complete(req)
+
+
 class ProviderError(Exception):
     """Galat provider seragam.
 

@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from orchestrator.blackboard import Blackboard
 from orchestrator.cost import CostMeter
-from orchestrator.providers.base import LLMProvider
+from orchestrator.providers.base import LLMProvider, call_provider
 from orchestrator.types import CanonicalRequest, TextBlock, text
 
 
@@ -44,10 +44,7 @@ class Synthesizer:
             max_tokens=2048,
         )
         # on_text -> streaming (progres sintesis live); else complete (nol regresi).
-        if on_text is not None:
-            resp = await self._provider.stream(req, on_text)
-        else:
-            resp = await self._provider.complete(req)
+        resp = await call_provider(self._provider, req, on_text)
         self._cost_meter.add(self._model_id, resp.usage)
         parts = [b.text for b in resp.content if isinstance(b, TextBlock)]
         return "".join(parts)
