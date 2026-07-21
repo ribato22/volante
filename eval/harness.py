@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -71,12 +72,26 @@ _RESULT_PREAMBLE = (
 
 
 def _inject_preamble(reference_test: str, nonce_tag_src: str) -> str:
-    """Sisipkan preamble hasil SETELAH baris `from __future__` (bila ada) — impor
-    __future__ wajib jadi statement pertama file, jadi tak boleh didahului."""
-    first, sep, rest = reference_test.partition("\n")
-    if first.startswith("from __future__"):
-        return first + "\n" + nonce_tag_src + rest
-    return nonce_tag_src + reference_test
+    """Sisipkan preamble hasil SETELAH statement `from __future__` TERAKHIR (bila
+    ada) — impor __future__ wajib mendahului statement lain, jadi preamble (statement
+    biasa) tak boleh menggesernya. Pakai AST agar tahan docstring/komentar/baris
+    kosong sebelum future-import (Python mengizinkannya) dan tak salah-cocok teks
+    '__future__' di dalam string. Runner rusak (SyntaxError) -> prepend saja; error
+    muncul saat dijalankan -> tak-terukur (disurface run_suite)."""
+    try:
+        tree = ast.parse(reference_test)
+    except SyntaxError:
+        return nonce_tag_src + reference_test
+    last_future_end = 0
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == "__future__":
+            last_future_end = max(last_future_end, node.end_lineno or 0)
+    if last_future_end == 0:
+        return nonce_tag_src + reference_test
+    lines = reference_test.split("\n")
+    head = "\n".join(lines[:last_future_end])  # s/d baris future terakhir (1-based)
+    tail = "\n".join(lines[last_future_end:])
+    return head + "\n" + nonce_tag_src + tail
 
 
 def _killpg(pgid: int) -> None:
@@ -179,11 +194,15 @@ def _score_reference(model_output: str, reference_test: str) -> tuple[float, boo
                 except subprocess.TimeoutExpired:
                     pass
                 return (0.0, False)
-            # Percaya HANYA baris ber-tag (nonce cocok); ambil yang terakhir cocok.
+            # Percaya HANYA baris memuat tag (nonce cocok); ambil kemunculan tag
+            # terakhir. Pakai `tag in line` (bukan startswith) agar output parsial
+            # solusi tanpa newline yang menempel di depan baris runner tak merusak
+            # parse — nonce tetap tak terpalsukan, jadi ini tetap aman.
             payload = None
             for line in out.splitlines():
-                if line.startswith(tag):
-                    payload = line[len(tag):]
+                idx = line.rfind(tag)
+                if idx != -1:
+                    payload = line[idx + len(tag):]
             if payload is None:
                 return (0.0, False)  # tak ada hasil tepercaya -> tak terukur
             try:

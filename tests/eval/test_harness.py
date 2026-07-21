@@ -387,6 +387,49 @@ def test_score_task_carries_measured_flag():
     assert forged["code"] == 0.0
 
 
+def _minimal_runner(head: str) -> str:
+    # Runner valid yang mengemit _TAG; `head` bervariasi (docstring/komentar/blank
+    # sebelum `from __future__`) untuk menguji titik-sisip preamble.
+    return (
+        head
+        + "from __future__ import annotations\n"
+        + "import json, sys\n"
+        + "try:\n"
+        + "    from solution import slugify\n"
+        + "    ok = 1 if slugify('Hi There') == 'hi-there' else 0\n"
+        + "except Exception:\n"
+        + "    ok = 0\n"
+        + "print(_TAG + json.dumps({'passed': ok, 'total': 1}))\n"
+        + "sys.exit(0)\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "head",
+    ['"""Reference runner."""\n', "# a comment\n", "\n", "# c\n\n", ""],
+)
+def test_score_reference_preamble_injected_after_future_import(head):
+    # Regresi verifikasi-adversarial: preamble harus disisipkan SETELAH `from
+    # __future__` walau ada docstring/komentar/blank sebelumnya — kalau tidak,
+    # `from __future__` tergeser dari baris-1 -> SyntaxError -> semua arm 0.0 palsu.
+    runner = _minimal_runner(head)
+    score, measured = harness._score_reference(
+        f"{FENCE}python\n{GOOD_CODE}{FENCE}", runner
+    )
+    assert measured is True, f"runner dgn head={head!r} harus valid & terukur"
+    assert score == 1.0
+
+
+def test_score_reference_robust_to_partial_stdout_from_solution():
+    # Verifikasi-adversarial (note): solusi menulis stdout parsial TANPA newline saat
+    # import -> menempel di depan baris ber-tag runner. Scan berbasis rfind(tag) tetap
+    # menemukan hasil tepercaya -> solusi benar tetap terukur 1.0 (bukan 0.0 palsu).
+    solution = "import sys\nsys.stdout.write('hi')\n" + GOOD_CODE
+    score, measured = harness._score_reference(solution, REFERENCE_TEST)
+    assert score == 1.0
+    assert measured is True
+
+
 def test_mean_scores_ignores_measured_bool():
     # mean_scores hanya merata-ratakan kunci numerik; `measured` (bool) dilewati.
     s1 = {"code": 1.0, "has_tests": 1.0, "has_readme": 0.0, "composite": 0.85, "measured": True}
