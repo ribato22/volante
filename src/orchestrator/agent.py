@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from orchestrator.cost import CostMeter
@@ -69,12 +70,17 @@ class AgenticWorker:
         self.max_retries = max_retries
         self.char_budget = char_budget
 
-    async def _complete_with_retry(
-        self, provider: LLMProvider, req: CanonicalRequest
+    async def _call_with_retry(
+        self,
+        provider: LLMProvider,
+        req: CanonicalRequest,
+        on_text: Callable[[str], None] | None,
     ) -> CanonicalResponse:
         last: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
+                if on_text is not None:
+                    return await provider.stream(req, on_text)
                 return await provider.complete(req)
             except (ProviderError, TimeoutError) as err:
                 last = err
@@ -89,7 +95,11 @@ class AgenticWorker:
         raise ProviderError(str(last), retryable=False)
 
     async def run(
-        self, req: CanonicalRequest, model_id: str, tools: ToolRegistry
+        self,
+        req: CanonicalRequest,
+        model_id: str,
+        tools: ToolRegistry,
+        on_text: Callable[[str], None] | None = None,
     ) -> AgenticResult:
         provider = self.providers[model_id]
         messages = list(req.messages)  # SALINAN — jangan mutasi input
@@ -111,7 +121,7 @@ class AgenticWorker:
                 task_id=req.task_id,
                 attempt=i,
             )
-            resp = await self._complete_with_retry(provider, call)
+            resp = await self._call_with_retry(provider, call, on_text)
             self.cost_meter.add(model_id, resp.usage)  # shared (global cost_usd)
             local.add(model_id, resp.usage)  # per-task tally
 

@@ -98,7 +98,12 @@ async def demo_agentic() -> None:
         temperature=0.0,
         task_id="demo",
     )
-    res = await worker.run(req, model_id, tools)
+    def _emit(s: str) -> None:
+        print(s, end="", flush=True)
+
+    print("(streaming live)\n")
+    res = await worker.run(req, model_id, tools, on_text=_emit)
+    print()  # newline setelah stream
 
     print("TRANSCRIPT:")
     print(_fmt_turns(res.turns))

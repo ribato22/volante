@@ -141,3 +141,20 @@ async def test_transcript_budget_guard_fails_early() -> None:
         await worker.run(_req(), "m1", tools)
     assert ei.value.retryable is False
     assert "budget" in str(ei.value)
+
+
+@pytest.mark.asyncio
+async def test_run_streams_when_on_text_given() -> None:
+    tools: ToolRegistry = {"run_python": _RecordingTool()}
+    provider = FakeProvider(
+        responses=[
+            _resp([ToolUseBlock(id="u1", name="run_python", input={"code": "x"})], "tool_use"),
+            _resp([TextBlock(text="done")], "end_turn"),
+        ]
+    )
+    got: list[str] = []
+    res = await AgenticWorker({"m1": provider}, CostMeter()).run(
+        _req(), "m1", tools, on_text=got.append
+    )
+    assert res.final_text == "done"
+    assert "done" in "".join(got)  # teks final ter-stream
