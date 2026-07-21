@@ -17,6 +17,8 @@ from orchestrator.types import CanonicalRequest, TextBlock, text
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from eval.tasks import EvalTask
+
     from orchestrator.providers.base import LLMProvider
     from orchestrator.registry import Registry
     from orchestrator.runtime import Runtime
@@ -233,3 +235,68 @@ async def run_eval(
     return compare(
         orch_last, base_last, mean_scores(orch_scores), mean_scores(base_scores)
     )
+
+
+async def run_suite(
+    suite: list[EvalTask],
+    make_runtime: Callable[[], Runtime],
+    baseline_provider: LLMProvider,
+    model_id: str,
+    registry: Registry,
+    k: int = EVAL_K,
+) -> dict[str, Any]:
+    """Jalankan seluruh suite lewat kedua arm (k kali/goal), agregat verdict.
+
+    Tiap goal dinilai dengan runner tersembunyinya sendiri (t.reference_test);
+    isolasi subprocess score_code tak berubah. Kembalikan::
+
+        {"per_goal": [{"id", **compare(...)}],
+         "aggregate": {orch_wins, base_wins, ties, orch_cost_total,
+                       base_cost_total, any_estimated, verdict}}
+
+    Verdict overall = mayoritas goal (bukan satu task); seri -> "tie"."""
+    per_goal: list[dict[str, Any]] = []
+    for t in suite:
+        orch_scores: list[dict[str, float]] = []
+        base_scores: list[dict[str, float]] = []
+        orch_last: RunResult | None = None
+        base_last: BaselineResult | None = None
+        for _ in range(k):
+            orch_last = await run_orchestration(t.goal, make_runtime())
+            base_last = await run_baseline(
+                t.goal, baseline_provider, model_id, registry
+            )
+            orch_scores.append(score_task(orch_last.final or "", t.reference_test))
+            base_scores.append(score_task(base_last.output, t.reference_test))
+        cmp = compare(
+            orch_last, base_last, mean_scores(orch_scores), mean_scores(base_scores)
+        )
+        per_goal.append({"id": t.id, **cmp})
+
+    orch_wins = sum(1 for g in per_goal if g["winner"] == "orchestration")
+    base_wins = sum(1 for g in per_goal if g["winner"] == "baseline")
+    ties = sum(1 for g in per_goal if g["winner"] == "tie")
+    orch_cost_total = sum(g["orch_cost"] for g in per_goal)
+    base_cost_total = sum(g["base_cost"] for g in per_goal)
+    any_estimated = any(
+        g["orch_estimated"] or g["base_estimated"] for g in per_goal
+    )
+    if orch_wins > base_wins:
+        verdict = "orchestration"
+    elif base_wins > orch_wins:
+        verdict = "baseline"
+    else:
+        verdict = "tie"
+
+    return {
+        "per_goal": per_goal,
+        "aggregate": {
+            "orch_wins": orch_wins,
+            "base_wins": base_wins,
+            "ties": ties,
+            "orch_cost_total": orch_cost_total,
+            "base_cost_total": base_cost_total,
+            "any_estimated": any_estimated,
+            "verdict": verdict,
+        },
+    }
