@@ -11,7 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from orchestrator.agent import AgenticWorker
 from orchestrator.cost import CostMeter
+from orchestrator.providers.base import ProviderError
+from orchestrator.tools.run_python import RunPythonTool
+from orchestrator.tools.sandbox import Sandbox
 from orchestrator.types import CanonicalRequest, TextBlock, text
 
 if TYPE_CHECKING:
@@ -151,6 +155,96 @@ async def run_baseline(
         cost_usd=meter.cost_usd(registry),
         duration_ms=duration_ms,
     )
+
+
+_AGENTIC_SUFFIX = (
+    "\n\nWrite your solution to a file named `solution.py` in the current working "
+    "directory. Also write a pytest test module (test_*.py) and a short README. Use the "
+    "run_python tool to execute your code and tests, and iterate until the tests pass. "
+    "When done, briefly summarize."
+)
+
+
+@dataclass
+class AgenticArmResult:
+    solution_code: str
+    has_tests: bool
+    has_readme: bool
+    usage_total: dict[str, Usage]
+    cost_usd: float
+    duration_ms: int
+
+
+def _scan_workspace(ws: Path) -> tuple[bool, bool]:
+    has_tests = False
+    has_readme = False
+    for p in ws.iterdir():
+        name = p.name.lower()
+        if p.is_file() and (name.startswith("test_") or name.endswith("_test.py")):
+            try:
+                if "def test_" in p.read_text(encoding="utf-8", errors="ignore"):
+                    has_tests = True
+            except OSError:
+                pass
+        if p.is_file() and name.startswith("readme"):
+            has_readme = True
+    return has_tests, has_readme
+
+
+async def run_agentic_single(
+    goal: str, provider: LLMProvider, model_id: str, registry: Registry
+) -> AgenticArmResult:
+    """Arm agentic-single: 1 model + loop run_python, TANPA dekomposisi. Model diminta
+    menulis solution.py + tests + README di workspace; skor diambil dari file itu."""
+    meter = CostMeter()
+    worker = AgenticWorker({model_id: provider}, meter, max_iters=8)
+    mi = registry.get(model_id)
+    start = time.perf_counter()
+    with tempfile.TemporaryDirectory() as tmp:
+        ws = Path(tmp)
+        tools = {"run_python": RunPythonTool(Sandbox(ws))}
+        req = CanonicalRequest(
+            messages=[text("user", goal + _AGENTIC_SUFFIX)],
+            max_tokens=mi.max_output_tokens,
+            temperature=EVAL_TEMPERATURE,
+            run_id="agentic",
+            task_id="agentic",
+        )
+        try:
+            res = await worker.run(req, model_id, tools)
+            final_text = res.final_text
+            usage_total = res.usage_total
+        except ProviderError:
+            final_text = ""
+            usage_total = meter.totals()
+        sol = ws / "solution.py"
+        if sol.exists():
+            solution_code = sol.read_text(encoding="utf-8", errors="ignore")
+        else:
+            solution_code = extract_python(final_text)
+        has_tests, has_readme = _scan_workspace(ws)
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    return AgenticArmResult(
+        solution_code=solution_code,
+        has_tests=has_tests,
+        has_readme=has_readme,
+        usage_total=usage_total,
+        cost_usd=meter.cost_usd(registry),
+        duration_ms=duration_ms,
+    )
+
+
+def score_agentic(res: AgenticArmResult, reference_test: str) -> dict[str, float]:
+    """Skor komposit arm agentic dari workspace (analog score_task, file-aware)."""
+    code = score_code(res.solution_code, reference_test)
+    ht = 1.0 if res.has_tests else 0.0
+    hr = 1.0 if res.has_readme else 0.0
+    return {
+        "code": code,
+        "has_tests": ht,
+        "has_readme": hr,
+        "composite": 0.7 * code + 0.15 * ht + 0.15 * hr,
+    }
 
 
 def compare(
