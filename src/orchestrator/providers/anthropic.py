@@ -154,3 +154,37 @@ class AnthropicProvider:
             stop_reason=getattr(resp, "stop_reason", None),
             latency_ms=latency_ms,
         )
+
+    async def stream(self, req: CanonicalRequest, on_text) -> CanonicalResponse:
+        system_text, messages = _split_messages(req.messages)
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": req.max_tokens,
+            "temperature": req.temperature,
+            "messages": messages,
+        }
+        if system_text:
+            kwargs["system"] = system_text
+        if req.tools:
+            kwargs["tools"] = [
+                {"name": t.name, "description": t.description, "input_schema": t.input_schema}
+                for t in req.tools
+            ]
+        start = time.perf_counter()
+        try:
+            async with self._client.messages.stream(**kwargs) as s:
+                async for delta in s.text_stream:
+                    on_text(delta)
+                final = await s.get_final_message()
+        except Exception as exc:  # noqa: BLE001 — mapped below
+            raise _to_provider_error(exc) from exc
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        content = _extract_content(final)
+        usage = _extract_usage(final, req, content)
+        return CanonicalResponse(
+            content=content,
+            usage=usage,
+            model=getattr(final, "model", None) or self.model,
+            stop_reason=getattr(final, "stop_reason", None),
+            latency_ms=latency_ms,
+        )
