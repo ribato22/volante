@@ -9,7 +9,7 @@ class Tool(Protocol):
     name: str
     spec: ToolSpec
 
-    def run(self, args: dict) -> str: ...
+    async def run(self, args: dict) -> str: ...
 
 
 ToolRegistry = dict[str, Tool]

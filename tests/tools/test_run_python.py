@@ -17,18 +17,18 @@ def test_spec_shape(tmp_path: Path) -> None:
     assert t.spec.input_schema["required"] == ["code"]
 
 
-def test_runs_and_reports_stdout(tmp_path: Path) -> None:
-    out = _tool(tmp_path).run({"code": "print('hi')"})
+async def test_runs_and_reports_stdout(tmp_path: Path) -> None:
+    out = await _tool(tmp_path).run({"code": "print('hi')"})
     assert "exit=0" in out
     assert "hi" in out
 
 
-def test_missing_code_returns_error_string_not_exception(tmp_path: Path) -> None:
-    out = _tool(tmp_path).run({})
+async def test_missing_code_returns_error_string_not_exception(tmp_path: Path) -> None:
+    out = await _tool(tmp_path).run({})
     assert "error" in out.lower()
 
 
-def test_large_output_is_capped(tmp_path: Path) -> None:
-    out = _tool(tmp_path, max_result_chars=200).run({"code": "print('A' * 5000)"})
+async def test_large_output_is_capped(tmp_path: Path) -> None:
+    out = await _tool(tmp_path, max_result_chars=200).run({"code": "print('A' * 5000)"})
     assert len(out) <= 200
     assert "[dipotong]" in out
