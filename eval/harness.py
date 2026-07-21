@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -34,6 +35,39 @@ EVAL_K: int = 2
 # Timeout wall-clock subprocess score_code (kontrak PATCH v2.1 = 15s). Modul-level
 # agar test bisa memangkasnya untuk kasus while-True tanpa menunggu 15 detik.
 SCORE_TIMEOUT_S: float = 15.0
+
+# S2 hardening: batas CPU child-side (detik). Backstop kedua selain wall-timeout —
+# CPU-spin mati via SIGXCPU tanpa menahan slot selama wall penuh.
+SCORE_CPU_S: int = 15
+
+# Wrapper dijalankan DI DALAM proses anak (mirror Sandbox): set RLIMIT_CPU sebelum
+# menjalankan runner. Menghindari preexec_fn (fork-unsafe). runpy dgn run_name
+# '__main__' -> blok `if __name__ == "__main__"` runner tetap tereksekusi.
+# `sys.argv[:] = [p]` SEBELUM run_path: runpy hanya menimpa argv[0], jadi tanpa reset
+# argv wrapper ('<cpu>', '<runner>') bocor ke sys.argv[1:] runner -> runner yang
+# membaca argv (argparse dsb.) rusak. Setelah reset, runner lihat argv bersih [runner],
+# identik dgn invokasi lama `python reference_runner.py`.
+_SCORE_WRAPPER = (
+    "import resource,runpy,sys;"
+    "c=int(sys.argv[1]);p=sys.argv[2];"
+    "resource.setrlimit(resource.RLIMIT_CPU,(c,c));"
+    "sys.argv[:]=[p];"
+    "runpy.run_path(p, run_name='__main__')"
+)
+
+
+def _killpg(pgid: int) -> None:
+    """SIGKILL seluruh process group `pgid`.
+
+    Dengan start_new_session=True anak menjadi pemimpin grup, jadi pgid == proc.pid.
+    Sengaja TIDAK memakai os.getpgid(proc.pid): bila pemimpin (runner) sudah keluar
+    jadi zombie — mis. ia mem-fork anak yang menahan pipe lalu exit duluan — getpgid
+    melempar ProcessLookupError di macOS dan grup tak akan terbunuh. Memakai pgid
+    (== pid) langsung tetap menjangkau anak yang masih hidup di grup itu."""
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
 
 # Tiga backtick sebagai penanda fence, dibangun tanpa literal agar tak merusak
 # blok kode dokumen.
@@ -74,32 +108,56 @@ def score_code(model_output: str, reference_test: str) -> float:
     passed/total dari JSON stdout. SyntaxError/timeout/nonzero -> 0.0.
 
     `reference_test` adalah SUMBER runner (EvalTask.reference_test) yang dites;
-    di-param-kan agar suite multi-goal memakai runner berbeda per goal. Isolasi
-    subprocess tak berubah. Dipakai SAMA untuk output orkestrasi maupun baseline
-    (ekuitas penilaian)."""
+    di-param-kan agar suite multi-goal memakai runner berbeda per goal. Dipakai
+    SAMA untuk output orkestrasi maupun baseline (ekuitas penilaian).
+
+    Isolasi (S2, sekelas Sandbox): runner + `solution.py` (kode model) jalan dalam
+    process group sendiri (`start_new_session=True`) dgn RLIMIT_CPU child-side. SELURUH
+    grup di-killpg pada SETIAP jalur keluar (timeout MAUPUN penyelesaian normal) — jadi
+    anak fork yang tetap hidup di grup tak menyintasi score_code, bukan hanya kasus
+    timeout. Batas kepercayaan tetap best-effort POSIX (setsid oleh solusi bisa lepas
+    dari grup). CATATAN: ini isolasi PROSES, bukan autentikasi output — solusi masih
+    bisa mencetak JSON palsu saat import (masalah pre-existing, lihat follow-up)."""
     code = extract_python(model_output)
     with tempfile.TemporaryDirectory() as tmp:
         Path(tmp, "solution.py").write_text(code, encoding="utf-8")
         Path(tmp, "reference_runner.py").write_text(reference_test, encoding="utf-8")
+        # Popen (bukan subprocess.run): agar timeout bisa killpg SELURUH grup.
+        # subprocess.run hanya mem-proc.kill() anak langsung, lalu communicate reap
+        # bisa MENGGANTUNG bila anak fork masih memegang pipe stdout.
+        proc = subprocess.Popen(
+            [sys.executable, "-c", _SCORE_WRAPPER, str(SCORE_CPU_S), "reference_runner.py"],
+            cwd=tmp,
+            env=_clean_env(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,  # grup proses sendiri -> killpg bunuh fork/cucu
+        )
         try:
-            proc = subprocess.run(
-                [sys.executable, "reference_runner.py"],
-                cwd=tmp,
-                env=_clean_env(),
-                capture_output=True,
-                text=True,
-                timeout=SCORE_TIMEOUT_S,
-            )
-        except subprocess.TimeoutExpired:
-            return 0.0
-        if proc.returncode != 0:
-            return 0.0
-        try:
-            data = json.loads(proc.stdout.strip().splitlines()[-1])
-            total = int(data["total"])
-            passed = int(data["passed"])
-        except (ValueError, KeyError, IndexError):
-            return 0.0
+            try:
+                out, _err = proc.communicate(timeout=SCORE_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                _killpg(proc.pid)
+                try:
+                    proc.communicate(timeout=5)  # reap grup yang sudah di-SIGKILL
+                except subprocess.TimeoutExpired:
+                    pass
+                return 0.0
+            if proc.returncode != 0:
+                return 0.0
+            try:
+                data = json.loads(out.strip().splitlines()[-1])
+                total = int(data["total"])
+                passed = int(data["passed"])
+            except (ValueError, KeyError, IndexError):
+                return 0.0
+        finally:
+            # killpg TIAP jalur keluar: anak fork yang MELEPAS pipe (close fd 1/2)
+            # lalu spin membuat runner selesai NORMAL (bukan timeout) -> tanpa ini
+            # ia jadi orphan yang menyintasi skor. Grup sudah mati di jalur timeout
+            # (killpg kedua ini no-op/ProcessLookupError, ditelan _killpg).
+            _killpg(proc.pid)
     if total <= 0:
         return 0.0
     return max(0.0, min(1.0, passed / total))

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import time
+
 import eval.harness as harness
 import pytest
 from eval.harness import (
@@ -165,6 +168,149 @@ def test_score_code_infinite_loop_times_out_to_zero(monkeypatch):
     monkeypatch.setattr(harness, "SCORE_TIMEOUT_S", 2.0)
     looping = "def slugify(text):\n    while True:\n        pass\n"
     assert score_code(looping, REFERENCE_TEST) == 0.0
+
+
+# --- S2 hardening: RLIMIT_CPU + killpg grup (mirror Sandbox) ----------------
+
+
+def test_score_code_rlimit_cpu_kills_before_wall_timeout(monkeypatch):
+    # RLIMIT_CPU child-side membunuh CPU-spin di ~SCORE_CPU_S detik CPU, JAUH sebelum
+    # wall-timeout besar. Membuktikan batas CPU aktif (bukan cuma wall-timeout).
+    monkeypatch.setattr(harness, "SCORE_CPU_S", 1)
+    monkeypatch.setattr(harness, "SCORE_TIMEOUT_S", 30.0)  # wall besar; CPU harus menang
+    spin_at_import = "x = 0\nwhile True:\n    x += 1\n"
+    start = time.perf_counter()
+    score = score_code(spin_at_import, REFERENCE_TEST)
+    elapsed = time.perf_counter() - start
+    assert score == 0.0
+    assert elapsed < 15.0  # CPU-limit (~1s) memutus jauh sebelum wall 30s
+
+
+def test_score_code_timeout_calls_killpg_on_process_group(monkeypatch):
+    # Pada wall-timeout, killpg SELURUH grup dipanggil (bukan cuma anak langsung),
+    # sehingga fork/proses ter-detach ikut mati.
+    monkeypatch.setattr(harness, "SCORE_TIMEOUT_S", 1.0)
+    monkeypatch.setattr(harness, "SCORE_CPU_S", 30)  # jangan biarkan CPU-limit menang dulu
+    killed: list[int] = []
+    real_killpg = harness._killpg
+
+    def spy_killpg(pid: int) -> None:
+        killed.append(pid)
+        real_killpg(pid)
+
+    monkeypatch.setattr(harness, "_killpg", spy_killpg)
+    # while-True pakai sleep: wall-timeout menggigit (CPU rendah) -> killpg.
+    looping = "import time\ndef slugify(text):\n    while True:\n        time.sleep(0.01)\n"
+    assert score_code(looping, REFERENCE_TEST) == 0.0
+    # Jalur timeout memanggil killpg (di cabang except + sekali lagi di finally);
+    # yang penting grup benar-benar di-killpg minimal sekali.
+    assert len(killed) >= 1
+
+
+def test_score_code_kills_forked_child_that_holds_pipe(tmp_path, monkeypatch):
+    # Skenario fork-bomb inti: solusi mem-fork anak yang menahan pipe stdout terbuka
+    # lalu spin. Tanpa killpg-grup, communicate menggantung tak-terhingga (anak
+    # memegang pipe) DAN anak jadi orphan. Dengan start_new_session + killpg, run
+    # berbatas waktu dan anak ikut mati.
+    monkeypatch.setattr(harness, "SCORE_TIMEOUT_S", 1.0)
+    monkeypatch.setattr(harness, "SCORE_CPU_S", 30)
+    pidfile = tmp_path / "child.pid"
+    forking = (
+        "import os, time\n"
+        "pid = os.fork()\n"
+        "if pid == 0:\n"
+        f"    open({str(pidfile)!r}, 'w').write(str(os.getpid()))\n"
+        "    while True:\n"
+        "        time.sleep(0.01)\n"
+        "def slugify(text):\n"
+        "    return text\n"
+    )
+    start = time.perf_counter()
+    score = score_code(forking, REFERENCE_TEST)
+    elapsed = time.perf_counter() - start
+    assert score == 0.0
+    assert elapsed < 10.0  # tidak menggantung: killpg membebaskan communicate
+    # Anak (yang menulis pid-nya) sudah mati setelah score_code kembali.
+    assert pidfile.exists(), "child seharusnya sempat menulis PID sebelum di-kill"
+    child_pid = int(pidfile.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)  # ProcessLookupError = proses sudah tiada
+
+
+def test_score_code_still_scores_good_and_bad_after_hardening():
+    # Regresi: hardening tak mengubah penilaian solusi normal.
+    assert score_code(f"{FENCE}python\n{GOOD_CODE}{FENCE}", REFERENCE_TEST) == 1.0
+    assert score_code("def slugify(text) return x", REFERENCE_TEST) == 0.0
+    partial = "def slugify(text):\n    return text.replace(' ', '-')\n"
+    assert 0.0 < score_code(partial, REFERENCE_TEST) < 1.0
+
+
+def test_score_code_killpg_runs_on_success_path(monkeypatch):
+    # Verifikasi-adversarial temuan #1: killpg harus jalan di jalur SUKSES (bukan
+    # cuma cabang timeout), agar anak fork yang tetap hidup di grup ikut mati.
+    calls: list[int] = []
+    real_killpg = harness._killpg
+
+    def spy_killpg(pgid: int) -> None:
+        calls.append(pgid)
+        real_killpg(pgid)
+
+    monkeypatch.setattr(harness, "_killpg", spy_killpg)
+    # Solusi normal yang selesai SUKSES (bukan timeout) tetap memicu killpg grup.
+    assert score_code(f"{FENCE}python\n{GOOD_CODE}{FENCE}", REFERENCE_TEST) == 1.0
+    assert len(calls) == 1
+
+
+def test_score_code_kills_forked_child_on_success_path(tmp_path):
+    # End-to-end temuan #1: anak fork yang MELEPAS pipe (close fd 1/2) lalu spin
+    # membuat runner selesai NORMAL (skor benar 1.0), tapi anak harus tetap di-SIGKILL.
+    readyfile = tmp_path / "child.ready"
+    pidfile = tmp_path / "child.pid"
+    forking = (
+        "import os, time\n"
+        "pid = os.fork()\n"
+        "if pid == 0:\n"
+        f"    open({str(pidfile)!r}, 'w').write(str(os.getpid()))\n"
+        f"    open({str(readyfile)!r}, 'w').write('1')\n"
+        "    os.close(1)\n"
+        "    os.close(2)\n"
+        "    while True:\n"
+        "        time.sleep(0.05)\n"
+        "else:\n"
+        # Parent (runner import) menunggu anak siap dulu -> pidfile dijamin ada
+        # sebelum score_code kembali (hilangkan race).
+        f"    while not os.path.exists({str(readyfile)!r}):\n"
+        "        time.sleep(0.01)\n"
+        + GOOD_CODE
+    )
+    score = score_code(forking, REFERENCE_TEST)
+    assert score == 1.0  # jalur sukses: skor tetap benar
+    assert pidfile.exists()
+    child_pid = int(pidfile.read_text())
+    deadline = time.perf_counter() + 5.0
+    alive = True
+    while time.perf_counter() < deadline:
+        try:
+            os.kill(child_pid, 0)
+            time.sleep(0.02)
+        except ProcessLookupError:
+            alive = False
+            break
+    assert alive is False, "anak fork di grup harus di-SIGKILL saat score_code kembali"
+
+
+def test_score_code_runner_sees_clean_argv():
+    # Verifikasi-adversarial temuan #2: wrapper tak boleh membocorkan arg-nya ke
+    # sys.argv runner. Runner yang membaca argv harus melihat argv bersih (len 1),
+    # identik dengan invokasi lama `python reference_runner.py`.
+    argv_probe = (
+        "import json, sys\n"
+        "extra = sys.argv[1:]\n"  # harus kosong; '15'/duplikat = kebocoran wrapper
+        "print(json.dumps({'passed': 0 if extra else 1, 'total': 1}))\n"
+        "sys.exit(0)\n"
+    )
+    # Solusi apa pun; skor 1.0 HANYA jika runner melihat argv bersih.
+    assert score_code("x = 1\n", argv_probe) == 1.0
 
 
 def test_clean_env_strips_api_keys_keeps_path(monkeypatch):
