@@ -505,3 +505,63 @@ def test_fail_fast_keeps_partial_artifacts_and_stops() -> None:
     # Biaya T1 tetap ter-meter; close-out jalur gagal merefleksikannya.
     assert set(result.usage_total) == {"m1"}
     assert result.cost_usd == pytest.approx(0.003)
+
+
+def test_execute_splits_billed_and_credit_by_billing() -> None:
+    # m1 = card (cash), m2 = plan_included (credit). _finalize memisah dua-ledger.
+    cm = CostMeter()
+    plan = [
+        Task(id="T1", description="a", type="code", mode="one_shot"),
+        Task(id="T2", description="b", type="code", mode="one_shot"),
+    ]
+    supervisor = _StubSupervisor(plan)
+    router = _StubRouter({"T1": "m1", "T2": "m2"})
+    worker = Worker(
+        providers={
+            "m1": FakeProvider(responses=[_resp("art-1", "m1")], name="m1"),
+            "m2": FakeProvider(responses=[_resp("art-2", "m2")], name="m2"),
+        },
+        cost_meter=cm,
+    )
+    registry = Registry(
+        [
+            ModelInfo(
+                id="m1",
+                provider="fake",
+                strengths={"coding"},
+                context_window=100_000,
+                max_output_tokens=4_096,
+                supports_tools=False,
+                cost_per_1k_in=0.001,
+                cost_per_1k_out=0.002,
+                tier=2,
+                billing="card",
+            ),
+            ModelInfo(
+                id="m2",
+                provider="fake",
+                strengths={"coding"},
+                context_window=100_000,
+                max_output_tokens=4_096,
+                supports_tools=False,
+                cost_per_1k_in=0.001,
+                cost_per_1k_out=0.002,
+                tier=4,
+                billing="plan_included",
+            ),
+        ]
+    )
+    runtime = Runtime(
+        supervisor, router, _StubProjector(), worker, _StubSynthesizer(), registry, cm
+    )
+
+    result = runtime.execute("build")
+
+    assert result.status == "success"
+    # Tiap model: 1000/1000*0.001 + 1000/1000*0.002 = 0.003.
+    # m1 card -> billed; m2 plan_included -> credit.
+    assert result.billed_usd == pytest.approx(0.003)
+    assert result.credit_usd == pytest.approx(0.003)
+    # Invariant: cost_usd == billed_usd + credit_usd.
+    assert result.cost_usd == pytest.approx(result.billed_usd + result.credit_usd)
+    assert result.cost_usd == pytest.approx(0.006)

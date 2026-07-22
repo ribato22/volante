@@ -261,15 +261,19 @@ class Runtime:
         final: str | None,
         failed_task: str | None,
     ) -> RunResult:
-        # Cost close-out dipakai KEDUA jalur (sukses & gagal).
+        # Cost close-out dipakai KEDUA jalur (sukses & gagal). Dua-ledger:
+        # billed_usd = cash keluar (card); credit_usd = nilai konsumsi plan_* (bukan cash).
+        billed, credit = self.cost_meter.costs_usd(self.registry)
         return RunResult(
             status=status,
             final=final,
             partial_artifacts=bb.current_artifacts(),
             failed_task=failed_task,
             usage_total=self.cost_meter.totals(),
-            cost_usd=self.cost_meter.cost_usd(self.registry),
+            cost_usd=billed + credit,
             duration_ms=int((time.perf_counter() - started) * 1000),
+            billed_usd=billed,
+            credit_usd=credit,
         )
 
     async def aexecute(
