@@ -82,8 +82,13 @@ class AgenticWorker:
                 return await call_provider(provider, req, on_text)
             except (ProviderError, TimeoutError) as err:
                 last = err
-                retryable = isinstance(err, TimeoutError) or (
-                    isinstance(err, ProviderError) and err.retryable
+                # quota_exhausted (kuota/kredit langganan habis) TAK di-backoff:
+                # short-circuit -> Runtime me-reroute ke kandidat lain (§6.4),
+                # bukan tidur detik-an percuma.
+                quota = isinstance(err, ProviderError) and err.quota_exhausted
+                retryable = not quota and (
+                    isinstance(err, TimeoutError)
+                    or (isinstance(err, ProviderError) and err.retryable)
                 )
                 if retryable and attempt < self.max_retries:
                     await asyncio.sleep(0.5 * 2**attempt + random.uniform(0, 0.25))
@@ -91,8 +96,13 @@ class AgenticWorker:
                 break
         # Semua kegagalan keluar loop bersifat NON-retryable ke Runtime. Rantai
         # `from last` + status HTTP dipertahankan agar traceback/diagnosa tak hilang.
+        # quota_exhausted DIPROPAGASI (re-wrap lama membuangnya) agar Runtime bisa
+        # reroute jalur agentic alih-alih menggagalkan task (§6.4).
         raise ProviderError(
-            str(last), retryable=False, status=getattr(last, "status", None)
+            str(last),
+            retryable=False,
+            status=getattr(last, "status", None),
+            quota_exhausted=getattr(last, "quota_exhausted", False),
         ) from last
 
     async def run(

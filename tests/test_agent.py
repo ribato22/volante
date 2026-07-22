@@ -158,3 +158,38 @@ async def test_run_streams_when_on_text_given() -> None:
     )
     assert res.final_text == "done"
     assert "done" in "".join(got)  # teks final ter-stream
+
+
+class _QuotaThenNever:
+    """Provider yang langsung quota_exhausted (retryable False)."""
+
+    name = "quota"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(self, req):
+        self.calls += 1
+        raise _PE("plan quota exhausted", retryable=False, quota_exhausted=True)
+
+
+@pytest.mark.asyncio
+async def test_quota_exhausted_propagates_without_backoff(monkeypatch) -> None:
+    slept: list[float] = []
+
+    async def _no_sleep(delay: float) -> None:
+        slept.append(delay)  # rekam backoff tanpa tidur nyata
+
+    monkeypatch.setattr("baton.agent.asyncio.sleep", _no_sleep)
+
+    tools: ToolRegistry = {"run_python": _RecordingTool()}
+    provider = _QuotaThenNever()
+    worker = AgenticWorker({"m1": provider}, CostMeter(), max_retries=2)
+
+    with pytest.raises(_PE) as ei:
+        await worker.run(_req(), "m1", tools)
+
+    assert ei.value.quota_exhausted is True   # dipropagasi ke Runtime (bukan dibuang)
+    assert ei.value.retryable is False
+    assert provider.calls == 1                # short-circuit: TAK ada retry
+    assert slept == []                        # TAK ada backoff/sleep
