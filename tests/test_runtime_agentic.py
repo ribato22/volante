@@ -28,8 +28,11 @@ class _Sup:
 
 
 class _Router:
+    def route_ranked(self, task) -> list[str]:
+        return ["m1"]
+
     def route(self, task) -> str:
-        return "m1"
+        return self.route_ranked(task)[0]
 
 
 class _Projector:

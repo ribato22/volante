@@ -96,9 +96,10 @@ class Runtime:
         # fail-fast lewat return False — bukan crash yang membuang state.
         model_id = "unknown"
         try:
-            model_id = self.router.route(task)
+            model_ids = self.router.route_ranked(task)
+            model_id = model_ids[0] if model_ids else "unknown"
             return await self._run_task_body(
-                task, bb, run_id, sem, model_id, on_worker_text
+                task, bb, run_id, sem, model_ids, on_worker_text
             )
         except (ProviderError, TimeoutError):
             raise  # sudah ditangani di jalur masing-masing; tak akan sampai sini
@@ -123,67 +124,109 @@ class Runtime:
         bb: Blackboard,
         run_id: str,
         sem: asyncio.Semaphore,
-        model_id: str,
+        model_ids: list[str],
         on_worker_text: Callable[[str, str], None] | None = None,
     ) -> bool:
-        req = self.projector.project(task, model_id, bb)
-        req.run_id = run_id
-        req.task_id = task.id
-        req.attempt = 0
+        # Jalur agentic: reroute ditunda (§6.4). Pakai kandidat pertama, proyeksi
+        # sekali, dan biarkan _run_agentic mengambil slot fan-out sendiri (hindari
+        # akuisisi semaphore ganda -> deadlock).
         if task.mode == "agentic":
+            model_id = model_ids[0]
+            req = self.projector.project(task, model_id, bb)
+            req.run_id = run_id
+            req.task_id = task.id
+            req.attempt = 0
             return await self._run_agentic(
                 task, bb, run_id, sem, model_id, req, on_worker_text
             )
+
         # Stream one-shot ter-label task.id (output paralel terurai per-task).
         worker_cb = _task_cb(on_worker_text, task.id)
         last_err: Exception | None = None
-        async with sem:  # cap fan-out di sekitar seluruh siklus retry task
-            # attempt 0..max_retries inklusif => (max_retries + 1) percobaan.
-            for attempt in range(self.max_retries + 1):
-                req.attempt = attempt
-                try:
-                    resp = await asyncio.wait_for(
-                        self.worker.run_one_shot(req, model_id, worker_cb),
-                        timeout=self.call_timeout,
-                    )
-                except (ProviderError, TimeoutError) as err:
-                    last_err = err
-                    # Retry HANYA: ProviderError.retryable True, atau timeout call.
-                    retryable = isinstance(err, TimeoutError) or (
-                        isinstance(err, ProviderError) and err.retryable
-                    )
-                    if retryable and attempt < self.max_retries:
-                        await asyncio.sleep(
-                            0.5 * 2**attempt + random.uniform(0, 0.25)
+        last_model = model_ids[0]
+        async with sem:  # satu slot fan-out per task, membungkus loop kandidat+retry
+            for model_id in model_ids:
+                last_model = model_id
+                # RE-PROYEKSI WAJIB per kandidat: req lama ter-scope ke
+                # context_window/max_output model sebelumnya -> overflow di model
+                # lebih kecil (opus 200k -> kimi 128k -> llama 8k). Proyeksi ulang
+                # menjaga budget input & req.max_tokens benar untuk kandidat ini.
+                req = self.projector.project(task, model_id, bb)
+                req.run_id = run_id
+                req.task_id = task.id
+                req.attempt = 0
+                reroute = False
+                # attempt 0..max_retries inklusif => (max_retries + 1) percobaan.
+                for attempt in range(self.max_retries + 1):
+                    req.attempt = attempt
+                    try:
+                        resp = await asyncio.wait_for(
+                            self.worker.run_one_shot(req, model_id, worker_cb),
+                            timeout=self.call_timeout,
                         )
-                        continue
-                    break  # non-retryable, atau retry habis
-                now = time.time()
-                bb.append(
-                    Entry(
-                        run_id=run_id,
-                        task_id=task.id,
-                        attempt=attempt,
-                        kind="artifact",
-                        payload=_text_of(resp.content),
-                        model_id=resp.model,
-                        usage=resp.usage,
-                        timestamp=now,
+                    except (ProviderError, TimeoutError) as err:
+                        last_err = err
+                        # HANYA quota_exhausted memajukan ke kandidat berikutnya,
+                        # TANPA sleep (Codex hard-pause jam-an -> backoff percuma).
+                        if isinstance(err, ProviderError) and err.quota_exhausted:
+                            reroute = True
+                            break
+                        # Retry di kandidat SAMA hanya untuk transien/timeout.
+                        retryable = isinstance(err, TimeoutError) or (
+                            isinstance(err, ProviderError) and err.retryable
+                        )
+                        if retryable and attempt < self.max_retries:
+                            await asyncio.sleep(
+                                0.5 * 2**attempt + random.uniform(0, 0.25)
+                            )
+                            continue
+                        break  # non-retryable non-quota / retry habis -> GAGAL
+                    now = time.time()
+                    bb.append(
+                        Entry(
+                            run_id=run_id,
+                            task_id=task.id,
+                            attempt=attempt,
+                            kind="artifact",
+                            payload=_text_of(resp.content),
+                            model_id=resp.model,
+                            usage=resp.usage,
+                            timestamp=now,
+                        )
                     )
-                )
-                bb.append(
-                    Entry(
-                        run_id=run_id,
-                        task_id=task.id,
-                        attempt=attempt,
-                        kind="status",
-                        payload="success",
-                        model_id=resp.model,
-                        usage=None,
-                        timestamp=now,
+                    bb.append(
+                        Entry(
+                            run_id=run_id,
+                            task_id=task.id,
+                            attempt=attempt,
+                            kind="status",
+                            payload="success",
+                            model_id=resp.model,
+                            usage=None,
+                            timestamp=now,
+                        )
                     )
-                )
-                return True
+                    return True
+                if reroute:
+                    # Satu entry status ber-alasan per kandidat yang ditinggalkan
+                    # (trace blackboard memperlihatkan jalannya reroute).
+                    bb.append(
+                        Entry(
+                            run_id=run_id,
+                            task_id=task.id,
+                            attempt=req.attempt,
+                            kind="status",
+                            payload=f"reroute: quota_exhausted on {model_id}: {last_err}",
+                            model_id=model_id,
+                            usage=None,
+                            timestamp=time.time(),
+                        )
+                    )
+                    continue  # coba kandidat berikutnya TANPA sleep
+                # Kelengkapan walk [residu 1]: galat non-quota MENGGAGALKAN task,
+                # BUKAN menjalari kandidat berikutnya (bug proyeksi/kontrak jangan
+                # membakar tiap provider berurutan).
+                break
         # gagal final: rekam str(err) di entry status agar replayable.
         bb.append(
             Entry(
@@ -192,7 +235,7 @@ class Runtime:
                 attempt=req.attempt,
                 kind="status",
                 payload=f"failed: {last_err}",
-                model_id=model_id,
+                model_id=last_model,
                 usage=None,
                 timestamp=time.time(),
             )

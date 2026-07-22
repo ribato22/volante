@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from baton.cost import CostMeter
+from baton.projector import Projector
 from baton.providers.base import ProviderError
 from baton.providers.fake import FakeProvider
 from baton.registry import Registry
@@ -79,8 +80,11 @@ class _StubRouter:
     def __init__(self, mapping: dict[str, str]) -> None:
         self._mapping = mapping
 
+    def route_ranked(self, task: Task) -> list[str]:
+        return [self._mapping[task.id]]
+
     def route(self, task: Task) -> str:
-        return self._mapping[task.id]
+        return self.route_ranked(task)[0]
 
 
 class _StubProjector:
@@ -565,3 +569,84 @@ def test_execute_splits_billed_and_credit_by_billing() -> None:
     # Invariant: cost_usd == billed_usd + credit_usd.
     assert result.cost_usd == pytest.approx(result.billed_usd + result.credit_usd)
     assert result.cost_usd == pytest.approx(0.006)
+
+
+class _QuotaProvider:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.calls = 0
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        self.calls += 1
+        raise ProviderError("quota gone", retryable=False, quota_exhausted=True)
+
+
+class _RecordingProvider:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.seen_max_tokens: list[int] = []
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        self.seen_max_tokens.append(req.max_tokens)
+        return _resp("art-B", self.name)
+
+
+class _RankRouter:
+    def __init__(self, ranked: dict[str, list[str]]) -> None:
+        self._ranked = ranked
+
+    def route_ranked(self, task: Task) -> list[str]:
+        return list(self._ranked[task.id])
+
+    def route(self, task: Task) -> str:
+        return self.route_ranked(task)[0]
+
+
+def _sized_model(mid: str, ctx: int, max_out: int, *, billing: str = "card") -> ModelInfo:
+    return ModelInfo(
+        id=mid,
+        provider="fake",
+        strengths={"coding"},
+        context_window=ctx,
+        max_output_tokens=max_out,
+        supports_tools=False,
+        cost_per_1k_in=0.001,
+        cost_per_1k_out=0.002,
+        billing=billing,
+    )
+
+
+def test_reroute_quota_exhausted_tries_next_candidate_no_sleep(monkeypatch) -> None:
+    slept: list[float] = []
+
+    async def _fast_sleep(delay: float) -> None:
+        slept.append(delay)  # rekam backoff tanpa tidur nyata
+
+    monkeypatch.setattr("baton.runtime.asyncio.sleep", _fast_sleep)
+
+    cm = CostMeter()
+    plan = [Task(id="T1", description="only", type="code", mode="one_shot")]
+    supervisor = _StubSupervisor(plan)
+    router = _RankRouter({"T1": ["mA", "mB"]})
+    # Projector NYATA: buktikan re-proyeksi per kandidat (req.max_tokens = max_output B).
+    registry = Registry(
+        [_sized_model("mA", 200_000, 8_192), _sized_model("mB", 8_192, 2_048)]
+    )
+    projector = Projector(registry)
+    quota_a = _QuotaProvider("mA")
+    recording_b = _RecordingProvider("mB")
+    worker = Worker(providers={"mA": quota_a, "mB": recording_b}, cost_meter=cm)
+    runtime = Runtime(
+        supervisor, router, projector, worker, _StubSynthesizer(), registry, cm
+    )
+
+    result = runtime.execute("build")
+
+    assert result.status == "success"
+    assert result.partial_artifacts == {"T1": "art-B"}
+    # A dicoba tepat sekali (quota non-retryable), lalu reroute ke B.
+    assert quota_a.calls == 1
+    # RE-PROYEKSI: req untuk B memakai max_output B (2048), bukan A (8192).
+    assert recording_b.seen_max_tokens == [2_048]
+    # Reroute quota TANPA sleep (Codex hard-pause: backoff detik-an percuma).
+    assert slept == []
