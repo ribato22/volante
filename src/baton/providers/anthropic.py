@@ -5,7 +5,7 @@ from typing import Any
 
 import anthropic
 
-from baton.providers.base import ProviderError
+from baton.providers.base import ProviderError, classify_429, is_quota_exhausted
 from baton.types import (
     CanonicalRequest,
     CanonicalResponse,
@@ -27,15 +27,23 @@ def _retryable_status(status: int) -> bool:
     return status in _RETRYABLE_STATUSES or status >= 500
 
 
-def _to_provider_error(exc: Exception) -> ProviderError:
+def _to_provider_error(exc: Exception, billing: str = "card") -> ProviderError:
     # Timeout / connection failures are always retryable (status unknown).
-    # APITimeoutError subclasses APIConnectionError; check both for clarity.
     if isinstance(exc, (anthropic.APITimeoutError, anthropic.APIConnectionError)):
         return ProviderError(str(exc), retryable=True, status=None)
     status = getattr(exc, "status_code", None)
-    if isinstance(status, int):
-        return ProviderError(str(exc), retryable=_retryable_status(status), status=status)
-    return ProviderError(str(exc), retryable=False, status=None)
+    istatus = status if isinstance(status, int) else None
+    msg = str(exc)
+    # Credit/quota DEPLETION may arrive as 400 (credit balance) OR 429 (plan cap):
+    # detect via body/message, not status alone -> reroute, NO backoff (§6.3).
+    if is_quota_exhausted(msg):
+        return ProviderError(msg, retryable=False, status=istatus, quota_exhausted=True)
+    if istatus == 429:
+        retryable, quota = classify_429(msg, billing=billing)
+        return ProviderError(msg, retryable=retryable, status=429, quota_exhausted=quota)
+    if istatus is not None:
+        return ProviderError(msg, retryable=_retryable_status(istatus), status=istatus)
+    return ProviderError(msg, retryable=False, status=None)
 
 
 def _content_to_anthropic(blocks: list[Any]) -> list[dict[str, Any]]:
@@ -112,10 +120,18 @@ class AnthropicProvider:
 
     name: str
 
-    def __init__(self, api_key: str, model: str, timeout: float = 120.0) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        timeout: float = 120.0,
+        *,
+        billing: str = "card",
+    ) -> None:
         self.name = "anthropic"
         self.model = model
         self.timeout = timeout
+        self.billing = billing
         self._client = anthropic.AsyncAnthropic(api_key=api_key, timeout=timeout)
 
     async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
@@ -142,7 +158,7 @@ class AnthropicProvider:
         try:
             resp = await self._client.messages.create(**kwargs)
         except Exception as exc:  # noqa: BLE001 — mapped to ProviderError below
-            raise _to_provider_error(exc) from exc
+            raise _to_provider_error(exc, self.billing) from exc
         latency_ms = int((time.perf_counter() - start) * 1000)
 
         content = _extract_content(resp)
@@ -186,7 +202,7 @@ class AnthropicProvider:
                 if not stopped:
                     final = await s.get_final_message()
         except Exception as exc:  # noqa: BLE001 — mapped below
-            raise _to_provider_error(exc) from exc
+            raise _to_provider_error(exc, self.billing) from exc
         latency_ms = int((time.perf_counter() - start) * 1000)
         if stopped:
             # Early-stop: get_final_message tak tersedia; bangun response parsial dari

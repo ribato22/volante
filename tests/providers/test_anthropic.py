@@ -65,6 +65,12 @@ def _status_error(cls, status: int):
     return cls("boom", response=response, body=None)
 
 
+def _status_error_msg(cls, status: int, message: str):
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(status, request=request)
+    return cls(message, response=response, body=None)
+
+
 def _req(prompt: str = "hi") -> CanonicalRequest:
     return CanonicalRequest(messages=[text("user", prompt)], max_tokens=16)
 
@@ -155,6 +161,69 @@ async def test_unknown_error_is_non_retryable(monkeypatch):
         await provider.complete(_req())
     assert ei.value.retryable is False
     assert ei.value.status is None
+
+
+# --------------------------------------------------------------------------- #
+# Layer 1: quota_exhausted classification (residu 2)                           #
+# --------------------------------------------------------------------------- #
+async def test_credit_balance_400_is_quota_exhausted(monkeypatch):
+    # Anthropic depletion arrives as 400, not 429 -> detect via body, reroute.
+    exc = _status_error_msg(
+        anthropic.BadRequestError,
+        400,
+        "Your credit balance is too low to access the Claude API.",
+    )
+    provider = _provider_with(_FakeMessages(exc=exc), monkeypatch)
+    with pytest.raises(ProviderError) as ei:
+        await provider.complete(_req())
+    assert ei.value.quota_exhausted is True
+    assert ei.value.retryable is False
+    assert ei.value.status == 400
+
+
+async def test_429_insufficient_quota_is_quota_exhausted(monkeypatch):
+    exc = _status_error_msg(
+        anthropic.RateLimitError, 429, "You have exceeded your current quota for this plan."
+    )
+    provider = _provider_with(_FakeMessages(exc=exc), monkeypatch)
+    with pytest.raises(ProviderError) as ei:
+        await provider.complete(_req())
+    assert ei.value.quota_exhausted is True
+    assert ei.value.retryable is False
+    assert ei.value.status == 429
+
+
+async def test_429_transient_rate_limit_is_retryable(monkeypatch):
+    exc = _status_error_msg(
+        anthropic.RateLimitError, 429, "Rate limit exceeded, please try again in 12s."
+    )
+    provider = _provider_with(_FakeMessages(exc=exc), monkeypatch)
+    with pytest.raises(ProviderError) as ei:
+        await provider.complete(_req())
+    assert ei.value.retryable is True
+    assert ei.value.quota_exhausted is False
+    assert ei.value.status == 429
+
+
+async def test_429_ambiguous_card_defaults_transient(monkeypatch):
+    # message "boom" is ambiguous; default billing "card" -> transient, backoff correct.
+    exc = _status_error(anthropic.RateLimitError, 429)
+    provider = _provider_with(_FakeMessages(exc=exc), monkeypatch)
+    with pytest.raises(ProviderError) as ei:
+        await provider.complete(_req())
+    assert ei.value.retryable is True
+    assert ei.value.quota_exhausted is False
+
+
+async def test_429_ambiguous_plan_defaults_quota_exhausted(monkeypatch):
+    # Plan-backed model: ambiguous 429 -> quota_exhausted, reroute (residu 2).
+    fake = _FakeMessages(exc=_status_error(anthropic.RateLimitError, 429))
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(fake))
+    provider = AnthropicProvider(api_key="k", model="claude-test", billing="plan_included")
+    with pytest.raises(ProviderError) as ei:
+        await provider.complete(_req())
+    assert ei.value.quota_exhausted is True
+    assert ei.value.retryable is False
 
 
 # --------------------------------------------------------------------------- #
