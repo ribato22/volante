@@ -133,18 +133,11 @@ class Runtime:
         model_ids: list[str],
         on_worker_text: Callable[[str, str], None] | None = None,
     ) -> bool:
-        # Jalur agentic: reroute ditunda (§6.4). Pakai kandidat pertama, proyeksi
-        # sekali, dan biarkan _run_agentic mengambil slot fan-out sendiri (hindari
-        # akuisisi semaphore ganda -> deadlock).
+        # Jalur agentic: _run_agentic kini memiliki loop kandidatnya sendiri
+        # (proyeksi per-kandidat di dalam) dan mengambil slot fan-out sendiri
+        # (hindari akuisisi semaphore ganda -> deadlock).
         if task.mode == "agentic":
-            model_id = model_ids[0]
-            req = self.projector.project(task, model_id, bb)
-            req.run_id = run_id
-            req.task_id = task.id
-            req.attempt = 0
-            return await self._run_agentic(
-                task, bb, run_id, sem, model_id, req, on_worker_text
-            )
+            return await self._run_agentic(task, bb, run_id, sem, model_ids, on_worker_text)
 
         # Stream one-shot ter-label task.id (output paralel terurai per-task).
         worker_cb = _task_cb(on_worker_text, task.id)
@@ -278,7 +271,7 @@ class Runtime:
         return False
 
     async def _run_agentic(
-        self, task, bb, run_id: str, sem, model_id: str, req, on_worker_text=None
+        self, task, bb, run_id: str, sem, model_ids: list[str], on_worker_text=None
     ) -> bool:
         if self.agentic_worker is None:
             raise RuntimeError(f"task {task.id} is agentic but no agentic_worker configured")
@@ -290,45 +283,85 @@ class Runtime:
             sandbox = factory(workspace)
             tools = {"run_python": RunPythonTool(sandbox)}
         worker_cb = _task_cb(on_worker_text, task.id)  # stream agentic ter-label
+        last_err: Exception | None = None
+        # Satu slot fan-out membungkus SEMUA kandidat (satu task = satu slot). Cap
+        # per-provider (Phase 6) di luar lingkup follow-up ini.
         async with sem:
-            try:
-                res = await asyncio.wait_for(
-                    self.agentic_worker.run(req, model_id, tools, worker_cb),
-                    timeout=self.agentic_timeout,
-                )
-            except (ProviderError, TimeoutError) as err:
+            for model_id in model_ids:
+                # RE-PROJEKSI WAJIB per kandidat: context_window/max_output berbeda
+                # antar-model (opus 200k -> kimi 128k -> llama 8k); req kandidat lama
+                # akan overflow di model lebih kecil bila tak diproyeksi ulang.
+                req = self.projector.project(task, model_id, bb)
+                req.run_id = run_id
+                req.task_id = task.id
+                req.attempt = 0
+                try:
+                    res = await asyncio.wait_for(
+                        self.agentic_worker.run(req, model_id, tools, worker_cb),
+                        timeout=self.agentic_timeout,
+                    )
+                except (ProviderError, TimeoutError) as err:
+                    last_err = err
+                    # HANYA quota_exhausted memajukan ke kandidat berikut — TANPA sleep.
+                    # Reroute mid-agentic me-RESTART task dari awal pada kandidat baru:
+                    # turn parsial kandidat lama TIDAK direplay & tak dipersist sebagai
+                    # TurnRecord (biayanya sudah ter-meter di cost_meter, side-effect
+                    # workspace tetap ada). Keterbatasan ini DITERIMA & DIDOKUMENTASIKAN
+                    # (§6.4) — dikerjakan setelah jalur one-shot stabil.
+                    if isinstance(err, ProviderError) and err.quota_exhausted:
+                        bb.append(
+                            Entry(
+                                run_id=run_id, task_id=task.id, attempt=0, kind="status",
+                                payload=f"reroute: {model_id} quota_exhausted -> next candidate",
+                                model_id=model_id, usage=None, timestamp=time.time(),
+                            )
+                        )
+                        continue
+                    # Galat non-quota (timeout/retryable habis/non-retryable) MENGGAGALKAN
+                    # task — jangan jalari sisa kandidat (bug kontrak/semantik jangan
+                    # membakar tiap provider berurutan).
+                    bb.append(
+                        Entry(
+                            run_id=run_id, task_id=task.id, attempt=0, kind="status",
+                            payload=f"failed: {err}", model_id=model_id, usage=None,
+                            timestamp=time.time(),
+                        )
+                    )
+                    return False
+                # sukses di kandidat ini: jejak per-turn + artifact + status.
+                for tr in res.turns:
+                    bb.append(
+                        Entry(
+                            run_id=run_id, task_id=task.id, attempt=tr.index, kind=tr.kind,
+                            payload=tr.payload[:2000], model_id=tr.model_id, usage=tr.usage,
+                            timestamp=time.time(),
+                        )
+                    )
+                agg = res.usage_total.get(model_id)
                 bb.append(
                     Entry(
-                        run_id=run_id, task_id=task.id, attempt=0, kind="status",
-                        payload=f"failed: {err}", model_id=model_id, usage=None,
+                        run_id=run_id, task_id=task.id, attempt=0, kind="artifact",
+                        payload=res.final_text, model_id=model_id, usage=agg,
                         timestamp=time.time(),
                     )
                 )
-                return False
-        # jejak per-turn (kind baru; view lama tak terpengaruh)
-        for tr in res.turns:
-            bb.append(
-                Entry(
-                    run_id=run_id, task_id=task.id, attempt=tr.index, kind=tr.kind,
-                    payload=tr.payload[:2000], model_id=tr.model_id, usage=tr.usage,
-                    timestamp=time.time(),
+                bb.append(
+                    Entry(
+                        run_id=run_id, task_id=task.id, attempt=0, kind="status",
+                        payload="success", model_id=model_id, usage=None, timestamp=time.time(),
+                    )
                 )
-            )
-        agg = res.usage_total.get(model_id)
-        bb.append(
-            Entry(
-                run_id=run_id, task_id=task.id, attempt=0, kind="artifact",
-                payload=res.final_text, model_id=model_id, usage=agg,
-                timestamp=time.time(),
-            )
-        )
+                return True
+        # Semua kandidat quota_exhausted -> gagal (jejak reroute sudah ditulis di atas).
         bb.append(
             Entry(
                 run_id=run_id, task_id=task.id, attempt=0, kind="status",
-                payload="success", model_id=model_id, usage=None, timestamp=time.time(),
+                payload=f"failed: {last_err}",
+                model_id=model_ids[-1] if model_ids else "unknown",
+                usage=None, timestamp=time.time(),
             )
         )
-        return True
+        return False
 
     def _is_subscription(self, model_id: str) -> bool:
         # Model tak terdaftar (mis. Registry([]) di test) -> perlakukan sebagai
