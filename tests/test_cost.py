@@ -194,3 +194,46 @@ def test_cost_usd_equals_sum_of_billed_and_credit() -> None:
     billed, credit = m.costs_usd(reg)
     assert m.cost_usd(reg) == pytest.approx(billed + credit)
     assert m.cost_usd(reg) == pytest.approx(6.0)
+
+
+def test_add_cost_usd_keeps_totals_full_tokens() -> None:
+    # _totals WAJIB tetap memuat SEMUA token (usage_total utuh), apa pun cost_usd.
+    m = CostMeter()
+    m.add("a", Usage(prompt_tokens=100, completion_tokens=50), cost_usd=0.9)
+    totals = m.totals()
+    assert (totals["a"].prompt_tokens, totals["a"].completion_tokens) == (100, 50)
+
+
+def test_add_cost_usd_fully_direct_uses_authoritative_usd_not_rate() -> None:
+    # Setiap call membawa cost_usd otoritatif -> kontribusi = SUM cost_usd (bukan token*rate).
+    m = CostMeter()
+    m.add("p", Usage(prompt_tokens=1000, completion_tokens=1000), cost_usd=0.42)
+    reg = _FakeRegistry(
+        models={"p": _mi("p", cost_in=1.0, cost_out=2.0, billing="plan_included")}
+    )
+    billed, credit = m.costs_usd(reg)
+    # Rate akan menilai 3.0, tapi FULLY-direct -> credit == 0.42 (no rate double-count).
+    assert billed == 0.0
+    assert credit == pytest.approx(0.42)
+
+
+def test_add_cost_usd_mixed_direct_and_rate_same_model() -> None:
+    # residu-4 PER-CALL: satu call otoritatif (cost_usd), satu call fallback (rate).
+    m = CostMeter()
+    m.add("a", Usage(prompt_tokens=100, completion_tokens=100), cost_usd=5.0)  # direct
+    m.add("a", Usage(prompt_tokens=100, completion_tokens=100))               # rate/fallback
+    reg = _FakeRegistry(models={"a": _mi("a", cost_in=1.0, cost_out=2.0)})  # card -> billed
+    billed, credit = m.costs_usd(reg)
+    # total token=400, direct token=200 -> fraksi non-direct=0.5.
+    # full_rate = 200/1000*1.0 + 200/1000*2.0 = 0.6 ; amount = 0.6*0.5 + 5.0 = 5.3
+    assert billed == pytest.approx(5.3)
+    assert credit == 0.0
+    # _totals tetap utuh (usage_total): prompt 200, completion 200.
+    assert (m.totals()["a"].prompt_tokens, m.totals()["a"].completion_tokens) == (200, 200)
+
+
+def test_add_cost_usd_is_keyword_only() -> None:
+    # cost_usd WAJIB keyword-only -> pemanggil positional lama tak berubah artinya.
+    m = CostMeter()
+    with pytest.raises(TypeError):
+        m.add("a", Usage(prompt_tokens=1, completion_tokens=1), 0.5)  # type: ignore[misc]

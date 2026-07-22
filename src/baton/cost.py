@@ -19,7 +19,13 @@ class CostMeter:
         self._has_estimated: bool = False
         self._direct: dict[str, dict[str, float]] = {}  # model_id -> {"tokens", "usd"}
 
-    def add(self, model_id: str, usage: Usage) -> None:
+    def add(
+        self,
+        model_id: str,
+        usage: Usage,
+        *,
+        cost_usd: float | None = None,
+    ) -> None:
         current = self._totals.get(model_id)
         if current is None:
             # salin agar objek Usage milik pemanggil tak ikut termutasi
@@ -36,6 +42,15 @@ class CostMeter:
             )
         if usage.estimated:
             self._has_estimated = True
+        if cost_usd is not None:
+            # residu-4: catat token & dolar otoritatif call ini di bucket _direct
+            # terpisah (per-CALL), agar costs_usd tak double-count token*rate-nya.
+            bucket = self._direct.get(model_id)
+            if bucket is None:
+                bucket = {"tokens": 0.0, "usd": 0.0}
+                self._direct[model_id] = bucket
+            bucket["tokens"] += usage.prompt_tokens + usage.completion_tokens
+            bucket["usd"] += cost_usd
 
     def totals(self) -> dict[str, Usage]:
         # salinan dangkal: pemanggil boleh mengubah dict-nya tanpa merusak state internal
