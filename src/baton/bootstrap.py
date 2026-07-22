@@ -87,8 +87,19 @@ def _all_openai_compat_from_env(
     return slots
 
 
-def build_providers_from_env() -> tuple[Registry, dict[str, LLMProvider], str]:
+def build_providers_from_env(
+    prefer: str = "quality",
+    include_subscription: bool = False,
+) -> tuple[Registry, dict[str, LLMProvider], str]:
     """Bangun (registry, providers-by-model_id, baseline_model_id) dari env.
+
+    `prefer` = objektif routing (§6.2: cash_protect_quota|quality|local|cheap);
+    diterima di A1 tapi belum mengubah urutan baseline (wiring penuh: Phase A9,
+    default "quality" = perilaku sekarang). `include_subscription=False` (default) →
+    hanya provider API-key/base-url (perilaku sekarang; tes eval tetap hijau). `True`
+    → daftarkan provider langganan ClaudeCode/Codex + peringatan konsumsi kuota,
+    DITUNDA ke Phase A7/A8/A9 (provider tsb belum ada); no-op sadar di A1 agar
+    signature terkunci sudah bisa dipanggil CLI.
 
     Membaca ANTHROPIC_API_KEY, satu ATAU lebih slot OpenAI-compatible generik
     (OPENAI_COMPAT_* lalu OPENAI_COMPAT_2_*/_3_*… untuk Gemini/Groq/OpenRouter/DeepSeek
