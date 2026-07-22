@@ -110,3 +110,14 @@ def test_single_default_seed_routes_every_one_shot_task_type() -> None:
         for ttype in ("code", "research", "write", "analyze"):
             task = Task(id="t", description="d", type=ttype, mode="one_shot")
             assert router.route(task) == seed.id
+
+
+def test_route_ranked_returns_list_and_route_matches_first():
+    router = Router(Registry(_models()), prefer="cash_protect_quota")
+    ranked = router.route_ranked(_task("code"))
+    assert isinstance(ranked, list)
+    assert ranked  # never empty when a candidate matches
+    assert router.route(_task("code")) == ranked[0]
+    # tier-uniform default models (tier=2) at difficulty "medium" (desired 3):
+    # no tier-adequate candidate -> best-effort cash ranking == old min(cost_out).
+    assert ranked[0] == "openai_compat/local-coder"
