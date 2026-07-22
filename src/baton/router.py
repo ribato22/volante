@@ -56,8 +56,21 @@ class Router:
         if not adequate:
             # No tier-adequate candidate: best-effort over ALL matches (v1 back-compat).
             return [m.id for m in sorted(candidates, key=_rank_key)]
-        # Tier-adequate candidates found; rank by cash (subscription ~ $0 wins).
-        return [m.id for m in sorted(adequate, key=_rank_key)]
+        if task.difficulty == "hard":
+            # Hard: allow subscription; rank ALL adequate by cash (subscription ~ $0 wins).
+            return [m.id for m in sorted(adequate, key=_rank_key)]
+        # Non-hard: rank DIRECT (card) candidates only -> protects subscription quota.
+        direct = [m for m in adequate if m.billing not in _SUBSCRIPTION_BILLING]
+        if direct:
+            return [m.id for m in sorted(direct, key=_rank_key)]
+        # No tier-adequate direct option: fall back to subscription (best-effort) + log.
+        logger.info(
+            "using quota: no adequate direct candidate for task %r (difficulty=%s)",
+            task.id,
+            task.difficulty,
+        )
+        subscription = [m for m in adequate if m.billing in _SUBSCRIPTION_BILLING]
+        return [m.id for m in sorted(subscription, key=_rank_key)]
 
     def route(self, task: Task) -> str:
         return self.route_ranked(task)[0]

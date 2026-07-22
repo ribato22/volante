@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from baton.registry import Registry
@@ -195,3 +197,81 @@ def test_difficulty_filters_out_low_tier_models():
     ranked = router.route_ranked(_task("code", difficulty="hard"))
     assert "kimi/kimi-k2" not in ranked  # tier 3 < desired 4
     assert "ollama/llama3.2" not in ranked  # tier 1 < desired 4
+
+
+def test_non_hard_uses_direct_only_protecting_quota():
+    router = Router(Registry(_tiered_models()), prefer="cash_protect_quota")
+    # medium -> desired 3: adequate = claude-code(4,sub), anthropic(4,card), kimi(3,card).
+    # non-hard -> DIRECT only (subscription excluded); cash: kimi 0.0012 < anthropic 0.075.
+    ranked = router.route_ranked(_task("code", difficulty="medium"))
+    assert "claude-code/opus" not in ranked
+    assert ranked == ["kimi/kimi-k2", "anthropic/opus"]
+
+
+def test_trivial_task_picks_free_local_direct():
+    router = Router(Registry(_tiered_models()), prefer="cash_protect_quota")
+    # trivial -> desired 1: all card qualify; free ollama (cash $0) wins, sub excluded.
+    ranked = router.route_ranked(_task("code", difficulty="trivial"))
+    assert ranked[0] == "ollama/llama3.2"
+    assert "claude-code/opus" not in ranked
+
+
+def test_non_hard_falls_back_to_subscription_when_no_direct(caplog):
+    sub_only = [
+        ModelInfo(
+            id="claude-code/opus",
+            provider="claude_code",
+            strengths={"coding", "reasoning"},
+            context_window=200_000,
+            max_output_tokens=4_096,
+            supports_tools=True,
+            cost_per_1k_in=0.015,
+            cost_per_1k_out=0.075,
+            tier=4,
+            billing="plan_included",
+        ),
+        ModelInfo(
+            id="ollama/llama3.2",
+            provider="openai_compat",
+            strengths={"coding", "reasoning"},
+            context_window=8_192,
+            max_output_tokens=2_048,
+            supports_tools=False,
+            cost_per_1k_in=0.0,
+            cost_per_1k_out=0.0,
+            tier=1,
+            billing="card",
+        ),
+    ]
+    router = Router(Registry(sub_only), prefer="cash_protect_quota")
+    with caplog.at_level(logging.INFO, logger="baton.router"):
+        ranked = router.route_ranked(_task("code", difficulty="medium"))
+    # medium desired 3: ollama(1) too low -> only subscription is adequate ->
+    # best-effort fallback + honest log that quota is being used.
+    assert ranked == ["claude-code/opus"]
+    assert "using quota" in caplog.text
+
+
+def test_no_tier_adequate_falls_back_to_best_effort():
+    # Regression guard (post-A3.2-review): an Ollama-only registry (tier 1) with a
+    # "medium" task (desired tier 3) has NO tier-adequate candidate at all. The
+    # non-hard direct/subscription partition must not swallow this case: it must
+    # still fall back to the v1 best-effort ranking over ALL matches, returning the
+    # single candidate rather than raising or returning an empty list.
+    ollama_only = [
+        ModelInfo(
+            id="ollama/llama3.2",
+            provider="openai_compat",
+            strengths={"coding", "reasoning"},
+            context_window=8_192,
+            max_output_tokens=2_048,
+            supports_tools=False,
+            cost_per_1k_in=0.0,
+            cost_per_1k_out=0.0,
+            tier=1,
+            billing="card",
+        ),
+    ]
+    router = Router(Registry(ollama_only), prefer="cash_protect_quota")
+    ranked = router.route_ranked(_task("code", difficulty="medium"))
+    assert ranked == ["ollama/llama3.2"]
