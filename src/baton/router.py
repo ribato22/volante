@@ -18,6 +18,9 @@ _TYPE_STRENGTHS: dict[str, set[str]] = {
 # billing values that draw from a subscription pool (no cash), not a card.
 _SUBSCRIPTION_BILLING: set[str] = {"plan_included", "plan_credit"}
 
+# difficulty -> minimum acceptable model tier (unknown difficulty -> "medium").
+_DESIRED_TIER: dict[str, int] = {"trivial": 1, "easy": 2, "medium": 3, "hard": 4}
+
 
 def _cash(m: ModelInfo) -> float:
     # Subscription draws no cash (plan-backed pool); card pays the API rate.
@@ -48,7 +51,13 @@ class Router:
                 f"no model matches strengths={strengths} "
                 f"needs_tools={needs_tools} for task {task.id!r}"
             )
-        return [m.id for m in sorted(candidates, key=_rank_key)]
+        desired = _DESIRED_TIER.get(task.difficulty, 3)  # unknown -> medium (3)
+        adequate = [m for m in candidates if m.tier >= desired]
+        if not adequate:
+            # No tier-adequate candidate: best-effort over ALL matches (v1 back-compat).
+            return [m.id for m in sorted(candidates, key=_rank_key)]
+        # Tier-adequate candidates found; rank by cash (subscription ~ $0 wins).
+        return [m.id for m in sorted(adequate, key=_rank_key)]
 
     def route(self, task: Task) -> str:
         return self.route_ranked(task)[0]

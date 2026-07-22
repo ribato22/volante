@@ -52,8 +52,10 @@ def _models() -> list[ModelInfo]:
     ]
 
 
-def _task(type_: str, mode: str = "one_shot") -> Task:
-    return Task(id="t1", description="do the thing", type=type_, mode=mode)
+def _task(type_: str, mode: str = "one_shot", difficulty: str = "medium") -> Task:
+    return Task(
+        id="t1", description="do the thing", type=type_, mode=mode, difficulty=difficulty
+    )
 
 
 def test_route_code_picks_cheapest_coding_model():
@@ -121,3 +123,75 @@ def test_route_ranked_returns_list_and_route_matches_first():
     # tier-uniform default models (tier=2) at difficulty "medium" (desired 3):
     # no tier-adequate candidate -> best-effort cash ranking == old min(cost_out).
     assert ranked[0] == "openai_compat/local-coder"
+
+
+def _tiered_models() -> list[ModelInfo]:
+    # Subscription opus (plan_included, tier 4) vs API opus (card, tier 4) vs
+    # mid card (kimi, tier 3) vs free local (ollama, card $0, tier 1, no tools).
+    return [
+        ModelInfo(
+            id="claude-code/opus",
+            provider="claude_code",
+            strengths={"coding", "reasoning"},
+            context_window=200_000,
+            max_output_tokens=4_096,
+            supports_tools=True,
+            cost_per_1k_in=0.015,
+            cost_per_1k_out=0.075,
+            tier=4,
+            billing="plan_included",
+        ),
+        ModelInfo(
+            id="anthropic/opus",
+            provider="anthropic",
+            strengths={"coding", "reasoning"},
+            context_window=200_000,
+            max_output_tokens=8_192,
+            supports_tools=True,
+            cost_per_1k_in=0.015,
+            cost_per_1k_out=0.075,
+            tier=4,
+            billing="card",
+        ),
+        ModelInfo(
+            id="kimi/kimi-k2",
+            provider="openai_compat",
+            strengths={"coding", "reasoning"},
+            context_window=128_000,
+            max_output_tokens=4_096,
+            supports_tools=True,
+            cost_per_1k_in=0.0012,
+            cost_per_1k_out=0.0012,
+            tier=3,
+            billing="card",
+        ),
+        ModelInfo(
+            id="ollama/llama3.2",
+            provider="openai_compat",
+            strengths={"coding", "reasoning"},
+            context_window=8_192,
+            max_output_tokens=2_048,
+            supports_tools=False,
+            cost_per_1k_in=0.0,
+            cost_per_1k_out=0.0,
+            tier=1,
+            billing="card",
+        ),
+    ]
+
+
+def test_hard_task_allows_subscription_ranked_by_cash():
+    router = Router(Registry(_tiered_models()), prefer="cash_protect_quota")
+    # difficulty hard -> desired tier 4: only the two opus (tier 4) qualify;
+    # subscription cash $0 beats card $0.075 -> subscription first.
+    assert router.route_ranked(_task("code", difficulty="hard")) == [
+        "claude-code/opus",
+        "anthropic/opus",
+    ]
+
+
+def test_difficulty_filters_out_low_tier_models():
+    router = Router(Registry(_tiered_models()), prefer="cash_protect_quota")
+    ranked = router.route_ranked(_task("code", difficulty="hard"))
+    assert "kimi/kimi-k2" not in ranked  # tier 3 < desired 4
+    assert "ollama/llama3.2" not in ranked  # tier 1 < desired 4
