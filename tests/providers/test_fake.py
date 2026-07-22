@@ -1,8 +1,8 @@
 # tests/providers/test_fake.py
 from __future__ import annotations
 
-from orchestrator.providers.fake import FakeProvider
-from orchestrator.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage, text
+from baton.providers.fake import FakeProvider
+from baton.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage, text
 
 
 def _make_req(s: str) -> CanonicalRequest:

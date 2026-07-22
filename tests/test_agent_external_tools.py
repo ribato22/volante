@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orchestrator.agent import AgenticWorker
-from orchestrator.cost import CostMeter
-from orchestrator.providers.fake import FakeProvider
-from orchestrator.tools.fetch_url import FetchUrlTool
-from orchestrator.tools.run_python import RunPythonTool
-from orchestrator.tools.sandbox import Sandbox
-from orchestrator.types import (
+from baton.agent import AgenticWorker
+from baton.cost import CostMeter
+from baton.providers.fake import FakeProvider
+from baton.tools.fetch_url import FetchUrlTool
+from baton.tools.run_python import RunPythonTool
+from baton.tools.sandbox import Sandbox
+from baton.types import (
     CanonicalRequest,
     CanonicalResponse,
     TextBlock,
@@ -57,7 +57,7 @@ def _req() -> CanonicalRequest:
 async def test_agentic_loop_fetch_url_then_run_python(tmp_path: Path, monkeypatch) -> None:
     # fetch_url is host-mediated: patch httpx so NO network is touched.
     monkeypatch.setattr(
-        "orchestrator.tools.fetch_url.httpx.AsyncClient",
+        "baton.tools.fetch_url.httpx.AsyncClient",
         lambda **kw: _FakeClient(_FakeResp("PAGE-BODY", 200), **kw),
     )
     tools = {

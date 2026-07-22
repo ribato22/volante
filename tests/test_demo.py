@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import demo
 
-from orchestrator.agent import TurnRecord
-from orchestrator.registry import Registry
-from orchestrator.types import ModelInfo, Usage
+from baton.agent import TurnRecord
+from baton.registry import Registry
+from baton.types import ModelInfo, Usage
 
 
 def _m(mid: str, tools: bool) -> ModelInfo:

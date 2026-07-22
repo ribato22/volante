@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from orchestrator.tools.base import Tool, ToolRegistry
-from orchestrator.types import ToolSpec
+from baton.tools.base import Tool, ToolRegistry
+from baton.types import ToolSpec
 
 
 class _Echo:

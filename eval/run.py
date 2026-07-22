@@ -19,21 +19,21 @@ from typing import TYPE_CHECKING
 from eval.harness import run_suite
 from eval.tasks import EVAL_SUITE
 
-from orchestrator.agent import AgenticWorker
-from orchestrator.cost import CostMeter
-from orchestrator.projector import Projector
-from orchestrator.registry import Registry, default_models
-from orchestrator.router import Router
-from orchestrator.runtime import Runtime
-from orchestrator.supervisor import Supervisor
-from orchestrator.synthesizer import Synthesizer
-from orchestrator.types import ModelInfo
-from orchestrator.worker import Worker
+from baton.agent import AgenticWorker
+from baton.cost import CostMeter
+from baton.projector import Projector
+from baton.registry import Registry, default_models
+from baton.router import Router
+from baton.runtime import Runtime
+from baton.supervisor import Supervisor
+from baton.synthesizer import Synthesizer
+from baton.types import ModelInfo
+from baton.worker import Worker
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from orchestrator.providers.base import LLMProvider
+    from baton.providers.base import LLMProvider
 
 
 def _openai_compat_from_env(
@@ -143,8 +143,8 @@ def build_providers_from_env() -> tuple[Registry, dict[str, LLMProvider], str]:
     tak pernah me-route ke model tanpa backend. Prioritas baseline: Anthropic >
     OPENAI_COMPAT > Moonshot > Ollama. Import provider lazy supaya `import eval.run`
     tetap ringan/nol-jaringan."""
-    from orchestrator.providers.anthropic import AnthropicProvider
-    from orchestrator.providers.openai_compat import OpenAICompatProvider
+    from baton.providers.anthropic import AnthropicProvider
+    from baton.providers.openai_compat import OpenAICompatProvider
 
     providers: dict[str, LLMProvider] = {}
     extra_models: list[ModelInfo] = []

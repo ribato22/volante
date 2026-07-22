@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from orchestrator.providers.anthropic import AnthropicProvider
-from orchestrator.types import CanonicalRequest, TextBlock, ToolUseBlock, text
+from baton.providers.anthropic import AnthropicProvider
+from baton.types import CanonicalRequest, TextBlock, ToolUseBlock, text
 
 
 class _Blk:
@@ -55,7 +55,7 @@ def _provider(monkeypatch, deltas, final):
             self.messages = _Msgs()
 
     monkeypatch.setattr(
-        "orchestrator.providers.anthropic.anthropic.AsyncAnthropic", lambda **kw: _Client()
+        "baton.providers.anthropic.anthropic.AsyncAnthropic", lambda **kw: _Client()
     )
     return AnthropicProvider(api_key="k", model="claude-x")
 
@@ -87,7 +87,7 @@ async def test_stream_early_stop_returns_partial_without_final(monkeypatch) -> N
             self.messages = _Msgs()
 
     monkeypatch.setattr(
-        "orchestrator.providers.anthropic.anthropic.AsyncAnthropic", lambda **kw: _Client()
+        "baton.providers.anthropic.anthropic.AsyncAnthropic", lambda **kw: _Client()
     )
     p = AnthropicProvider(api_key="k", model="claude-x")
     got: list[str] = []

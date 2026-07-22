@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-from orchestrator.providers.openai_compat import OpenAICompatProvider
-from orchestrator.types import CanonicalRequest, TextBlock, text
+from baton.providers.openai_compat import OpenAICompatProvider
+from baton.types import CanonicalRequest, TextBlock, text
 
 pytestmark = pytest.mark.integration
 

@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-from orchestrator.cost import CostMeter
-from orchestrator.providers.fake import FakeProvider
-from orchestrator.supervisor import Supervisor
-from orchestrator.types import CanonicalResponse, Task, TextBlock, Usage
+from baton.cost import CostMeter
+from baton.providers.fake import FakeProvider
+from baton.supervisor import Supervisor
+from baton.types import CanonicalResponse, Task, TextBlock, Usage
 
 _PLANNER_MODEL = "anthropic/claude-sonnet-5"
 

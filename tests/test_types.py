@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import typing
 
-from orchestrator.types import (
+from baton.types import (
     CanonicalMessage,
     CanonicalRequest,
     CanonicalResponse,

@@ -4,9 +4,9 @@ import pytest
 from eval.harness import run_suite
 from eval.tasks import EVAL_SUITE
 
-from orchestrator.providers.fake import FakeProvider
-from orchestrator.registry import Registry
-from orchestrator.types import (
+from baton.providers.fake import FakeProvider
+from baton.registry import Registry
+from baton.types import (
     CanonicalResponse,
     ModelInfo,
     RunResult,

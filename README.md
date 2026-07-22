@@ -71,16 +71,16 @@ CrewAI / LiteLLM) as a study of how these systems actually work under the hood.
 
 | Component | File | Responsibility |
 |---|---|---|
-| Supervisor | `src/orchestrator/supervisor.py` | Decompose goal → validated task DAG |
-| Router | `src/orchestrator/router.py` | Task → model by strengths + tool support (cheapest match) |
-| Projector | `src/orchestrator/projector.py` | Scoped, budget-capped request from blackboard artifacts |
-| Worker | `src/orchestrator/worker.py` | One-shot model call |
-| AgenticWorker | `src/orchestrator/agent.py` | Model↔tool loop with per-turn records |
-| Blackboard | `src/orchestrator/blackboard.py` | Append-only shared state with provenance |
-| Synthesizer | `src/orchestrator/synthesizer.py` | Artifacts → final answer |
-| Runtime | `src/orchestrator/runtime.py` | Orchestrate: plan → waves → synthesize (streaming, fail-fast) |
-| Providers | `src/orchestrator/providers/` | Anthropic + OpenAI-compatible adapters (complete/stream/tools) |
-| Tools | `src/orchestrator/tools/` | Sandbox / DockerSandbox, run_python, fetch_url, read_file |
+| Supervisor | `src/baton/supervisor.py` | Decompose goal → validated task DAG |
+| Router | `src/baton/router.py` | Task → model by strengths + tool support (cheapest match) |
+| Projector | `src/baton/projector.py` | Scoped, budget-capped request from blackboard artifacts |
+| Worker | `src/baton/worker.py` | One-shot model call |
+| AgenticWorker | `src/baton/agent.py` | Model↔tool loop with per-turn records |
+| Blackboard | `src/baton/blackboard.py` | Append-only shared state with provenance |
+| Synthesizer | `src/baton/synthesizer.py` | Artifacts → final answer |
+| Runtime | `src/baton/runtime.py` | Orchestrate: plan → waves → synthesize (streaming, fail-fast) |
+| Providers | `src/baton/providers/` | Anthropic + OpenAI-compatible adapters (complete/stream/tools) |
+| Tools | `src/baton/tools/` | Sandbox / DockerSandbox, run_python, fetch_url, read_file |
 | Eval | `eval/` | 5 composite goals, 3-arm comparison, forgery-resistant scorer |
 
 ## Quickstart
@@ -210,7 +210,7 @@ This is a study project; its isolation guarantees are deliberately scoped and do
 ## Project layout
 
 ```text
-src/orchestrator/     # engine (importable package: `orchestrator`)
+src/baton/     # engine (importable package: `baton`)
   providers/          # Anthropic + OpenAI-compatible adapters, FakeProvider
   tools/              # Sandbox, DockerSandbox, run_python, fetch_url, read_file
 eval/                 # goals, 3-arm harness, forgery-resistant scorer, runner

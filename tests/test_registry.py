@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from orchestrator.registry import Registry
-from orchestrator.types import ModelInfo
+from baton.registry import Registry
+from baton.types import ModelInfo
 
 
 def _model(

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.tools.sandbox import ExecResult, Sandbox
+from baton.tools.sandbox import ExecResult, Sandbox
 
 
 async def test_runs_code_and_captures_stdout(tmp_path: Path) -> None:

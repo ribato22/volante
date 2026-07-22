@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from orchestrator.blackboard import Blackboard
-from orchestrator.cost import CostMeter
-from orchestrator.providers.fake import FakeProvider
-from orchestrator.synthesizer import Synthesizer
-from orchestrator.types import (
+from baton.blackboard import Blackboard
+from baton.cost import CostMeter
+from baton.providers.fake import FakeProvider
+from baton.synthesizer import Synthesizer
+from baton.types import (
     CanonicalRequest,
     CanonicalResponse,
     Entry,

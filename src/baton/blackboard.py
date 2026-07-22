@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from orchestrator.types import Entry, Task
+from baton.types import Entry, Task
 
 
 class Blackboard:

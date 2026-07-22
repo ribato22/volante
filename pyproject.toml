@@ -35,7 +35,7 @@ dependencies = [
     "httpx>=0.27",     # direct use in the host-mediated fetch_url tool
 ]
 
-# The distribution installs as `baton`; the importable package is `orchestrator`.
+# Distribution name and importable package are both `baton`.
 [project.urls]
 Homepage = "https://github.com/ribato/baton"
 Repository = "https://github.com/ribato/baton"
@@ -53,7 +53,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/orchestrator"]
+packages = ["src/baton"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

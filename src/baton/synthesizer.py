@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from orchestrator.blackboard import Blackboard
-from orchestrator.cost import CostMeter
-from orchestrator.providers.base import LLMProvider, call_provider
-from orchestrator.types import CanonicalRequest, TextBlock, text
+from baton.blackboard import Blackboard
+from baton.cost import CostMeter
+from baton.providers.base import LLMProvider, call_provider
+from baton.types import CanonicalRequest, TextBlock, text
 
 
 class Synthesizer:

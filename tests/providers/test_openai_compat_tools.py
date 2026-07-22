@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from orchestrator.providers.openai_compat import OpenAICompatProvider
-from orchestrator.types import (
+from baton.providers.openai_compat import OpenAICompatProvider
+from baton.types import (
     CanonicalMessage,
     CanonicalRequest,
     ToolResultBlock,
@@ -57,7 +57,7 @@ class _FakeClient:
 def _provider(monkeypatch, resp):
     client = _FakeClient(resp)
     monkeypatch.setattr(
-        "orchestrator.providers.openai_compat.AsyncOpenAI", lambda **kw: client
+        "baton.providers.openai_compat.AsyncOpenAI", lambda **kw: client
     )
     return OpenAICompatProvider(base_url="http://x/v1", api_key="k", model="kimi-x"), client
 

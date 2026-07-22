@@ -1,7 +1,7 @@
 # tests/test_registry_seed.py
 from __future__ import annotations
 
-from orchestrator.registry import Registry, default_models, default_registry
+from baton.registry import Registry, default_models, default_registry
 
 
 def test_default_registry_is_a_registry() -> None:

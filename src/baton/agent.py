@@ -5,10 +5,10 @@ import random
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from orchestrator.cost import CostMeter
-from orchestrator.providers.base import LLMProvider, ProviderError, call_provider
-from orchestrator.tools.base import ToolRegistry
-from orchestrator.types import (
+from baton.cost import CostMeter
+from baton.providers.base import LLMProvider, ProviderError, call_provider
+from baton.tools.base import ToolRegistry
+from baton.types import (
     CanonicalMessage,
     CanonicalRequest,
     CanonicalResponse,

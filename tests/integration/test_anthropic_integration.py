@@ -4,8 +4,8 @@ import os
 
 import pytest
 
-from orchestrator.providers.anthropic import AnthropicProvider
-from orchestrator.types import CanonicalRequest, text
+from baton.providers.anthropic import AnthropicProvider
+from baton.types import CanonicalRequest, text
 
 
 @pytest.mark.integration

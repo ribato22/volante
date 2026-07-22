@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orchestrator.tools.docker_sandbox import DockerSandbox
-from orchestrator.tools.sandbox import Sandbox, sandbox_for
+from baton.tools.docker_sandbox import DockerSandbox
+from baton.tools.sandbox import Sandbox, sandbox_for
 
 
 def test_default_is_subprocess(tmp_path: Path, monkeypatch) -> None:

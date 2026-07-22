@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from orchestrator.blackboard import Blackboard
-from orchestrator.projector import Projector
-from orchestrator.registry import Registry
-from orchestrator.types import Entry, ModelInfo, Task
+from baton.blackboard import Blackboard
+from baton.projector import Projector
+from baton.registry import Registry
+from baton.types import Entry, ModelInfo, Task
 
 
 def _model(**overrides) -> ModelInfo:

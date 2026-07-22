@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from orchestrator.providers.anthropic import AnthropicProvider
-from orchestrator.types import (
+from baton.providers.anthropic import AnthropicProvider
+from baton.types import (
     CanonicalMessage,
     CanonicalRequest,
     TextBlock,
@@ -45,7 +45,7 @@ class _FakeClient:
 def _provider(monkeypatch, resp) -> tuple[AnthropicProvider, _FakeClient]:
     client = _FakeClient(resp)
     monkeypatch.setattr(
-        "orchestrator.providers.anthropic.anthropic.AsyncAnthropic",
+        "baton.providers.anthropic.anthropic.AsyncAnthropic",
         lambda **kw: client,
     )
     return AnthropicProvider(api_key="k", model="claude-x"), client

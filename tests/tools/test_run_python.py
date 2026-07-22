@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orchestrator.tools.run_python import RunPythonTool
-from orchestrator.tools.sandbox import Sandbox
+from baton.tools.run_python import RunPythonTool
+from baton.tools.sandbox import Sandbox
 
 
 def _tool(tmp_path: Path, **kw) -> RunPythonTool:

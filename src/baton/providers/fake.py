@@ -1,7 +1,7 @@
-# src/orchestrator/providers/fake.py
+# src/baton/providers/fake.py
 from __future__ import annotations
 
-from orchestrator.types import (
+from baton.types import (
     CanonicalRequest,
     CanonicalResponse,
     TextBlock,

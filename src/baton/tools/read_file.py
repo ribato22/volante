@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orchestrator.types import ToolSpec
+from baton.types import ToolSpec
 
 
 class ReadFileTool:

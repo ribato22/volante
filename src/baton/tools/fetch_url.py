@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from orchestrator.types import ToolSpec
+from baton.types import ToolSpec
 
 
 class FetchUrlTool:

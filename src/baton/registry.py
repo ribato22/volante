@@ -1,7 +1,7 @@
-# src/orchestrator/registry.py
+# src/baton/registry.py
 from __future__ import annotations
 
-from orchestrator.types import ModelInfo
+from baton.types import ModelInfo
 
 
 class Registry:

@@ -4,9 +4,9 @@ import anthropic
 import httpx
 import pytest
 
-from orchestrator.providers.anthropic import AnthropicProvider
-from orchestrator.providers.base import ProviderError
-from orchestrator.types import CanonicalRequest, text
+from baton.providers.anthropic import AnthropicProvider
+from baton.providers.base import ProviderError
+from baton.types import CanonicalRequest, text
 
 
 # --------------------------------------------------------------------------- #

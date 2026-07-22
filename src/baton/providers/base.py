@@ -1,10 +1,10 @@
-# src/orchestrator/providers/base.py
+# src/baton/providers/base.py
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
-from orchestrator.types import CanonicalRequest, CanonicalResponse
+from baton.types import CanonicalRequest, CanonicalResponse
 
 # Callback progres streaming. Mengembalikan nilai TRUTHY = minta stream berhenti
 # lebih awal (cooperative cancel): adapter menutup koneksi dan mengembalikan response

@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import pytest
 
-from orchestrator.cost import CostMeter
-from orchestrator.providers.fake import FakeProvider
-from orchestrator.types import (
+from baton.cost import CostMeter
+from baton.providers.fake import FakeProvider
+from baton.types import (
     CanonicalRequest,
     CanonicalResponse,
     TextBlock,
     Usage,
     text,
 )
-from orchestrator.worker import Worker
+from baton.worker import Worker
 
 
 def _resp(

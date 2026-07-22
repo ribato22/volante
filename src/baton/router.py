@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from orchestrator.registry import Registry
-from orchestrator.types import ModelInfo, Task
+from baton.registry import Registry
+from baton.types import ModelInfo, Task
 
 # task.type -> required model strengths (Fase 0-1 rule table)
 _TYPE_STRENGTHS: dict[str, set[str]] = {

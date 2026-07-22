@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orchestrator.tools.read_file import ReadFileTool
+from baton.tools.read_file import ReadFileTool
 
 
 async def test_reads_file_under_root(tmp_path: Path) -> None:

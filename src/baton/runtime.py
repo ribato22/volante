@@ -8,20 +8,20 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from orchestrator.agent import AgenticWorker
-from orchestrator.blackboard import Blackboard
-from orchestrator.cost import CostMeter
-from orchestrator.projector import Projector
-from orchestrator.providers.base import ProviderError
-from orchestrator.registry import Registry
-from orchestrator.router import Router
-from orchestrator.supervisor import Supervisor
-from orchestrator.synthesizer import Synthesizer
-from orchestrator.tools.base import ToolRegistry
-from orchestrator.tools.run_python import RunPythonTool
-from orchestrator.tools.sandbox import Sandbox, sandbox_for
-from orchestrator.types import ContentBlock, Entry, RunResult, Task, TextBlock
-from orchestrator.worker import Worker
+from baton.agent import AgenticWorker
+from baton.blackboard import Blackboard
+from baton.cost import CostMeter
+from baton.projector import Projector
+from baton.providers.base import ProviderError
+from baton.registry import Registry
+from baton.router import Router
+from baton.supervisor import Supervisor
+from baton.synthesizer import Synthesizer
+from baton.tools.base import ToolRegistry
+from baton.tools.run_python import RunPythonTool
+from baton.tools.sandbox import Sandbox, sandbox_for
+from baton.types import ContentBlock, Entry, RunResult, Task, TextBlock
+from baton.worker import Worker
 
 
 def _text_of(content: list[ContentBlock]) -> str:

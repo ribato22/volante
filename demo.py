@@ -33,8 +33,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from orchestrator.agent import TurnRecord
-    from orchestrator.registry import Registry
+    from baton.agent import TurnRecord
+    from baton.registry import Registry
 
 
 def detect_providers(env: dict[str, str]) -> list[str]:
@@ -77,10 +77,10 @@ async def demo_agentic() -> None:
     apa pun yang terkonfigurasi — Anthropic ATAU Kimi (lintas-penyedia)."""
     from eval.run import build_providers_from_env
 
-    from orchestrator.agent import AgenticWorker
-    from orchestrator.cost import CostMeter
-    from orchestrator.tools.factory import build_agentic_tools
-    from orchestrator.types import CanonicalRequest, text
+    from baton.agent import AgenticWorker
+    from baton.cost import CostMeter
+    from baton.tools.factory import build_agentic_tools
+    from baton.types import CanonicalRequest, text
 
     registry, providers, _ = build_providers_from_env()
     model_id = pick_agentic_model(registry, providers)

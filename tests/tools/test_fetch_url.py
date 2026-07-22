@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from orchestrator.tools.fetch_url import FetchUrlTool
+from baton.tools.fetch_url import FetchUrlTool
 
 
 class _FakeResp:
@@ -26,7 +26,7 @@ class _FakeClient:
 
 def _patch(monkeypatch, resp, capture):
     monkeypatch.setattr(
-        "orchestrator.tools.fetch_url.httpx.AsyncClient",
+        "baton.tools.fetch_url.httpx.AsyncClient",
         lambda **kw: _FakeClient(resp, capture, **kw),
     )
 

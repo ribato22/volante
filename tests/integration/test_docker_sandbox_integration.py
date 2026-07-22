@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.tools.docker_sandbox import DockerSandbox
+from baton.tools.docker_sandbox import DockerSandbox
 
 pytestmark = pytest.mark.integration
 

@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import orchestrator.providers.openai_compat as oc
-from orchestrator.providers.base import ProviderError
-from orchestrator.types import CanonicalRequest, TextBlock, Usage, text
+import baton.providers.openai_compat as oc
+from baton.providers.base import ProviderError
+from baton.types import CanonicalRequest, TextBlock, Usage, text
 
 
 def _fake_response(

@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from orchestrator.providers.openai_compat import OpenAICompatProvider
-from orchestrator.types import CanonicalRequest, TextBlock, ToolUseBlock, text
+from baton.providers.openai_compat import OpenAICompatProvider
+from baton.types import CanonicalRequest, TextBlock, ToolUseBlock, text
 
 
 class _D:
@@ -41,7 +41,7 @@ def _provider(monkeypatch, chunks):
         chat = _Chat()
 
     monkeypatch.setattr(
-        "orchestrator.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client()
+        "baton.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client()
     )
     return OpenAICompatProvider(base_url="http://x/v1", api_key="k", model="kimi-x")
 
@@ -97,7 +97,7 @@ def _provider_with_stream(monkeypatch, stream_obj):
         chat = _Chat()
 
     monkeypatch.setattr(
-        "orchestrator.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client()
+        "baton.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client()
     )
     return OpenAICompatProvider(base_url="http://x/v1", api_key="k", model="kimi-x")
 

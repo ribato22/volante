@@ -5,8 +5,8 @@ import inspect
 
 import pytest
 
-from orchestrator.providers.base import LLMProvider, ProviderError, call_provider
-from orchestrator.types import (
+from baton.providers.base import LLMProvider, ProviderError, call_provider
+from baton.types import (
     CanonicalRequest,
     CanonicalResponse,
     TextBlock,

@@ -11,8 +11,8 @@ def test_runtime_sdks_importable() -> None:
     importlib.import_module("openai")
 
 
-def test_orchestrator_version() -> None:
-    mod = importlib.import_module("orchestrator")
+def test_baton_version() -> None:
+    mod = importlib.import_module("baton")
     assert mod.__version__ == "0.1.0"
 
 

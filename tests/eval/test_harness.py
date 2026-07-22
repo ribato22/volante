@@ -18,9 +18,9 @@ from eval.harness import (
 )
 from eval.tasks import REFERENCE_TEST, SLUGIFY_GOAL
 
-from orchestrator.providers.fake import FakeProvider
-from orchestrator.registry import Registry
-from orchestrator.types import (
+from baton.providers.fake import FakeProvider
+from baton.registry import Registry
+from baton.types import (
     CanonicalRequest,
     CanonicalResponse,
     ModelInfo,

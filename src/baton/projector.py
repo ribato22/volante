@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from orchestrator.blackboard import Blackboard
-from orchestrator.registry import Registry
-from orchestrator.types import CanonicalRequest, Task, text
+from baton.blackboard import Blackboard
+from baton.registry import Registry
+from baton.types import CanonicalRequest, Task, text
 
 _BUDGET_MARGIN = 0.85
 _CHARS_PER_TOKEN = 4

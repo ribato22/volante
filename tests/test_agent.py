@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from orchestrator.agent import AgenticResult, AgenticWorker
-from orchestrator.cost import CostMeter
-from orchestrator.providers.base import ProviderError as _PE
-from orchestrator.providers.fake import FakeProvider
-from orchestrator.tools.base import ToolRegistry
-from orchestrator.types import (
+from baton.agent import AgenticResult, AgenticWorker
+from baton.cost import CostMeter
+from baton.providers.base import ProviderError as _PE
+from baton.providers.fake import FakeProvider
+from baton.tools.base import ToolRegistry
+from baton.types import (
     CanonicalRequest,
     CanonicalResponse,
     TextBlock,

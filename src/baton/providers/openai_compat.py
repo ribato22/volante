@@ -1,4 +1,4 @@
-# src/orchestrator/providers/openai_compat.py
+# src/baton/providers/openai_compat.py
 from __future__ import annotations
 
 import inspect
@@ -8,8 +8,8 @@ from dataclasses import dataclass
 
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
 
-from orchestrator.providers.base import ProviderError
-from orchestrator.types import (
+from baton.providers.base import ProviderError
+from baton.types import (
     CanonicalMessage,
     CanonicalRequest,
     CanonicalResponse,

@@ -14,22 +14,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from orchestrator.agent import AgenticWorker
-from orchestrator.cost import CostMeter
-from orchestrator.providers.base import ProviderError
-from orchestrator.tools.run_python import RunPythonTool
-from orchestrator.tools.sandbox import sandbox_for
-from orchestrator.types import CanonicalRequest, TextBlock, text
+from baton.agent import AgenticWorker
+from baton.cost import CostMeter
+from baton.providers.base import ProviderError
+from baton.tools.run_python import RunPythonTool
+from baton.tools.sandbox import sandbox_for
+from baton.types import CanonicalRequest, TextBlock, text
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from eval.tasks import EvalTask
 
-    from orchestrator.providers.base import LLMProvider
-    from orchestrator.registry import Registry
-    from orchestrator.runtime import Runtime
-    from orchestrator.types import CanonicalResponse, RunResult, Usage
+    from baton.providers.base import LLMProvider
+    from baton.registry import Registry
+    from baton.runtime import Runtime
+    from baton.types import CanonicalResponse, RunResult, Usage
 
 EVAL_TEMPERATURE: float = 0.0
 EVAL_K: int = 2

@@ -4,12 +4,12 @@ import asyncio
 
 import pytest
 
-from orchestrator.cost import CostMeter
-from orchestrator.providers.base import ProviderError
-from orchestrator.providers.fake import FakeProvider
-from orchestrator.registry import Registry
-from orchestrator.runtime import Runtime
-from orchestrator.types import (
+from baton.cost import CostMeter
+from baton.providers.base import ProviderError
+from baton.providers.fake import FakeProvider
+from baton.registry import Registry
+from baton.runtime import Runtime
+from baton.types import (
     CanonicalRequest,
     CanonicalResponse,
     ModelInfo,
@@ -18,7 +18,7 @@ from orchestrator.types import (
     Usage,
     text,
 )
-from orchestrator.worker import Worker
+from baton.worker import Worker
 
 
 def _resp(txt: str, model: str, *, prompt: int = 1000, completion: int = 1000) -> CanonicalResponse:
@@ -362,7 +362,7 @@ def test_retryable_error_retries_then_fails_and_records_str_err(monkeypatch) -> 
     async def _fast_sleep(delay: float) -> None:
         slept.append(delay)  # rekam backoff, tanpa tidur nyata (test cepat)
 
-    monkeypatch.setattr("orchestrator.runtime.asyncio.sleep", _fast_sleep)
+    monkeypatch.setattr("baton.runtime.asyncio.sleep", _fast_sleep)
 
     cm = CostMeter()
     projector = _StubProjector()
@@ -392,7 +392,7 @@ def test_timeout_is_retryable_then_fails(monkeypatch) -> None:
     async def _fast_sleep(delay: float) -> None:
         return None
 
-    monkeypatch.setattr("orchestrator.runtime.asyncio.sleep", _fast_sleep)
+    monkeypatch.setattr("baton.runtime.asyncio.sleep", _fast_sleep)
 
     cm = CostMeter()
     projector = _StubProjector()

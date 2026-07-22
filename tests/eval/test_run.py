@@ -4,9 +4,9 @@ import eval.run as run
 import pytest
 from eval.run import format_report
 
-from orchestrator.registry import Registry
-from orchestrator.router import Router
-from orchestrator.types import Task
+from baton.registry import Registry
+from baton.router import Router
+from baton.types import Task
 
 _ARM_NAMES = ("baseline", "orchestration", "agentic")
 

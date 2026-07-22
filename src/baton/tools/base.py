@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from orchestrator.types import ToolSpec
+from baton.types import ToolSpec
 
 
 class Tool(Protocol):

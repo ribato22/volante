@@ -3,10 +3,10 @@ from __future__ import annotations
 import pytest
 from eval.harness import AgenticArmResult, run_agentic_single, score_agentic
 
-from orchestrator.providers.base import ProviderError
-from orchestrator.providers.fake import FakeProvider
-from orchestrator.registry import Registry
-from orchestrator.types import (
+from baton.providers.base import ProviderError
+from baton.providers.fake import FakeProvider
+from baton.registry import Registry
+from baton.types import (
     CanonicalRequest,
     CanonicalResponse,
     ModelInfo,

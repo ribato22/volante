@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from orchestrator.types import Usage
+from baton.types import Usage
 
 if TYPE_CHECKING:
-    from orchestrator.registry import Registry
+    from baton.registry import Registry
 
 
 class CostMeter:

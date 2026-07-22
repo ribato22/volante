@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from orchestrator.registry import Registry
-from orchestrator.router import Router
-from orchestrator.types import ModelInfo, Task
+from baton.registry import Registry
+from baton.router import Router
+from baton.types import ModelInfo, Task
 
 
 def _models() -> list[ModelInfo]:
@@ -103,7 +103,7 @@ def test_single_default_seed_routes_every_one_shot_task_type() -> None:
     # Regresi (audit-important): dengan HANYA satu provider default (mis. Ollama/Kimi
     # gratis), router harus bisa mengarahkan setiap jenis task one-shot -> orkestrasi
     # penuh (demo.py orchestrate) tak gagal routing untuk konfigurasi tunggal.
-    from orchestrator.registry import default_models
+    from baton.registry import default_models
 
     for seed in default_models():
         router = Router(Registry([seed]))
