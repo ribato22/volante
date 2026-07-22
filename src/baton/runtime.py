@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import random
 import shutil
 import time
@@ -22,6 +23,9 @@ from baton.tools.run_python import RunPythonTool
 from baton.tools.sandbox import Sandbox, sandbox_for
 from baton.types import ContentBlock, Entry, RunResult, Task, TextBlock
 from baton.worker import Worker
+
+# billing yang dihitung sebagai kuota langganan (bukan cash) untuk guard per-run.
+_SUBSCRIPTION_BILLING = frozenset({"plan_included", "plan_credit"})
 
 
 def _text_of(content: list[ContentBlock]) -> str:
@@ -79,6 +83,8 @@ class Runtime:
         self.runs_dir = Path(runs_dir) if runs_dir is not None else Path(".runs")
         self.agentic_timeout = agentic_timeout
         self.tools_factory = tools_factory
+        self._sub_cap = 4
+        self._sub_calls = 0
 
     async def _run_task(
         self,
@@ -155,6 +161,31 @@ class Runtime:
                 req.run_id = run_id
                 req.task_id = task.id
                 req.attempt = 0
+                if self._is_subscription(model_id) and self._sub_calls >= self._sub_cap:
+                    # Guard kuota per-run [residu 3]: cap tercapai -> perlakukan
+                    # kandidat langganan sebagai quota_exhausted, reroute ke direct
+                    # TANPA memanggil provider langganan.
+                    last_err = ProviderError(
+                        f"subscription cap {self._sub_cap} reached",
+                        retryable=False,
+                        quota_exhausted=True,
+                    )
+                    bb.append(
+                        Entry(
+                            run_id=run_id,
+                            task_id=task.id,
+                            attempt=0,
+                            kind="status",
+                            payload=(
+                                f"reroute: subscription cap {self._sub_cap} reached "
+                                f"({self._sub_calls} calls); skipping {model_id}"
+                            ),
+                            model_id=model_id,
+                            usage=None,
+                            timestamp=time.time(),
+                        )
+                    )
+                    continue
                 reroute = False
                 # attempt 0..max_retries inklusif => (max_retries + 1) percobaan.
                 for attempt in range(self.max_retries + 1):
@@ -181,6 +212,8 @@ class Runtime:
                             )
                             continue
                         break  # non-retryable non-quota / retry habis -> GAGAL
+                    if self._is_subscription(model_id):
+                        self._sub_calls += 1  # satu unit kuota langganan terpakai
                     now = time.time()
                     bb.append(
                         Entry(
@@ -295,6 +328,15 @@ class Runtime:
         )
         return True
 
+    def _is_subscription(self, model_id: str) -> bool:
+        # Model tak terdaftar (mis. Registry([]) di test) -> perlakukan sebagai
+        # 'direct' agar guard tak salah-picu (nol regresi).
+        try:
+            billing = self.registry.get(model_id).billing
+        except ValueError:
+            return False
+        return billing in _SUBSCRIPTION_BILLING
+
     def _finalize(
         self,
         bb: Blackboard,
@@ -331,6 +373,8 @@ class Runtime:
         # None = complete di semua fase (nol regresi).
         started = time.perf_counter()
         run_id = uuid.uuid4().hex
+        self._sub_cap = int(os.environ.get("BATON_MAX_SUBSCRIPTION_CALLS", "4"))
+        self._sub_calls = 0
         plan = await self.supervisor.plan(goal, on_text)
         bb = Blackboard(goal, plan)
         sem = asyncio.Semaphore(self.fan_out)

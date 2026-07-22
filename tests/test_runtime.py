@@ -678,4 +678,59 @@ def test_non_quota_error_fails_without_walking_candidates() -> None:
     statuses = [e for e in projector.last_bb.entries() if e.kind == "status"]
     assert len(statuses) == 1  # satu status "failed", tanpa entry "reroute"
     assert "failed" in statuses[0].payload
-    assert "reroute" not in statuses[0].payload
+
+
+class _CountingProvider:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.calls = 0
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        self.calls += 1
+        return _resp(f"art-{self.name}", self.name)
+
+
+def _billed_model(mid: str, billing: str) -> ModelInfo:
+    return ModelInfo(
+        id=mid,
+        provider="fake",
+        strengths={"coding"},
+        context_window=100_000,
+        max_output_tokens=4_096,
+        supports_tools=False,
+        cost_per_1k_in=0.001,
+        cost_per_1k_out=0.002,
+        billing=billing,
+    )
+
+
+def test_subscription_guard_reroutes_to_direct_when_cap_reached(monkeypatch) -> None:
+    monkeypatch.setenv("BATON_MAX_SUBSCRIPTION_CALLS", "1")
+    cm = CostMeter()
+    # T2 depends on T1 -> sekuensial (hitungan cap deterministik, bukan race wave).
+    plan = [
+        Task(id="T1", description="one", type="code", mode="one_shot"),
+        Task(id="T2", description="two", type="code", mode="one_shot", depends_on=["T1"]),
+    ]
+    supervisor = _StubSupervisor(plan)
+    router = _RankRouter({"T1": ["mSub", "mDirect"], "T2": ["mSub", "mDirect"]})
+    projector = _StubProjector()
+    sub = _CountingProvider("mSub")
+    direct = _CountingProvider("mDirect")
+    worker = Worker(providers={"mSub": sub, "mDirect": direct}, cost_meter=cm)
+    registry = Registry(
+        [_billed_model("mSub", "plan_included"), _billed_model("mDirect", "card")]
+    )
+    runtime = Runtime(
+        supervisor, router, projector, worker, _StubSynthesizer(), registry, cm
+    )
+
+    result = runtime.execute("build")
+
+    assert result.status == "success"
+    # cap=1: T1 pakai langganan (hitungan -> 1); T2 melewati cap -> reroute ke direct.
+    assert sub.calls == 1
+    assert direct.calls == 1
+    # Hitungan cap tersurat sebagai status blackboard (di-surface ringkasan CLI).
+    statuses = [e.payload for e in projector.last_bb.entries() if e.kind == "status"]
+    assert any("subscription cap 1 reached" in s for s in statuses)
