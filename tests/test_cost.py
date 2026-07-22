@@ -18,7 +18,7 @@ class _FakeRegistry:
         return self.models[model_id]
 
 
-def _mi(model_id: str, cost_in: float, cost_out: float) -> ModelInfo:
+def _mi(model_id: str, cost_in: float, cost_out: float, billing: str = "card") -> ModelInfo:
     return ModelInfo(
         id=model_id,
         provider="fake",
@@ -28,6 +28,7 @@ def _mi(model_id: str, cost_in: float, cost_out: float) -> ModelInfo:
         supports_tools=False,
         cost_per_1k_in=cost_in,
         cost_per_1k_out=cost_out,
+        billing=billing,
     )
 
 
@@ -129,3 +130,67 @@ def test_add_does_not_mutate_caller_usage() -> None:
     # objek Usage milik pemanggil tak boleh ikut ter-akumulasi
     assert (first.prompt_tokens, first.completion_tokens) == (10, 5)
     assert (m.totals()["a"].prompt_tokens, m.totals()["a"].completion_tokens) == (17, 8)
+
+
+def test_costs_usd_card_model_goes_to_billed() -> None:
+    m = CostMeter()
+    m.add("a", Usage(prompt_tokens=1000, completion_tokens=2000))
+    reg = _FakeRegistry(models={"a": _mi("a", cost_in=0.5, cost_out=1.5)})  # billing=card
+    billed, credit = m.costs_usd(reg)
+    # 1000/1000*0.5 + 2000/1000*1.5 = 0.5 + 3.0 = 3.5 -> semuanya ke billed (cash).
+    assert billed == pytest.approx(3.5)
+    assert credit == 0.0
+
+
+def test_costs_usd_plan_included_goes_to_credit() -> None:
+    m = CostMeter()
+    m.add("p", Usage(prompt_tokens=1000, completion_tokens=1000))
+    reg = _FakeRegistry(
+        models={"p": _mi("p", cost_in=1.0, cost_out=2.0, billing="plan_included")}
+    )
+    billed, credit = m.costs_usd(reg)
+    # Nilai konsumsi 3.0 -> credit (bukan cash); billed 0.0 (kejujuran §5.3).
+    assert billed == 0.0
+    assert credit == pytest.approx(3.0)
+
+
+def test_costs_usd_plan_credit_also_goes_to_credit() -> None:
+    m = CostMeter()
+    m.add("p", Usage(prompt_tokens=1000, completion_tokens=0))
+    reg = _FakeRegistry(
+        models={"p": _mi("p", cost_in=2.0, cost_out=9.0, billing="plan_credit")}
+    )
+    billed, credit = m.costs_usd(reg)
+    # plan_credit (dorman) juga -> credit untuk iterasi ini.
+    assert billed == 0.0
+    assert credit == pytest.approx(2.0)
+
+
+def test_costs_usd_mixes_card_billed_and_plan_credit() -> None:
+    m = CostMeter()
+    m.add("card", Usage(prompt_tokens=1000, completion_tokens=1000))
+    m.add("plan", Usage(prompt_tokens=1000, completion_tokens=1000))
+    reg = _FakeRegistry(
+        models={
+            "card": _mi("card", cost_in=1.0, cost_out=2.0),  # card -> billed
+            "plan": _mi("plan", cost_in=1.0, cost_out=2.0, billing="plan_included"),
+        }
+    )
+    billed, credit = m.costs_usd(reg)
+    assert billed == pytest.approx(3.0)
+    assert credit == pytest.approx(3.0)
+
+
+def test_cost_usd_equals_sum_of_billed_and_credit() -> None:
+    m = CostMeter()
+    m.add("card", Usage(prompt_tokens=1000, completion_tokens=1000))
+    m.add("plan", Usage(prompt_tokens=1000, completion_tokens=1000))
+    reg = _FakeRegistry(
+        models={
+            "card": _mi("card", cost_in=1.0, cost_out=2.0),
+            "plan": _mi("plan", cost_in=1.0, cost_out=2.0, billing="plan_included"),
+        }
+    )
+    billed, credit = m.costs_usd(reg)
+    assert m.cost_usd(reg) == pytest.approx(billed + credit)
+    assert m.cost_usd(reg) == pytest.approx(6.0)
