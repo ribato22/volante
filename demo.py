@@ -8,8 +8,16 @@ Set env (or a .env you export) first, then:
     uv run python demo.py eval       # 3-arm eval suite (baseline vs orchestration vs agentic)
 
 Env read: ANTHROPIC_API_KEY, MOONSHOT_API_KEY (+MOONSHOT_BASE_URL), OLLAMA_BASE_URL,
+a generic OpenAI-compatible slot OPENAI_COMPAT_BASE_URL (+OPENAI_COMPAT_KEY,
+OPENAI_COMPAT_MODEL, optional OPENAI_COMPAT_NAME/_CONTEXT/_MAX_OUTPUT/_TOOLS/_COST_IN/
+_COST_OUT) for Gemini/Groq/OpenRouter/DeepSeek/etc.,
 AIORCH_SANDBOX=docker (real container isolation; needs Docker up; default subprocess),
 DEMO_FETCH_ALLOWLIST=example.com,docs.python.org (adds fetch_url tool to the agentic run).
+
+  # e.g. free Google AI Studio Gemini Flash (top of the free tier by intelligence):
+  #   OPENAI_COMPAT_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/ \
+  #   OPENAI_COMPAT_KEY=<ai-studio-key> OPENAI_COMPAT_MODEL=gemini-2.5-flash \
+  #   OPENAI_COMPAT_NAME=google/gemini-flash uv run python demo.py orchestrate
 
 Only the pure helpers (detect_providers / pick_agentic_model / _fmt_turns) are unit-tested;
 the two run modes touch the network and are executed by you.
@@ -30,10 +38,13 @@ if TYPE_CHECKING:
 
 
 def detect_providers(env: dict[str, str]) -> list[str]:
-    """Nama provider yang terkonfigurasi di env (urut Anthropic, Kimi, Ollama)."""
+    """Nama provider yang terkonfigurasi di env (urut Anthropic, OpenAI-compat generik,
+    Kimi, Ollama)."""
     found: list[str] = []
     if env.get("ANTHROPIC_API_KEY"):
         found.append("anthropic")
+    if env.get("OPENAI_COMPAT_BASE_URL"):
+        found.append("openai-compat")
     if env.get("MOONSHOT_API_KEY"):
         found.append("kimi")
     if env.get("OLLAMA_BASE_URL"):
