@@ -650,3 +650,32 @@ def test_reroute_quota_exhausted_tries_next_candidate_no_sleep(monkeypatch) -> N
     assert recording_b.seen_max_tokens == [2_048]
     # Reroute quota TANPA sleep (Codex hard-pause: backoff detik-an percuma).
     assert slept == []
+
+
+def test_non_quota_error_fails_without_walking_candidates() -> None:
+    cm = CostMeter()
+    plan = [Task(id="T1", description="only", type="code", mode="one_shot")]
+    supervisor = _StubSupervisor(plan)
+    router = _RankRouter({"T1": ["mA", "mB"]})
+    projector = _StubProjector()
+    fail_a = _RaisingProvider(
+        "mA", ProviderError("bad request", retryable=False, status=400)
+    )
+    recording_b = _RecordingProvider("mB")
+    worker = Worker(providers={"mA": fail_a, "mB": recording_b}, cost_meter=cm)
+    runtime = Runtime(
+        supervisor, router, projector, worker, _StubSynthesizer(),
+        _registry("mA", "mB"), cm,
+    )
+
+    result = runtime.execute("build")
+
+    assert result.status == "failed"
+    assert result.failed_task == "T1"
+    # residu-1: galat non-retryable non-quota MENGGAGALKAN task -> B TAK dijalari.
+    assert fail_a.calls == 1
+    assert recording_b.seen_max_tokens == []
+    statuses = [e for e in projector.last_bb.entries() if e.kind == "status"]
+    assert len(statuses) == 1  # satu status "failed", tanpa entry "reroute"
+    assert "failed" in statuses[0].payload
+    assert "reroute" not in statuses[0].payload
