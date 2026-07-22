@@ -43,7 +43,8 @@ def detect_providers(env: dict[str, str]) -> list[str]:
     found: list[str] = []
     if env.get("ANTHROPIC_API_KEY"):
         found.append("anthropic")
-    if env.get("OPENAI_COMPAT_BASE_URL"):
+    # slot generik: OPENAI_COMPAT_BASE_URL (slot 1) atau OPENAI_COMPAT_2_/3_… (tambahan)
+    if any(k.startswith("OPENAI_COMPAT") and k.endswith("_BASE_URL") for k in env):
         found.append("openai-compat")
     if env.get("MOONSHOT_API_KEY"):
         found.append("kimi")

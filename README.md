@@ -165,13 +165,18 @@ Set environment variables for any subset; baseline priority is
 ```bash
 export OPENAI_COMPAT_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
 export OPENAI_COMPAT_KEY=<ai-studio-key>       # aistudio.google.com/apikey
-export OPENAI_COMPAT_MODEL=gemini-2.5-flash
+export OPENAI_COMPAT_MODEL=gemini-flash-latest # pick a current model from the endpoint's /models
 export OPENAI_COMPAT_NAME=google/gemini-flash
 uv run python demo.py orchestrate
 ```
 
 The generic slot defaults to industry-standard values (context 128k, output 8k, tool-capable, cost
 0 for free tiers) and registers its own `ModelInfo`, so cost/context accounting is correct.
+
+**Several providers at once** — add `OPENAI_COMPAT_2_*`, `OPENAI_COMPAT_3_*`, … (each with its own
+`model_id` / pricing / context). For example Gemini plus Groq, so the supervisor plans on Gemini
+while the cheaper Groq model runs the parallel workers — genuine cross-provider orchestration. See
+[`.env.example`](.env.example).
 
 ## Web UI
 

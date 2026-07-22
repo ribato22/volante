@@ -12,9 +12,10 @@ All notable changes to this project are documented here. The format is based on
 - Supervisor + routing engine: goal → validated task DAG → per-task model routing (by strengths and
   tool support) → scoped, budget-capped projection → wave execution (async fan-out, fail-fast) →
   synthesis, with a `CostMeter` (per-model usage/cost, estimated-flag propagation).
-- Provider adapters: `AnthropicProvider` and a tool-capable `OpenAICompatProvider`, plus a generic
-  `OPENAI_COMPAT_*` slot for any OpenAI-compatible endpoint (Gemini / Groq / OpenRouter / DeepSeek /
-  Ollama) with correct model_id, pricing, and context window.
+- Provider adapters: `AnthropicProvider` and a tool-capable `OpenAICompatProvider`, plus one or more
+  generic OpenAI-compatible slots (`OPENAI_COMPAT_*`, then `OPENAI_COMPAT_2_*`, `OPENAI_COMPAT_3_*`,
+  …) for any endpoints (Gemini / Groq / OpenRouter / DeepSeek / Ollama) at once — each with its own
+  model_id, pricing, and context window, enabling genuine cross-provider orchestration.
 - Hybrid execution: one-shot workers and an agentic model↔tool loop (`run_python` sandbox,
   host-mediated `fetch_url` / `read_file`).
 - Isolation: subprocess `Sandbox` (process-group kill, `RLIMIT_CPU`, scrubbed env) and an opt-in

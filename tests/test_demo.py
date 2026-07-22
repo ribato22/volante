@@ -22,6 +22,8 @@ def test_detect_providers() -> None:
         "ollama",
     ]
     assert demo.detect_providers({"OPENAI_COMPAT_BASE_URL": "u"}) == ["openai-compat"]
+    # slot generik bernomor juga terdeteksi
+    assert demo.detect_providers({"OPENAI_COMPAT_2_BASE_URL": "u"}) == ["openai-compat"]
     # urutan prioritas: anthropic > openai-compat > kimi > ollama
     assert demo.detect_providers(
         {"ANTHROPIC_API_KEY": "k", "OPENAI_COMPAT_BASE_URL": "u", "OLLAMA_BASE_URL": "u"}

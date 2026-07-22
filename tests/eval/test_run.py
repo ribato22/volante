@@ -213,3 +213,84 @@ def test_build_providers_wires_openai_compat_slot(monkeypatch):
     assert baseline == "google/gemini-flash"
     assert "google/gemini-flash" in providers
     assert registry.get("google/gemini-flash").context_window == 128_000
+
+
+# --- beberapa slot OpenAI-compatible (OPENAI_COMPAT_* + _2_*/_3_*) ------------
+
+
+def test_all_openai_compat_none_when_unset():
+    assert run._all_openai_compat_from_env({}) == []
+
+
+def test_all_openai_compat_collects_slot1_and_numbered():
+    env = {
+        "OPENAI_COMPAT_BASE_URL": "https://a/v1",
+        "OPENAI_COMPAT_MODEL": "gemini-flash-latest",
+        "OPENAI_COMPAT_NAME": "google/gemini-flash",
+        "OPENAI_COMPAT_2_BASE_URL": "https://api.groq.com/openai/v1",
+        "OPENAI_COMPAT_2_MODEL": "llama-3.3-70b-versatile",
+        "OPENAI_COMPAT_2_NAME": "groq/llama-3.3",
+        "OPENAI_COMPAT_2_COST_OUT": "0.0006",
+    }
+    slots = run._all_openai_compat_from_env(env)
+    assert [s[0].id for s in slots] == ["google/gemini-flash", "groq/llama-3.3"]
+    info2, base2, _key2, wire2 = slots[1]
+    assert base2 == "https://api.groq.com/openai/v1"
+    assert wire2 == "llama-3.3-70b-versatile"
+    assert info2.cost_per_1k_out == 0.0006  # harga per-slot benar (bukan numpang slot lain)
+
+
+def test_all_openai_compat_stops_at_gap():
+    # slot 1 + slot 3 tanpa slot 2 -> hanya slot 1 (penomoran kontigu mulai 2).
+    env = {
+        "OPENAI_COMPAT_BASE_URL": "https://a/v1",
+        "OPENAI_COMPAT_MODEL": "m1",
+        "OPENAI_COMPAT_3_BASE_URL": "https://c/v1",
+        "OPENAI_COMPAT_3_MODEL": "m3",
+    }
+    assert [s[0].id for s in run._all_openai_compat_from_env(env)] == ["openai-compat/m1"]
+
+
+def test_all_openai_compat_numbered_slot_requires_model():
+    with pytest.raises(RuntimeError, match="OPENAI_COMPAT_2_MODEL"):
+        run._all_openai_compat_from_env(
+            {
+                "OPENAI_COMPAT_BASE_URL": "https://a/v1",
+                "OPENAI_COMPAT_MODEL": "m1",
+                "OPENAI_COMPAT_2_BASE_URL": "https://b/v1",  # tanpa _2_MODEL
+            }
+        )
+
+
+def _clear_provider_env(monkeypatch):
+    for k in ("ANTHROPIC_API_KEY", "MOONSHOT_API_KEY", "OLLAMA_BASE_URL"):
+        monkeypatch.delenv(k, raising=False)
+    for n in ("", "_2", "_3", "_4"):
+        for suf in ("_BASE_URL", "_MODEL", "_KEY", "_NAME", "_COST_OUT"):
+            monkeypatch.delenv(f"OPENAI_COMPAT{n}{suf}", raising=False)
+
+
+def test_build_providers_wires_multiple_compat_slots(monkeypatch):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_COMPAT_BASE_URL", "https://a/v1")
+    monkeypatch.setenv("OPENAI_COMPAT_MODEL", "gemini-flash-latest")
+    monkeypatch.setenv("OPENAI_COMPAT_NAME", "google/gemini-flash")
+    monkeypatch.setenv("OPENAI_COMPAT_2_BASE_URL", "https://api.groq.com/openai/v1")
+    monkeypatch.setenv("OPENAI_COMPAT_2_MODEL", "llama-3.3-70b-versatile")
+    monkeypatch.setenv("OPENAI_COMPAT_2_NAME", "groq/llama-3.3")
+    registry, providers, baseline = run.build_providers_from_env()
+    assert baseline == "google/gemini-flash"  # slot 1 dulu -> baseline
+    assert {"google/gemini-flash", "groq/llama-3.3"} <= set(providers)
+    assert registry.get("groq/llama-3.3").provider == "openai_compat"
+
+
+def test_build_providers_duplicate_compat_id_raises(monkeypatch):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_COMPAT_BASE_URL", "https://a/v1")
+    monkeypatch.setenv("OPENAI_COMPAT_MODEL", "m")
+    monkeypatch.setenv("OPENAI_COMPAT_NAME", "dup/x")
+    monkeypatch.setenv("OPENAI_COMPAT_2_BASE_URL", "https://b/v1")
+    monkeypatch.setenv("OPENAI_COMPAT_2_MODEL", "m2")
+    monkeypatch.setenv("OPENAI_COMPAT_2_NAME", "dup/x")  # id sama -> error jelas
+    with pytest.raises(RuntimeError, match="duplicate model_id"):
+        run.build_providers_from_env()
