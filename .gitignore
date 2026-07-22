@@ -25,12 +25,13 @@ dist/
 .coverage
 htmlcov/
 
-# --- Riset / runtime artifacts ---
+# --- Research / runtime artifacts ---
 logs/
 *.log
 .eval_cache/
 .cache/
 runs/
+.runs/
 .docker_it_ws/
 
 # --- OS / editor ---

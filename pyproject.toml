@@ -1,13 +1,44 @@
 # pyproject.toml
 [project]
-name = "orchestrator"
+name = "baton"
 version = "0.1.0"
-description = "From-scratch AI orchestration engine"
+description = "Baton — a from-scratch, cross-provider multi-model AI orchestration engine (supervisor routing, agentic tools, forgery-resistant evaluation)."
+readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "ribato" }]
+keywords = [
+    "llm",
+    "ai-orchestration",
+    "multi-agent",
+    "agentic",
+    "supervisor",
+    "routing",
+    "anthropic",
+    "openai",
+    "evaluation",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: POSIX",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
 dependencies = [
     "anthropic>=0.40",
     "openai>=1.50",
 ]
+
+# The distribution installs as `baton`; the importable package is `orchestrator`.
+[project.urls]
+Homepage = "https://github.com/ribato/baton"
+Repository = "https://github.com/ribato/baton"
+Issues = "https://github.com/ribato/baton/issues"
 
 [dependency-groups]
 dev = [
