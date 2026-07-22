@@ -45,6 +45,8 @@ class ProviderError(Exception):
     `retryable` menggerakkan kebijakan backoff di Runtime (True -> retry dengan
     jitter; False -> fail-fast). `status` adalah kode HTTP hulu bila diketahui
     (None untuk galat transport/timeout tanpa status).
+    `quota_exhausted` menandai DEPLETION credit/quota (bukan rate-limit menit): Runtime
+    reroute ke kandidat berikutnya TANPA backoff (Layer 2). Selalu implikasi retryable=False.
     """
 
     def __init__(
@@ -53,7 +55,9 @@ class ProviderError(Exception):
         *,
         retryable: bool,
         status: int | None = None,
+        quota_exhausted: bool = False,
     ) -> None:
         super().__init__(message)
         self.retryable = retryable
         self.status = status
+        self.quota_exhausted = quota_exhausted

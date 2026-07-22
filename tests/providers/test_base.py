@@ -88,6 +88,23 @@ def test_provider_error_is_raisable_and_carries_flags() -> None:
     assert excinfo.value.status == 503
 
 
+# --- ProviderError.quota_exhausted (Layer 1 reroute, §6.3) ---
+
+def test_provider_error_quota_exhausted_defaults_to_false() -> None:
+    # Every existing construction (no kwarg) is a transient/normal error.
+    err = ProviderError("rate limited", retryable=True, status=429)
+    assert err.quota_exhausted is False
+
+
+def test_provider_error_quota_exhausted_can_be_set_true() -> None:
+    err = ProviderError(
+        "credit balance too low", retryable=False, status=400, quota_exhausted=True
+    )
+    assert err.quota_exhausted is True
+    # Contract: quota_exhausted=True MUST also be non-retryable (reroute, no backoff).
+    assert err.retryable is False
+
+
 # --- call_provider (helper stream-vs-complete tunggal) ---
 
 
