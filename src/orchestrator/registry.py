@@ -44,7 +44,9 @@ def default_models() -> list[ModelInfo]:
         ModelInfo(
             id="kimi/kimi-k2",
             provider="openai_compat",
-            strengths={"coding"},
+            # Catch-all {coding, reasoning}: router bisa mengarahkan SEMUA jenis task
+            # (code/research/write/analyze) ke model ini bila ia satu-satunya provider.
+            strengths={"coding", "reasoning"},
             context_window=128_000,
             max_output_tokens=4_096,
             supports_tools=True,
@@ -54,7 +56,10 @@ def default_models() -> list[ModelInfo]:
         ModelInfo(
             id="ollama/llama3.2",
             provider="openai_compat",
-            strengths={"cheap_fast"},
+            # Catch-all agar konfigurasi Ollama-saja (gratis) bisa menjalankan orkestrasi
+            # penuh. supports_tools=False -> task agentic tak dirutekan ke sini (jujur:
+            # llama3.2 default tak selalu patuh tool-calling).
+            strengths={"coding", "reasoning"},
             context_window=8_192,
             max_output_tokens=2_048,
             supports_tools=False,

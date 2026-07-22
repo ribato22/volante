@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-22
+
 ### Added
 - Supervisor + routing engine: goal → validated task DAG → per-task model routing (by strengths and
   tool support) → scoped, budget-capped projection → wave execution (async fan-out, fail-fast) →
@@ -23,4 +25,5 @@ All notable changes to this project are documented here. The format is based on
   a forgery-resistant scorer using process + filesystem separation with a nonce-authenticated RPC.
 - Project docs: README, LICENSE (MIT), SECURITY, CONTRIBUTING, CI, and design specs under `docs/`.
 
-[Unreleased]: https://github.com/ribato/baton/commits/main
+[Unreleased]: https://github.com/ribato/baton/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ribato/baton/releases/tag/v0.1.0

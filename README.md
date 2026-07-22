@@ -23,7 +23,8 @@ CrewAI / LiteLLM) as a study of how these systems actually work under the hood.
   Google AI Studio (Gemini), Groq, OpenRouter, DeepSeek, Moonshot (Kimi), local Ollama, and any
   other OpenAI-compatible endpoint — no code changes, just env vars.
 - **Hybrid one-shot / agentic.** Tasks run as a single call *or* as a model↔tool loop (`run_python`
-  in an isolated sandbox, plus host-mediated `fetch_url` / `read_file`).
+  in a subprocess sandbox — container-isolated under `AIORCH_SANDBOX=docker` — plus host-mediated
+  `fetch_url` / `read_file`).
 - **Shared context.** An append-only *blackboard* carries provenance; each task gets a scoped,
   budget-capped projection of only the dependency artifacts it needs.
 - **Streaming everywhere.** Live token streaming through the supervisor, workers, and synthesizer,
@@ -37,7 +38,7 @@ CrewAI / LiteLLM) as a study of how these systems actually work under the hood.
 
 ## Architecture
 
-```
+```text
                     ┌──────────────┐
    goal ──────────► │  Supervisor  │  plan → validated task DAG (acyclic, typed, one_shot|agentic)
                     └──────┬───────┘
@@ -103,6 +104,43 @@ uv run python demo.py               # show detected providers
 uv run python demo.py orchestrate   # full supervisor → workers → synth, streamed live
 uv run python demo.py agentic       # one cross-provider agentic coding task (run_python loop)
 uv run python demo.py eval          # 3-arm eval suite
+```
+
+### Example output
+
+`demo.py orchestrate` streams every phase live, then prints the result (illustrative):
+
+```text
+Orchestrate demo — planner/synth model=openai/gpt-4o-mini
+
+(planning + workers + synthesis stream live)
+[haiku] Threads run as one— / tasks bloom in parallel time, / the join gathers all.
+
+STATUS: success
+
+FINAL:
+Threads run as one—
+tasks bloom in parallel time,
+the join gathers all.
+
+cost: $0.001834
+```
+
+`demo.py eval` prints the 3-arm table (`format_report`); read the `VERDICT` with the warnings
+(illustrative numbers):
+
+```text
+GOAL          WINNER            BASE   ORCH   AGEN
+-------------------------------------------------
+slugify       orchestration     0.70   1.00   0.85
+roman         baseline          1.00   0.85   0.55
+calc          orchestration     0.55   0.85   0.70
+csv_stats     agentic           0.40   0.55   0.85
+json_flatten  orchestration     0.70   1.00   0.85
+-------------------------------------------------
+wins: baseline=1  orchestration=3  agentic=1  ties=0
+totals: baseline $0.0210  orchestration $0.0480  agentic $0.0350
+VERDICT: ORCHESTRATION
 ```
 
 ## Providers
@@ -171,7 +209,7 @@ This is a study project; its isolation guarantees are deliberately scoped and do
 
 ## Project layout
 
-```
+```text
 src/orchestrator/     # engine (importable package: `orchestrator`)
   providers/          # Anthropic + OpenAI-compatible adapters, FakeProvider
   tools/              # Sandbox, DockerSandbox, run_python, fetch_url, read_file
@@ -188,7 +226,7 @@ demo.py               # end-to-end demo (orchestrate | agentic | eval)
   by default (`uv run pytest -m integration` to opt in).
 - **Lint:** `uv run ruff check .` (line length 100; `E,F,I,UP,B`).
 - Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Security reports:
-  [SECURITY.md](SECURITY.md).
+  [SECURITY.md](SECURITY.md). Release notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## Roadmap
 

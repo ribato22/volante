@@ -97,3 +97,16 @@ def test_route_raises_valueerror_when_no_model_matches():
     router = Router(Registry(only_reasoner_no_tools))
     with pytest.raises(ValueError):
         router.route(_task("code"))
+
+
+def test_single_default_seed_routes_every_one_shot_task_type() -> None:
+    # Regresi (audit-important): dengan HANYA satu provider default (mis. Ollama/Kimi
+    # gratis), router harus bisa mengarahkan setiap jenis task one-shot -> orkestrasi
+    # penuh (demo.py orchestrate) tak gagal routing untuk konfigurasi tunggal.
+    from orchestrator.registry import default_models
+
+    for seed in default_models():
+        router = Router(Registry([seed]))
+        for ttype in ("code", "research", "write", "analyze"):
+            task = Task(id="t", description="d", type=ttype, mode="one_shot")
+            assert router.route(task) == seed.id

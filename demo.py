@@ -4,7 +4,7 @@ Set env (or a .env you export) first, then:
 
     uv run python demo.py            # show detected providers + usage
     uv run python demo.py agentic    # one cross-provider agentic coding task (run_python loop)
-    uv run python demo.py orchestrate  # full supervisor->workers->synth, planning+synth stream live
+    uv run python demo.py orchestrate  # full supervisor->workers->synth, all phases stream live
     uv run python demo.py eval       # 3-arm eval suite (baseline vs orchestration vs agentic)
 
 Env read: ANTHROPIC_API_KEY, MOONSHOT_API_KEY (+MOONSHOT_BASE_URL), OLLAMA_BASE_URL,
@@ -131,9 +131,10 @@ async def demo_agentic() -> None:
 
 
 async def demo_orchestrate() -> None:
-    """Orkestrasi penuh (supervisor -> workers paralel -> synthesizer) dengan fase
-    SEKUENSIAL (planning + sintesis) ter-stream live via on_text. Worker paralel tak
-    di-stream (teks antar-task akan bercampur). Butuh provider terkonfigurasi."""
+    """Orkestrasi penuh (supervisor -> workers paralel -> synthesizer) ter-stream live:
+    fase sekuensial (planning + sintesis) via on_text, dan worker PARALEL via
+    on_worker_text yang di-prefix `[task_id]` sehingga output antar-task terurai (tak
+    bercampur). Butuh provider terkonfigurasi."""
     from eval.run import build_providers_from_env, make_runtime_factory
 
     try:

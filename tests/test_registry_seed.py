@@ -27,35 +27,54 @@ def test_anthropic_seed_coding_reasoning_tools_large_window() -> None:
     assert opus.context_window >= 100_000
 
 
-def test_kimi_seed_is_coding_and_cheaper_than_opus() -> None:
+def test_kimi_seed_is_catch_all_and_cheaper_than_opus() -> None:
     reg = default_registry()
     kimi = reg.get("kimi/kimi-k2")
     opus = reg.get("anthropic/claude-opus-4-8")
     assert kimi.provider == "openai_compat"
-    assert "coding" in kimi.strengths
+    # Catch-all strengths -> routable untuk semua task type (Kimi-saja bisa orkestrasi).
+    assert {"coding", "reasoning"}.issubset(kimi.strengths)
     assert kimi.cost_per_1k_in < opus.cost_per_1k_in
     assert kimi.cost_per_1k_out < opus.cost_per_1k_out
 
 
-def test_ollama_seed_cheap_fast_no_tools_small_window() -> None:
+def test_ollama_seed_catch_all_no_tools_small_window() -> None:
     ollama = default_registry().get("ollama/llama3.2")
     assert ollama.provider == "openai_compat"
-    assert ollama.strengths == {"cheap_fast"}
+    # Catch-all agar Ollama-saja (gratis) bisa menjalankan orkestrasi penuh...
+    assert {"coding", "reasoning"}.issubset(ollama.strengths)
+    # ...tapi tak tool-capable -> task agentic tak dirutekan ke sini.
     assert ollama.supports_tools is False
     assert ollama.context_window <= 32_000
 
 
-def test_matching_over_default_registry_picks_exact_models() -> None:
+def test_every_seed_routes_all_one_shot_task_types() -> None:
+    # Regresi (audit-important): tiap model default (termasuk Ollama-saja / Kimi-saja)
+    # cocok untuk strengths yang diperlukan SEMUA task type one-shot -> tak ada
+    # konfigurasi tunggal yang membuat orkestrasi gagal routing.
+    for m in default_models():
+        assert {"coding"}.issubset(m.strengths)
+        assert {"reasoning"}.issubset(m.strengths)
+
+
+def test_matching_over_default_registry() -> None:
     reg = default_registry()
 
+    # Semua seed punya coding + reasoning -> matching mengembalikan ketiganya.
     coders = reg.matching({"coding"})
-    assert {m.id for m in coders} == {"anthropic/claude-opus-4-8", "kimi/kimi-k2"}
+    assert {m.id for m in coders} == {
+        "anthropic/claude-opus-4-8",
+        "kimi/kimi-k2",
+        "ollama/llama3.2",
+    }
+    assert {m.id for m in reg.matching({"reasoning"})} == {m.id for m in coders}
 
+    # needs_tools menyaring Ollama (supports_tools=False).
     reasoning_with_tools = reg.matching({"reasoning"}, needs_tools=True)
-    assert [m.id for m in reasoning_with_tools] == ["anthropic/claude-opus-4-8"]
+    assert {m.id for m in reasoning_with_tools} == {
+        "anthropic/claude-opus-4-8",
+        "kimi/kimi-k2",
+    }
 
-    fast = reg.matching({"cheap_fast"})
-    assert [m.id for m in fast] == ["ollama/llama3.2"]
-
-    fast_with_tools = reg.matching({"cheap_fast"}, needs_tools=True)
-    assert fast_with_tools == []
+    # `cheap_fast` tak dipakai model mana pun lagi -> tak cocok apa pun.
+    assert reg.matching({"cheap_fast"}) == []
