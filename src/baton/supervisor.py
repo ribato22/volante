@@ -21,6 +21,7 @@ _PLAN_SYSTEM = (
     '"id" (unique string), "description" (string), '
     '"type" (one of: research, code, write, analyze), '
     '"mode" (one of: one_shot, agentic), '
+    '"difficulty" (one of: trivial, easy, medium, hard), '
     'and "depends_on" (array of task ids that must finish first). '
     "Do not include any prose or markdown outside the JSON array."
 )

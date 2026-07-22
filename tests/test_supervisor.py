@@ -361,6 +361,14 @@ async def test_plan_reads_difficulty_leniently() -> None:
     assert by_id["d"].difficulty == "medium"  # non-string -> lenient default
 
 
+def test_plan_system_prompt_requests_difficulty() -> None:
+    from baton.supervisor import _PLAN_SYSTEM
+
+    assert "difficulty" in _PLAN_SYSTEM
+    for label in ("trivial", "easy", "medium", "hard"):
+        assert label in _PLAN_SYSTEM
+
+
 async def test_reentrant_call_is_not_billed() -> None:
     # PATCH: guard non-re-entrant raise SEBELUM complete() -> panggilan kedua
     # tidak menyentuh provider dan tidak menagih apa pun. Response kedua (999)
