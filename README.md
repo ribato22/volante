@@ -29,6 +29,8 @@ CrewAI / LiteLLM) as a study of how these systems actually work under the hood.
   budget-capped projection of only the dependency artifacts it needs.
 - **Streaming everywhere.** Live token streaming through the supervisor, workers, and synthesizer,
   with per-task labels for parallel workers and cooperative early-stop.
+- **Optional Web UI.** A small FastAPI + SSE app streams a run live in the browser (plan → per-task
+  worker output → synthesis → result); runs with real providers or a no-key demo.
 - **Cost & honesty.** A `CostMeter` tallies per-model usage and cost, and propagates an *estimated*
   flag when a provider returns no usage.
 - **Forgery-resistant evaluation.** A 3-arm eval (baseline vs. orchestration vs. single-agent) with
@@ -171,6 +173,21 @@ uv run python demo.py orchestrate
 The generic slot defaults to industry-standard values (context 128k, output 8k, tool-capable, cost
 0 for free tiers) and registers its own `ModelInfo`, so cost/context accounting is correct.
 
+## Web UI
+
+An optional [FastAPI](https://fastapi.tiangolo.com/) + Server-Sent-Events app streams a run live in
+the browser — the plan, each parallel worker's output (labelled per task), the synthesis, and the
+final result with cost. It uses your configured providers, or a built-in `FakeProvider` demo if none
+are set (so it runs with no API key).
+
+```bash
+uv sync --extra ui
+uv run python -m webui          # then open http://127.0.0.1:8000
+```
+
+`BATON_UI_HOST` / `BATON_UI_PORT` override the bind address. The page inserts all model output via
+`textContent` only (never raw HTML), so streamed text cannot inject markup.
+
 ## Evaluation
 
 `demo.py eval` runs a **3-arm** comparison over 5 composite coding goals: **baseline** (one strong
@@ -214,6 +231,7 @@ src/baton/     # engine (importable package: `baton`)
   providers/          # Anthropic + OpenAI-compatible adapters, FakeProvider
   tools/              # Sandbox, DockerSandbox, run_python, fetch_url, read_file
 eval/                 # goals, 3-arm harness, forgery-resistant scorer, runner
+webui/                # optional FastAPI + SSE web UI (uv run python -m webui)
 tests/                # 330+ tests (unit + opt-in integration)
 docs/superpowers/     # design specs and implementation plans
 demo.py               # end-to-end demo (orchestrate | agentic | eval)

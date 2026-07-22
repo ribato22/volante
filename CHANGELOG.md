@@ -23,6 +23,9 @@ All notable changes to this project are documented here. The format is based on
   streaming and cooperative early-stop.
 - Evaluation: 5 composite goals, a 3-arm comparison (baseline / orchestration / agentic-single), and
   a forgery-resistant scorer using process + filesystem separation with a nonce-authenticated RPC.
+- Optional Web UI (`webui/`): a FastAPI + Server-Sent-Events app that streams a run live in the
+  browser (plan, per-task worker output, synthesis, result); uses real providers or a no-key
+  `FakeProvider` demo. Install with the `ui` extra; run via `python -m webui`.
 - Project docs: README, LICENSE (MIT), SECURITY, CONTRIBUTING, CI, and design specs under `docs/`.
 
 [Unreleased]: https://github.com/ribato/baton/compare/v0.1.0...HEAD
