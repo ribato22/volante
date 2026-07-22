@@ -5,7 +5,14 @@ import inspect
 
 import pytest
 
-from baton.providers.base import LLMProvider, ProviderError, call_provider
+from baton.providers.base import (
+    LLMProvider,
+    ProviderError,
+    call_provider,
+    classify_429,
+    is_quota_exhausted,
+    is_transient_rate_limit,
+)
 from baton.types import (
     CanonicalRequest,
     CanonicalResponse,
@@ -103,6 +110,60 @@ def test_provider_error_quota_exhausted_can_be_set_true() -> None:
     assert err.quota_exhausted is True
     # Contract: quota_exhausted=True MUST also be non-retryable (reroute, no backoff).
     assert err.retryable is False
+
+
+# --- 429 classification helpers (residu 2) ---
+
+@pytest.mark.parametrize(
+    "msg",
+    [
+        "Your credit balance is too low to access the Claude API.",
+        "Error code: 429 - insufficient_quota",
+        "You exceeded your current quota, please check your plan and billing details.",
+        "billing_hard_limit_reached",
+    ],
+)
+def test_is_quota_exhausted_true_for_depletion(msg: str) -> None:
+    assert is_quota_exhausted(msg) is True
+
+
+@pytest.mark.parametrize(
+    "msg",
+    [
+        "Rate limit reached for requests per min. Please try again in 20s.",
+        "boom",
+        "429 Too Many Requests",
+    ],
+)
+def test_is_quota_exhausted_false_for_transient_or_ambiguous(msg: str) -> None:
+    assert is_quota_exhausted(msg) is False
+
+
+def test_is_transient_rate_limit_true_and_false() -> None:
+    assert is_transient_rate_limit("Rate limit reached, try again in 5s") is True
+    assert is_transient_rate_limit("insufficient_quota") is False
+
+
+def test_classify_429_depletion_signal_beats_billing() -> None:
+    # Body signal wins over billing default, even on a card model.
+    assert classify_429("insufficient_quota", billing="card") == (False, True)
+
+
+def test_classify_429_transient_signal_beats_billing() -> None:
+    # Transient signal -> retryable even on a plan model.
+    assert classify_429("Rate limit reached, try again in 5s", billing="plan_included") == (
+        True,
+        False,
+    )
+
+
+def test_classify_429_ambiguous_plan_defaults_quota_exhausted() -> None:
+    assert classify_429("boom", billing="plan_included") == (False, True)
+    assert classify_429("boom", billing="plan_credit") == (False, True)
+
+
+def test_classify_429_ambiguous_card_defaults_transient() -> None:
+    assert classify_429("boom", billing="card") == (True, False)
 
 
 # --- call_provider (helper stream-vs-complete tunggal) ---

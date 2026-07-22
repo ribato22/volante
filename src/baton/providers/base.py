@@ -61,3 +61,61 @@ class ProviderError(Exception):
         self.retryable = retryable
         self.status = status
         self.quota_exhausted = quota_exhausted
+
+
+# --- 429 / quota classification (Layer 1 reroute, §6.3) -------------------- #
+# Sinyal substring (lowercased) bahwa 400/402/429 adalah DEPLETION credit/quota
+# (bukan rate-limit per-menit). Depletion -> reroute, TANPA backoff.
+_QUOTA_SIGNALS: tuple[str, ...] = (
+    "credit balance",              # Anthropic 400: "Your credit balance is too low"
+    "out of credit",
+    "insufficient_quota",          # OpenAI error code
+    "insufficient quota",
+    "exceeded your current quota",
+    "quota exceeded",
+    "usage limit",                 # plan cap
+    "billing_hard_limit",          # OpenAI error code
+    "payment required",            # HTTP 402 semantics
+)
+
+# Sinyal rate-limit transien: backoff di tempat memang benar.
+_RATE_LIMIT_SIGNALS: tuple[str, ...] = (
+    "rate limit",
+    "rate_limit",                  # OpenAI code rate_limit_exceeded
+    "too many requests",
+    "requests per",
+    "tokens per",
+    "try again in",
+)
+
+
+def is_quota_exhausted(message: str) -> bool:
+    """True bila body/pesan menandakan DEPLETION credit/quota (bukan rate-limit).
+
+    Berbasis body/pesan, BUKAN status: Anthropic mengirim depletion sebagai 400
+    ("credit balance too low"), OpenAI-compat sebagai 429 (`insufficient_quota`)."""
+    low = message.lower()
+    return any(s in low for s in _QUOTA_SIGNALS)
+
+
+def is_transient_rate_limit(message: str) -> bool:
+    """True bila body/pesan menandakan rate-limit transien (backoff benar)."""
+    low = message.lower()
+    return any(s in low for s in _RATE_LIMIT_SIGNALS)
+
+
+def classify_429(message: str, *, billing: str) -> tuple[bool, bool]:
+    """Resolusi 429 ambigu -> (retryable, quota_exhausted) via body + billing.
+
+    Presedensi (body/type di atas status, §6.3):
+    1. sinyal depletion  -> (False, True): reroute, TANPA backoff.
+    2. sinyal rate-limit -> (True, False): backoff di tempat.
+    3. ambigu -> default per `billing` [residu 2]: plan-backed
+       (`plan_included`/`plan_credit`) -> (False, True); `card` -> (True, False)."""
+    if is_quota_exhausted(message):
+        return (False, True)
+    if is_transient_rate_limit(message):
+        return (True, False)
+    if billing in ("plan_included", "plan_credit"):
+        return (False, True)
+    return (True, False)
