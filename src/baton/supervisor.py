@@ -25,6 +25,8 @@ _PLAN_SYSTEM = (
     "Do not include any prose or markdown outside the JSON array."
 )
 
+_DIFFICULTIES: set[str] = {"trivial", "easy", "medium", "hard"}
+
 
 class Supervisor:
     def __init__(
@@ -107,6 +109,12 @@ def _build_tasks(data: list[Any]) -> list[Task]:
             raise ValueError(
                 f"plan item #{i} 'depends_on' must be a JSON array, got {type(raw_deps).__name__}"
             )
+        # difficulty: lenient — absent/unknown/non-string -> "medium" (isinstance guard
+        # avoids TypeError when a JSON list/dict is passed as the value).
+        raw_diff = item.get("difficulty")
+        difficulty = (
+            raw_diff if isinstance(raw_diff, str) and raw_diff in _DIFFICULTIES else "medium"
+        )
         try:
             task = Task(
                 id=str(item["id"]),
@@ -114,6 +122,7 @@ def _build_tasks(data: list[Any]) -> list[Task]:
                 type=str(item["type"]),
                 mode=str(item["mode"]),
                 depends_on=[str(d) for d in raw_deps],
+                difficulty=difficulty,
             )
         except KeyError as exc:
             raise ValueError(f"plan item #{i} missing required key {exc}") from exc

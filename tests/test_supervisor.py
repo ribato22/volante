@@ -337,6 +337,30 @@ async def test_planning_call_is_billed_even_when_plan_invalid() -> None:
     assert totals[_PLANNER_MODEL].completion_tokens == 30
 
 
+async def test_plan_reads_difficulty_leniently() -> None:
+    plan_json = json.dumps(
+        [
+            {"id": "a", "description": "hard one", "type": "code",
+             "mode": "one_shot", "depends_on": [], "difficulty": "hard"},
+            {"id": "b", "description": "no difficulty key", "type": "code",
+             "mode": "one_shot", "depends_on": []},
+            {"id": "c", "description": "unknown label", "type": "code",
+             "mode": "one_shot", "depends_on": [], "difficulty": "spicy"},
+            {"id": "d", "description": "non-string difficulty", "type": "code",
+             "mode": "one_shot", "depends_on": [], "difficulty": ["hard"]},
+        ]
+    )
+    provider = FakeProvider(responses=[_resp(plan_json)])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+
+    tasks = await sup.plan("mixed difficulties")
+    by_id = {t.id: t for t in tasks}
+    assert by_id["a"].difficulty == "hard"    # valid value passes through
+    assert by_id["b"].difficulty == "medium"  # missing key -> lenient default
+    assert by_id["c"].difficulty == "medium"  # unknown label -> lenient default
+    assert by_id["d"].difficulty == "medium"  # non-string -> lenient default
+
+
 async def test_reentrant_call_is_not_billed() -> None:
     # PATCH: guard non-re-entrant raise SEBELUM complete() -> panggilan kedua
     # tidak menyentuh provider dan tidak menagih apa pun. Response kedua (999)
