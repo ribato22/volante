@@ -295,6 +295,28 @@ class Runtime:
                 req.run_id = run_id
                 req.task_id = task.id
                 req.attempt = 0
+                # residu-3: per-run subscription cap juga melindungi jalur agentic
+                # (konsumen kuota terberat) — cermin guard one-shot, hitung DISPATCH
+                # (bukan sukses) supaya cap tak dilewati panggilan interaktif riil.
+                if self._is_subscription(model_id) and self._sub_calls >= self._sub_cap:
+                    last_err = ProviderError(
+                        f"subscription cap {self._sub_cap} reached",
+                        retryable=False,
+                        quota_exhausted=True,
+                    )
+                    bb.append(
+                        Entry(
+                            run_id=run_id, task_id=task.id, attempt=0, kind="status",
+                            payload=(
+                                f"reroute: subscription cap {self._sub_cap} reached "
+                                f"({self._sub_calls} calls); skipping {model_id}"
+                            ),
+                            model_id=model_id, usage=None, timestamp=time.time(),
+                        )
+                    )
+                    continue  # skip TANPA memanggil agentic worker; kandidat berikut
+                if self._is_subscription(model_id):
+                    self._sub_calls += 1  # hitung DISPATCH, konsisten dgn one-shot
                 try:
                     res = await asyncio.wait_for(
                         self.agentic_worker.run(req, model_id, tools, worker_cb),

@@ -31,6 +31,14 @@ def _model(mid: str, ctx: int) -> ModelInfo:
     )
 
 
+def _billed_model(mid: str, billing: str) -> ModelInfo:
+    return ModelInfo(
+        id=mid, provider="fake", strengths={"coding"}, context_window=100_000,
+        max_output_tokens=4096, supports_tools=True,
+        cost_per_1k_in=0.001, cost_per_1k_out=0.002, billing=billing,
+    )
+
+
 class _RecordingTool:
     name = "run_python"
     spec = ToolSpec(name="run_python", description="x", input_schema={"type": "object"})
@@ -79,6 +87,25 @@ class _ToolThenDone:
             )
         return CanonicalResponse(
             content=[TextBlock(text="done via B")],
+            usage=Usage(prompt_tokens=3, completion_tokens=2),
+            model=self.name, stop_reason="end_turn", latency_ms=1,
+        )
+
+    async def stream(self, req, on_text) -> CanonicalResponse:
+        return await self.complete(req)
+
+
+class _DirectDone:
+    """Tanpa tool_use — langsung end_turn (dispatch sederhana untuk uji cap langganan)."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.calls = 0
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        self.calls += 1
+        return CanonicalResponse(
+            content=[TextBlock(text=f"done via {self.name}")],
             usage=Usage(prompt_tokens=3, completion_tokens=2),
             model=self.name, stop_reason="end_turn", latency_ms=1,
         )
@@ -205,3 +232,45 @@ async def test_agentic_all_candidates_quota_exhausted_fails(
     assert res.status == "failed"       # semua kandidat quota_exhausted -> gagal
     assert res.failed_task == "t1"
     assert mB.calls == 2                # B benar-benar dicoba (bukan berhenti di A)
+
+
+@pytest.mark.asyncio
+async def test_agentic_subscription_cap_reroutes_to_direct(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # residu-3: cap kuota per-run juga harus melindungi jalur agentic (konsumen
+    # kuota terberat), bukan hanya jalur one-shot.
+    monkeypatch.setenv("BATON_MAX_SUBSCRIPTION_CALLS", "1")
+
+    cm = CostMeter()
+    sub = _DirectDone("mSub")
+    direct = _DirectDone("mDirect")
+    agentic = AgenticWorker({"mSub": sub, "mDirect": direct}, cm, max_iters=8)
+    # T2 depends_on T1 -> sekuensial (hitungan cap deterministik, bukan race wave).
+    plan = [
+        Task(id="t1", description="one", type="code", mode="agentic"),
+        Task(id="t2", description="two", type="code", mode="agentic", depends_on=["t1"]),
+    ]
+    projector = _Projector({"mSub": 64, "mDirect": 64})
+    rt = Runtime(
+        _Sup(plan),
+        _RankRouter(["mSub", "mDirect"]),
+        projector,
+        Worker(providers={"mSub": sub, "mDirect": direct}, cost_meter=cm),
+        _Synth(),
+        Registry([_billed_model("mSub", "plan_included"), _billed_model("mDirect", "card")]),
+        cm,
+        agentic_worker=agentic,
+        tools_factory=lambda ws: {"run_python": _RecordingTool()},
+        runs_dir=tmp_path / "runs",
+    )
+
+    res = await rt.aexecute("goal")
+
+    assert res.status == "success"
+    # cap=1: t1 pakai langganan (hitungan -> 1); t2 melewati cap -> reroute ke direct
+    # TANPA pernah memanggil worker agentic mSub sama sekali.
+    assert sub.calls == 1
+    assert direct.calls == 1
+    statuses = [e.payload for e in projector.last_bb.entries() if e.kind == "status"]
+    assert any("subscription cap 1 reached" in s for s in statuses)
