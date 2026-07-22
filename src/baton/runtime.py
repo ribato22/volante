@@ -186,6 +186,10 @@ class Runtime:
                         )
                     )
                     continue
+                if self._is_subscription(model_id):
+                    self._sub_calls += 1  # hitung DISPATCH, bukan sukses (residu-3 fix):
+                    # gagal/quota_exhausted tetap makan kuota interaktif nyata, jadi tetap
+                    # harus dihitung supaya cap tak dilewati oleh panggilan riil > cap.
                 reroute = False
                 # attempt 0..max_retries inklusif => (max_retries + 1) percobaan.
                 for attempt in range(self.max_retries + 1):
@@ -212,8 +216,6 @@ class Runtime:
                             )
                             continue
                         break  # non-retryable non-quota / retry habis -> GAGAL
-                    if self._is_subscription(model_id):
-                        self._sub_calls += 1  # satu unit kuota langganan terpakai
                     now = time.time()
                     bb.append(
                         Entry(

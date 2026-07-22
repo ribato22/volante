@@ -734,3 +734,44 @@ def test_subscription_guard_reroutes_to_direct_when_cap_reached(monkeypatch) -> 
     # Hitungan cap tersurat sebagai status blackboard (di-surface ringkasan CLI).
     statuses = [e.payload for e in projector.last_bb.entries() if e.kind == "status"]
     assert any("subscription cap 1 reached" in s for s in statuses)
+
+
+def test_subscription_cap_counts_dispatch_even_when_call_fails(monkeypatch) -> None:
+    # Kontrak (line 361): "Each subscription-billed worker CALL increments it" -> hitung
+    # pada DISPATCH, bukan hanya sukses. Kalau tidak, dispatch yang gagal/quota_exhausted
+    # tak pernah terhitung dan cap bisa dilewati oleh MORE real interactive calls than cap.
+    monkeypatch.setenv("BATON_MAX_SUBSCRIPTION_CALLS", "1")
+    cm = CostMeter()
+    plan = [
+        Task(id="T1", description="one", type="code", mode="one_shot"),
+        Task(id="T2", description="two", type="code", mode="one_shot", depends_on=["T1"]),
+    ]
+    supervisor = _StubSupervisor(plan)
+    router = _RankRouter({"T1": ["mSub", "mDirect"], "T2": ["mSub", "mDirect"]})
+    projector = _StubProjector()
+    # T1's mSub dispatch FAILS (quota_exhausted) -> reroutes to mDirect. Under the old
+    # success-only counting, this failed dispatch never increments the counter, so T2
+    # would dispatch to mSub AGAIN (real call) -- undermining the cap's whole purpose.
+    sub = _RaisingProvider(
+        "mSub", ProviderError("quota gone", retryable=False, quota_exhausted=True)
+    )
+    direct = _CountingProvider("mDirect")
+    worker = Worker(providers={"mSub": sub, "mDirect": direct}, cost_meter=cm)
+    registry = Registry(
+        [_billed_model("mSub", "plan_included"), _billed_model("mDirect", "card")]
+    )
+    runtime = Runtime(
+        supervisor, router, projector, worker, _StubSynthesizer(), registry, cm
+    )
+
+    result = runtime.execute("build")
+
+    assert result.status == "success"
+    # T1 dispatches mSub exactly once (counts toward cap even though it FAILED);
+    # T2's mSub must be SKIPPED entirely (cap already reached at dispatch-time) ->
+    # sub.calls stays at 1, never called a second time for T2.
+    assert sub.calls == 1
+    # Both T1 (post-failure reroute) and T2 (capped-skip reroute) land on mDirect.
+    assert direct.calls == 2
+    statuses = [e.payload for e in projector.last_bb.entries() if e.kind == "status"]
+    assert any("subscription cap 1 reached" in s for s in statuses)
