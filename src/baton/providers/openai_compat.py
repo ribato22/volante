@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
 
-from baton.providers.base import ProviderError
+from baton.providers.base import ProviderError, classify_429, is_quota_exhausted
 from baton.types import (
     CanonicalMessage,
     CanonicalRequest,
@@ -113,6 +113,23 @@ def _classify_error(err: BaseException) -> tuple[bool, int | None]:
     return _is_network_error(err), None
 
 
+def _to_provider_error(err: BaseException, billing: str) -> ProviderError:
+    """SDK exception -> ProviderError with quota_exhausted classification (§6.3).
+
+    Depletion (any status) & ambiguous 429 handled here; all other paths delegate
+    to `_classify_error` unchanged (network/timeout + 400/500 status semantics)."""
+    msg = str(err)
+    status = _status_of(err)
+    # Credit/quota DEPLETION (any status) -> reroute, NO backoff.
+    if is_quota_exhausted(msg):
+        return ProviderError(msg, retryable=False, status=status, quota_exhausted=True)
+    if status == 429:
+        retryable, quota = classify_429(msg, billing=billing)
+        return ProviderError(msg, retryable=retryable, status=429, quota_exhausted=quota)
+    retryable, status = _classify_error(err)
+    return ProviderError(msg, retryable=retryable, status=status)
+
+
 async def _aclose_quietly(stream: object) -> None:
     """Tutup stream best-effort (early-stop/cancel) supaya koneksi tak bocor. Async
     generator punya aclose(); openai AsyncStream punya close(). Galat close ditelan."""
@@ -138,10 +155,12 @@ class OpenAICompatProvider:
         *,
         timeout: float = 120.0,
         config: BackendConfig | None = None,
+        billing: str = "card",
     ) -> None:
         self.model = model
         self.timeout = timeout
         self.config = config or BackendConfig()
+        self.billing = billing
         self._client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
 
     async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
@@ -168,8 +187,7 @@ class OpenAICompatProvider:
         try:
             resp = await self._client.chat.completions.create(**create_kwargs)
         except Exception as err:
-            retryable, status = _classify_error(err)
-            raise ProviderError(str(err), retryable=retryable, status=status) from err
+            raise _to_provider_error(err, self.billing) from err
         latency_ms = int((time.monotonic() - start) * 1000)
 
         choice = resp.choices[0]
@@ -279,8 +297,7 @@ class OpenAICompatProvider:
             finally:
                 await _aclose_quietly(stream)
         except Exception as err:
-            retryable, status = _classify_error(err)
-            raise ProviderError(str(err), retryable=retryable, status=status) from err
+            raise _to_provider_error(err, self.billing) from err
         latency_ms = int((time.monotonic() - start) * 1000)
 
         text_out = "".join(text_parts)

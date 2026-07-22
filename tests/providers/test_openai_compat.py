@@ -356,3 +356,79 @@ async def test_original_error_is_chained_as_cause(monkeypatch):
             CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
         )
     assert excinfo.value.__cause__ is original
+
+
+# --------------------------------------------------------------------------- #
+# Layer 1: quota_exhausted classification (residu 2)                           #
+# --------------------------------------------------------------------------- #
+async def test_429_insufficient_quota_is_quota_exhausted(monkeypatch):
+    _install_fake_openai(
+        monkeypatch,
+        error=_FakeStatusError(
+            "You exceeded your current quota (insufficient_quota).", status_code=429
+        ),
+    )
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1", api_key="k", model="kimi"
+    )
+    with pytest.raises(ProviderError) as ei:
+        await provider.complete(
+            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+        )
+    assert ei.value.quota_exhausted is True
+    assert ei.value.retryable is False
+    assert ei.value.status == 429
+
+
+async def test_429_rate_limit_is_transient(monkeypatch):
+    _install_fake_openai(
+        monkeypatch,
+        error=_FakeStatusError(
+            "Rate limit reached for requests per min. Try again in 3s.", status_code=429
+        ),
+    )
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1", api_key="k", model="kimi"
+    )
+    with pytest.raises(ProviderError) as ei:
+        await provider.complete(
+            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+        )
+    assert ei.value.retryable is True
+    assert ei.value.quota_exhausted is False
+    assert ei.value.status == 429
+
+
+async def test_429_ambiguous_plan_billing_defaults_quota(monkeypatch):
+    _install_fake_openai(monkeypatch, error=_FakeStatusError("boom", status_code=429))
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1",
+        api_key="k",
+        model="kimi",
+        billing="plan_credit",
+    )
+    with pytest.raises(ProviderError) as ei:
+        await provider.complete(
+            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+        )
+    assert ei.value.quota_exhausted is True
+    assert ei.value.retryable is False
+
+
+async def test_429_ambiguous_card_billing_defaults_transient(monkeypatch):
+    _install_fake_openai(monkeypatch, error=_FakeStatusError("boom", status_code=429))
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1", api_key="k", model="kimi"
+    )  # default billing "card"
+    with pytest.raises(ProviderError) as ei:
+        await provider.complete(
+            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+        )
+    assert ei.value.retryable is True
+    assert ei.value.quota_exhausted is False
+
+
+async def test_billing_defaults_to_card(monkeypatch):
+    _install_fake_openai(monkeypatch, response=_fake_response())
+    provider = oc.OpenAICompatProvider(base_url="http://x/v1", api_key="k", model="kimi")
+    assert provider.billing == "card"
