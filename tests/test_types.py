@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import dataclasses
 import typing
+
+import pytest
 
 from baton.types import (
     CanonicalMessage,
@@ -265,3 +268,112 @@ def test_run_result_accepts_populated_cost_fields() -> None:
     assert r.usage_total["m1"].estimated is True
     assert r.cost_usd == 1.25
     assert r.duration_ms == 1500
+
+
+# --- Phase A2: economy fields (tier/billing/difficulty/ledger/cost_usd) ---
+
+def test_model_info_tier_and_billing_defaults() -> None:
+    # 8 field lama tanpa default -> konstruksi lama tetap valid; tier/billing ber-default.
+    m = ModelInfo(
+        id="x",
+        provider="fake",
+        strengths={"coding"},
+        context_window=8_000,
+        max_output_tokens=1_000,
+        supports_tools=False,
+        cost_per_1k_in=0.1,
+        cost_per_1k_out=0.2,
+    )
+    assert m.tier == 2
+    assert m.billing == "card"
+
+
+def test_model_info_tier_and_billing_can_be_set() -> None:
+    m = ModelInfo(
+        id="x",
+        provider="fake",
+        strengths={"coding"},
+        context_window=8_000,
+        max_output_tokens=1_000,
+        supports_tools=False,
+        cost_per_1k_in=0.1,
+        cost_per_1k_out=0.2,
+        tier=4,
+        billing="plan_included",
+    )
+    assert m.tier == 4
+    assert m.billing == "plan_included"
+
+
+def test_model_info_billing_is_the_last_field() -> None:
+    # Kontrak: billing WAJIB terakhir, tier tepat sebelumnya (append-only, defaulted).
+    names = [f.name for f in dataclasses.fields(ModelInfo)]
+    assert names[-1] == "billing"
+    assert names[-2] == "tier"
+
+
+def test_task_difficulty_defaults_medium() -> None:
+    t = Task(id="a", description="do a", type="code", mode="one_shot")
+    assert t.difficulty == "medium"
+
+
+def test_task_difficulty_can_be_set() -> None:
+    t = Task(id="a", description="do a", type="code", mode="one_shot", difficulty="hard")
+    assert t.difficulty == "hard"
+
+
+def test_task_difficulty_is_the_last_field() -> None:
+    names = [f.name for f in dataclasses.fields(Task)]
+    assert names[-1] == "difficulty"
+
+
+def test_run_result_billed_and_credit_default_zero() -> None:
+    r = RunResult(status="success", final="x", partial_artifacts={}, failed_task=None)
+    assert r.billed_usd == 0.0
+    assert r.credit_usd == 0.0
+
+
+def test_run_result_accepts_billed_and_credit() -> None:
+    r = RunResult(
+        status="success",
+        final="done",
+        partial_artifacts={},
+        failed_task=None,
+        cost_usd=0.006,
+        duration_ms=10,
+        billed_usd=0.003,
+        credit_usd=0.003,
+    )
+    assert r.billed_usd == 0.003
+    assert r.credit_usd == 0.003
+    # Invariant kanonik: cost_usd == billed_usd + credit_usd.
+    assert r.cost_usd == pytest.approx(r.billed_usd + r.credit_usd)
+
+
+def test_run_result_credit_usd_is_the_last_field() -> None:
+    names = [f.name for f in dataclasses.fields(RunResult)]
+    assert names[-1] == "credit_usd"
+    assert names[-2] == "billed_usd"
+
+
+def test_canonical_response_cost_usd_defaults_none() -> None:
+    resp = CanonicalResponse(
+        content=[TextBlock(text="done")],
+        usage=Usage(prompt_tokens=1, completion_tokens=2),
+        model="m",
+        stop_reason="end_turn",
+        latency_ms=1,
+    )
+    assert resp.cost_usd is None
+
+
+def test_canonical_response_cost_usd_can_be_set() -> None:
+    resp = CanonicalResponse(
+        content=[TextBlock(text="done")],
+        usage=Usage(prompt_tokens=1, completion_tokens=2),
+        model="m",
+        stop_reason="end_turn",
+        latency_ms=1,
+        cost_usd=0.42,
+    )
+    assert resp.cost_usd == 0.42

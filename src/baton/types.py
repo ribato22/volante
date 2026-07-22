@@ -70,6 +70,7 @@ class CanonicalResponse:
     model: str
     stop_reason: str
     latency_ms: int
+    cost_usd: float | None = None  # biaya call otoritatif (total_cost_usd); None jika lain
 
 
 @dataclass
@@ -82,6 +83,8 @@ class ModelInfo:
     supports_tools: bool
     cost_per_1k_in: float
     cost_per_1k_out: float
+    tier: int = 2  # 1 small … 4 frontier
+    billing: str = "card"  # MUST BE LAST: "card" | "plan_credit" | "plan_included"
 
 
 @dataclass
@@ -91,6 +94,7 @@ class Task:
     type: str  # "research" | "code" | "write" | "analyze"
     mode: str  # "one_shot" | "agentic"
     depends_on: list[str] = field(default_factory=list)
+    difficulty: str = "medium"  # trivial|easy|medium|hard
 
 
 @dataclass
@@ -115,3 +119,5 @@ class RunResult:
     usage_total: dict[str, Usage] = field(default_factory=dict)
     cost_usd: float = 0.0
     duration_ms: int = 0
+    billed_usd: float = 0.0  # cash keluar (card); baca INI utk budget/cap
+    credit_usd: float = 0.0  # nilai konsumsi plan_included/plan_credit (bukan cash)
