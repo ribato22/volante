@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- Cost model: `ModelInfo.tier`/`billing` (`card` | `plan_credit` | `plan_included`), `Task.difficulty`,
+  and a two-ledger `CostMeter` (`costs_usd()` splits `billed_usd` vs `credit_usd`; `RunResult` surfaces
+  both). All defaulted/inert today (every seed is `billing="card"`) — groundwork for subscription
+  providers.
+- Difficulty- and billing-aware routing (`Router.route_ranked`, objective `cash_protect_quota`):
+  subscription-billed models are used only for `hard` tasks; non-hard work stays on `card`/local
+  providers to protect subscription quota, logging when a subscription fallback is unavoidable.
+- Quota-exhausted reroute: a `ProviderError.quota_exhausted` flag + a 429 quota-vs-transient classifier
+  route a run to the next candidate (with mandatory per-candidate re-projection) instead of backing off,
+  across both the one-shot and agentic paths; a per-run `BATON_MAX_SUBSCRIPTION_CALLS` cap (default 4)
+  bounds subscription dispatches.
+
+### Changed
+- **Routing may cost more for multi-provider setups.** The new difficulty→tier filter means a default
+  (`medium`) task no longer routes to a very weak/cheap model when a stronger tier-adequate one exists.
+  Example: with Opus (tier 4) + Kimi (tier 3) + a local tier-1 model configured, a `medium` task now
+  routes to Kimi instead of the tier-1 model. Single-provider and local-only setups are unaffected
+  (best-effort fallback preserves prior behavior).
+
 ## [0.1.0] - 2026-07-22
 
 ### Added
