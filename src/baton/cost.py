@@ -17,7 +17,8 @@ class CostMeter:
     def __init__(self) -> None:
         self._totals: dict[str, Usage] = {}
         self._has_estimated: bool = False
-        self._direct: dict[str, dict[str, float]] = {}  # model_id -> {"tokens", "usd"}
+        # model_id -> {"prompt", "completion", "usd"}
+        self._direct: dict[str, dict[str, float]] = {}
 
     def add(
         self,
@@ -45,11 +46,15 @@ class CostMeter:
         if cost_usd is not None:
             # residu-4: catat token & dolar otoritatif call ini di bucket _direct
             # terpisah (per-CALL), agar costs_usd tak double-count token*rate-nya.
+            # Split prompt/completion disimpan terpisah (bukan skalar gabungan) agar
+            # residual bisa dinilai per-komponen — skalar-fraksi tunggal salah bila
+            # split direct vs fallback berbeda dan cost_per_1k_in != cost_per_1k_out.
             bucket = self._direct.get(model_id)
             if bucket is None:
-                bucket = {"tokens": 0.0, "usd": 0.0}
+                bucket = {"prompt": 0.0, "completion": 0.0, "usd": 0.0}
                 self._direct[model_id] = bucket
-            bucket["tokens"] += usage.prompt_tokens + usage.completion_tokens
+            bucket["prompt"] += usage.prompt_tokens
+            bucket["completion"] += usage.completion_tokens
             bucket["usd"] += cost_usd
 
     def totals(self) -> dict[str, Usage]:
@@ -62,24 +67,25 @@ class CostMeter:
     def costs_usd(self, registry: Registry) -> tuple[float, float]:
         # Dua-ledger: (billed, credit). billed = cash (card), credit = plan_*.
         # residu-4 PER-CALL: _totals memuat SEMUA token; call otoritatif (_direct)
-        # dinilai pakai cost_usd-nya, sisanya (fraksi non-direct) pakai token*rate.
+        # dinilai pakai cost_usd-nya, sisanya (residual token PER-KOMPONEN) pakai
+        # token*rate. Residual dihitung terpisah untuk prompt & completion (bukan
+        # skalar-fraksi tunggal) karena split direct vs fallback bisa berbeda dan
+        # cost_per_1k_in != cost_per_1k_out — skalar-fraksi akan salah nilai di kasus itu.
         billed = 0.0
         credit = 0.0
         for model_id, usage in self._totals.items():
             mi = registry.get(model_id)
-            total_tokens = usage.prompt_tokens + usage.completion_tokens
             direct = self._direct.get(model_id)
-            direct_tokens = direct["tokens"] if direct is not None else 0.0
+            direct_prompt = direct["prompt"] if direct is not None else 0.0
+            direct_completion = direct["completion"] if direct is not None else 0.0
             direct_usd = direct["usd"] if direct is not None else 0.0
-            full_rate = (
-                usage.prompt_tokens / 1000 * mi.cost_per_1k_in
-                + usage.completion_tokens / 1000 * mi.cost_per_1k_out
+            residual_prompt = max(usage.prompt_tokens - direct_prompt, 0.0)
+            residual_completion = max(usage.completion_tokens - direct_completion, 0.0)
+            amount = (
+                residual_prompt / 1000 * mi.cost_per_1k_in
+                + residual_completion / 1000 * mi.cost_per_1k_out
+                + direct_usd
             )
-            if total_tokens > 0:
-                non_direct_fraction = max(total_tokens - direct_tokens, 0.0) / total_tokens
-            else:
-                non_direct_fraction = 0.0
-            amount = full_rate * non_direct_fraction + direct_usd
             if mi.billing == "card":
                 billed += amount
             else:

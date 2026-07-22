@@ -237,3 +237,18 @@ def test_add_cost_usd_is_keyword_only() -> None:
     m = CostMeter()
     with pytest.raises(TypeError):
         m.add("a", Usage(prompt_tokens=1, completion_tokens=1), 0.5)  # type: ignore[misc]
+
+
+def test_add_cost_usd_mixed_direct_and_rate_different_split() -> None:
+    # Regresi: direct call punya split prompt:completion BEDA dari fallback call.
+    # Valuasi residual harus per-komponen (prompt vs completion), bukan skalar-fraksi
+    # tunggal, karena cost_per_1k_in != cost_per_1k_out di sini.
+    m = CostMeter()
+    m.add("a", Usage(prompt_tokens=200, completion_tokens=0), cost_usd=1.0)  # direct
+    m.add("a", Usage(prompt_tokens=0, completion_tokens=200))               # fallback
+    reg = _FakeRegistry(models={"a": _mi("a", cost_in=1.0, cost_out=2.0)})  # card -> billed
+    billed, credit = m.costs_usd(reg)
+    # residual prompt = 200-200=0 ; residual completion = 200-0=200
+    # amount = 0/1000*1.0 + 200/1000*2.0 + 1.0 = 0.4 + 1.0 = 1.4
+    assert billed == pytest.approx(1.4)
+    assert credit == 0.0
