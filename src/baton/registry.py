@@ -40,6 +40,8 @@ def default_models() -> list[ModelInfo]:
             supports_tools=True,
             cost_per_1k_in=0.015,
             cost_per_1k_out=0.075,
+            tier=4,
+            billing="card",
         ),
         ModelInfo(
             id="kimi/kimi-k2",
@@ -52,6 +54,8 @@ def default_models() -> list[ModelInfo]:
             supports_tools=True,
             cost_per_1k_in=0.0012,
             cost_per_1k_out=0.0012,
+            tier=3,
+            billing="card",
         ),
         ModelInfo(
             id="ollama/llama3.2",
@@ -65,6 +69,8 @@ def default_models() -> list[ModelInfo]:
             supports_tools=False,
             cost_per_1k_in=0.0,
             cost_per_1k_out=0.0,
+            tier=1,
+            billing="card",
         ),
     ]
 

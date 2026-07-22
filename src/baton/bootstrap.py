@@ -65,6 +65,8 @@ def _openai_compat_from_env(
         not in ("false", "0", "no"),
         cost_per_1k_in=float(env.get(f"{prefix}_COST_IN", "0")),
         cost_per_1k_out=float(env.get(f"{prefix}_COST_OUT", "0")),
+        tier=int(env.get(f"{prefix}_TIER", "3")),
+        billing="card",
     )
     return info, base_url, api_key, wire
 

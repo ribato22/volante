@@ -78,3 +78,16 @@ def test_matching_over_default_registry() -> None:
 
     # `cheap_fast` tak dipakai model mana pun lagi -> tak cocok apa pun.
     assert reg.matching({"cheap_fast"}) == []
+
+
+def test_seed_tiers_are_opus4_kimi3_ollama1() -> None:
+    reg = default_registry()
+    assert reg.get("anthropic/claude-opus-4-8").tier == 4
+    assert reg.get("kimi/kimi-k2").tier == 3
+    assert reg.get("ollama/llama3.2").tier == 1
+
+
+def test_seed_billing_all_card_today() -> None:
+    # Realitas hari ini (§5.1): semua seed = card (Ollama rate 0.0 -> genuinely gratis).
+    for m in default_models():
+        assert m.billing == "card"

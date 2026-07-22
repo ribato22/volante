@@ -36,3 +36,23 @@ def test_build_providers_accepts_prefer_and_include_subscription(monkeypatch):
     assert baseline == base_default == "google/gemini-flash"
     assert set(providers) == set(prov_default)
     assert {m.id for m in reg.all()} == {m.id for m in reg_default.all()}
+
+
+def test_openai_compat_from_env_tier_defaults_to_3():
+    env = {
+        "OPENAI_COMPAT_BASE_URL": "https://x/v1",
+        "OPENAI_COMPAT_MODEL": "gemini-2.5-flash",
+    }
+    info, _base_url, _api_key, _wire = _openai_compat_from_env(env)
+    assert info.tier == 3
+    assert info.billing == "card"
+
+
+def test_openai_compat_from_env_tier_reads_env_override():
+    env = {
+        "OPENAI_COMPAT_BASE_URL": "https://x/v1",
+        "OPENAI_COMPAT_MODEL": "gemini-2.5-flash",
+        "OPENAI_COMPAT_TIER": "4",
+    }
+    info, _base_url, _api_key, _wire = _openai_compat_from_env(env)
+    assert info.tier == 4
