@@ -1,10 +1,11 @@
 name: Release
 
 # Tag-triggered publish to PyPI via Trusted Publishing (OIDC) - no API token stored
-# in this repo. NOTE: this only works once the repo is public on GitHub AND a
-# "trusted publisher" for this repo/workflow is configured on the PyPI project
-# settings (https://docs.pypi.org/trusted-publishers/); until then, pushing a v*
-# tag will build correctly but the publish step will fail at the PyPI end.
+# in this repo. NOTE: the publish step only succeeds once a "trusted publisher" for
+# this repo + workflow (release.yml, environment `pypi`) is configured on the PyPI
+# project settings (https://docs.pypi.org/trusted-publishers/). OIDC works whether
+# the GitHub repo is public or private; until that trusted publisher exists, pushing
+# a v* tag builds correctly but the publish step fails at the PyPI end.
 on:
   push:
     tags: ["v*"]
