@@ -103,3 +103,14 @@ def test_parse_usage_estimated_when_turn_completed_lacks_usage() -> None:
     assert resp.usage.estimated is True
     assert resp.usage.prompt_tokens == 4       # len("0123456789012345") // 4
     assert resp.usage.completion_tokens == 2   # len("abcdefgh") // 4
+
+
+def test_parse_sets_cost_usd_when_total_cost_present() -> None:
+    jsonl = "\n".join([
+        json.dumps({"type": "agent_message", "message": "done"}),
+        json.dumps({"type": "turn.completed",
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                    "total_cost_usd": 0.0123}),
+    ])
+    resp = CodexAdapter().parse(_run_result(jsonl), _req())
+    assert resp.cost_usd == 0.0123

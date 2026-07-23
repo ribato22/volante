@@ -91,6 +91,7 @@ class CodexAdapter:
         texts: list[str] = []
         usage_in: int | None = None
         usage_out: int | None = None
+        cost_usd: float | None = None
         for raw in result.stdout.splitlines():
             line = raw.strip()
             if not line:
@@ -108,6 +109,7 @@ class CodexAdapter:
                 usage = evt.get("usage") or {}
                 usage_in = usage.get("input_tokens")
                 usage_out = usage.get("output_tokens")
+                cost_usd = evt.get("total_cost_usd", cost_usd)
         final_text = "\n".join(texts)
         if usage_in is None or usage_out is None:
             usage = Usage(
@@ -123,4 +125,5 @@ class CodexAdapter:
             model="codex",  # provider tag; registry id (codex/<m>) is the accounting key
             stop_reason="end_turn",
             latency_ms=0,
+            cost_usd=cost_usd,  # provider-authoritative call cost → credit ledger (§5.3)
         )
