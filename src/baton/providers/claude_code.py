@@ -174,3 +174,11 @@ class ClaudeCodeAdapter:
             retryable=False,
             quota_exhausted=False,
         )
+
+    def is_error(self, result: CliRunResult) -> bool:
+        # claude -p can exit 0 while the JSON envelope carries is_error=true
+        # (max-turns / mid-run execution error); returncode alone can't see this.
+        data = _try_json(result.stdout)
+        if data is None:
+            return False
+        return bool(data.get("is_error", False))

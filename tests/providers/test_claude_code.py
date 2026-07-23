@@ -171,3 +171,27 @@ def test_classify_error_generic_failure_fails_task() -> None:
     assert err.quota_exhausted is False
     assert err.retryable is False
     assert "boom" in str(err)
+
+
+def test_is_error_true_when_json_envelope_flags_it() -> None:
+    # claude -p can exit 0 while the JSON envelope carries is_error=true (max-turns /
+    # mid-run execution error) -- CliAgentProvider consults this hook even on exit 0.
+    a = ClaudeCodeAdapter()
+    payload = {"type": "result", "subtype": "error_max_turns", "is_error": True, "result": ""}
+    res = CliRunResult(stdout=json.dumps(payload), stderr="", returncode=0)
+    assert a.is_error(res) is True
+
+
+def test_is_error_false_for_success_envelope() -> None:
+    a = ClaudeCodeAdapter()
+    payload = {"type": "result", "subtype": "success", "is_error": False, "result": "ok"}
+    res = CliRunResult(stdout=json.dumps(payload), stderr="", returncode=0)
+    assert a.is_error(res) is False
+
+
+def test_is_error_false_when_unparseable() -> None:
+    # Non-zero exit / non-JSON stdout is already caught by returncode -- is_error
+    # only needs to default safely (False) when it cannot read the envelope.
+    a = ClaudeCodeAdapter()
+    res = CliRunResult(stdout="not json", stderr="boom", returncode=1)
+    assert a.is_error(res) is False
