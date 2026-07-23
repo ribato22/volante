@@ -31,7 +31,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--prefer",
         choices=_PREFER_CHOICES,
         default="cash_protect_quota",
-        help="routing objective (default: cash_protect_quota)",
+        help=(
+            "routing objective (default: cash_protect_quota); only "
+            "cash_protect_quota is currently active, the other choices are "
+            "accepted but reserved for future use"
+        ),
     )
     parser.add_argument(
         "--provider",

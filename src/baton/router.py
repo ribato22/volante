@@ -36,8 +36,10 @@ class Router:
     def __init__(self, registry: Registry, *, prefer: str = "cash_protect_quota") -> None:
         self._registry = registry
         # prefer is one of "cash_protect_quota" | "quality" | "local" | "cheap".
-        # This phase implements the cash_protect_quota objective (the default);
-        # the other objectives are wired in the bootstrap/wiring phase.
+        # `route_ranked` below currently implements ONLY the cash_protect_quota
+        # objective (the default) and never reads `self._prefer`; the other three
+        # values are accepted (validated by the CLI) but not yet honored -- they
+        # are reserved for a future routing objective implementation.
         self._prefer = prefer
 
     def route_ranked(self, task: Task) -> list[str]:
