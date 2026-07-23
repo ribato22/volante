@@ -8,11 +8,16 @@ from typing import Any
 def build_runtime_factory() -> tuple[Callable[[], Any], str]:
     """Return `(runtime_factory, mode)`. Uses real providers from the environment if
     any are configured (see .env.example); otherwise falls back to a FakeProvider demo
-    so the UI runs and streams end-to-end without any API key."""
-    try:
-        from eval.run import build_providers_from_env, make_runtime_factory
+    so the UI runs and streams end-to-end without any API key.
 
-        registry, providers, model_id = build_providers_from_env()
+    Like the `baton` CLI, this opts into subscription CLI-agent providers
+    (`include_subscription=True`) so `CLAUDE_CODE_ENABLED=1` / `CODEX_ENABLED=1` are
+    honored in the browser too (they print their own interactive-quota warning on
+    registration). Without any provider env set, it stays in the no-key demo."""
+    try:
+        from baton.bootstrap import build_providers_from_env, make_runtime_factory
+
+        registry, providers, model_id = build_providers_from_env(include_subscription=True)
         return make_runtime_factory(registry, providers, model_id), f"live [{model_id}]"
     except Exception:  # noqa: BLE001 - no providers configured -> demo mode
         from webui._demo import demo_runtime_factory
