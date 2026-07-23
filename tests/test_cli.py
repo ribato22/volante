@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import baton.cli as cli
@@ -198,3 +200,18 @@ def test_summary_counts_plan_included_and_records_credit(monkeypatch, capsys) ->
     # Honesty invariant (§5.3): subscription-only run bills $0 cash, records credit.
     assert "billed_usd: $0.000000" in out
     assert "credit_usd: $0.003000" in out
+
+
+def test_main_json_summary(monkeypatch, capsys) -> None:
+    registry, runtime = _one_task_runtime()
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
+
+    code = cli.main(["do one", "--no-stream", "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert payload["status"] == "success"
+    assert payload["billed_usd"] == pytest.approx(0.003)
+    assert payload["credit_usd"] == pytest.approx(0.0)
+    assert payload["subscription_calls"] == 0
+    assert payload["final"] == "FINAL ANSWER"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 
 from baton.bootstrap import build_providers_from_env, make_runtime_factory
@@ -100,6 +101,21 @@ def _summary_lines(result: RunResult, registry: Registry) -> list[str]:
     ]
 
 
+def _summary_json(result: RunResult, registry: Registry) -> str:
+    return json.dumps(
+        {
+            "status": result.status,
+            "final": result.final,
+            "failed_task": result.failed_task,
+            "billed_usd": result.billed_usd,
+            "credit_usd": result.credit_usd,
+            "cost_usd": result.cost_usd,
+            "duration_ms": result.duration_ms,
+            "subscription_calls": _subscription_calls(result, registry),
+        }
+    )
+
+
 async def _aexecute(
     runtime: Runtime, goal: str, *, stream: bool, collected: list[str]
 ) -> RunResult:
@@ -131,8 +147,11 @@ def main(argv: list[str] | None = None) -> int:
     result = asyncio.run(
         _aexecute(runtime, args.goal, stream=not args.no_stream, collected=collected)
     )
-    if result.final:
-        print("\n\nFINAL:\n" + str(result.final).strip())
-    for line in _summary_lines(result, registry):
-        print(line)
+    if args.json:
+        print(_summary_json(result, registry))
+    else:
+        if result.final:
+            print("\n\nFINAL:\n" + str(result.final).strip())
+        for line in _summary_lines(result, registry):
+            print(line)
     return 0 if result.status == "success" else 1
