@@ -290,6 +290,15 @@ async def test_response_fields_mapped(monkeypatch):
     assert [b.text for b in out.content] == ["pong"]
 
 
+async def test_stop_reason_defaults_to_end_turn_when_missing(monkeypatch):
+    # CanonicalResponse.stop_reason is typed `str` (never None): a resp with no
+    # stop_reason (or None) at the SDK boundary must still yield a str, not None.
+    resp = _FakeResponse(content=[_FakeTextBlock("hi")], usage=_FakeUsage(1, 1), stop_reason=None)
+    provider = _provider_with(_FakeMessages(result=resp), monkeypatch)
+    out = await provider.complete(_req())
+    assert out.stop_reason == "end_turn"
+
+
 # --------------------------------------------------------------------------- #
 # PATCH: timeout diteruskan ke klien SDK                                       #
 # --------------------------------------------------------------------------- #

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from baton.cost import CostMeter
-from baton.providers.base import LLMProvider, call_provider
+from baton.providers.base import LLMProvider, OnText, call_provider
 from baton.types import CanonicalRequest, CanonicalResponse
 
 
@@ -23,7 +21,7 @@ class Worker:
         self,
         req: CanonicalRequest,
         model_id: str,
-        on_text: Callable[[str], None] | None = None,
+        on_text: OnText | None = None,
     ) -> CanonicalResponse:
         try:
             provider = self._providers[model_id]

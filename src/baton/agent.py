@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import random
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from baton.cost import CostMeter
-from baton.providers.base import LLMProvider, ProviderError, call_provider
+from baton.providers.base import LLMProvider, OnText, ProviderError, call_provider
 from baton.tools.base import ToolRegistry
 from baton.types import (
     CanonicalMessage,
@@ -74,7 +73,7 @@ class AgenticWorker:
         self,
         provider: LLMProvider,
         req: CanonicalRequest,
-        on_text: Callable[[str], None] | None,
+        on_text: OnText | None,
     ) -> CanonicalResponse:
         last: Exception | None = None
         for attempt in range(self.max_retries + 1):
@@ -110,7 +109,7 @@ class AgenticWorker:
         req: CanonicalRequest,
         model_id: str,
         tools: ToolRegistry,
-        on_text: Callable[[str], None] | None = None,
+        on_text: OnText | None = None,
     ) -> AgenticResult:
         provider = self.providers[model_id]
         messages = list(req.messages)  # SALINAN — jangan mutasi input

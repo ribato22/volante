@@ -145,6 +145,21 @@ async def test_stream_cancellation_closes_stream(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_stream_stop_reason_defaults_to_end_turn_when_no_finish_reason(
+    monkeypatch,
+) -> None:
+    # CanonicalResponse.stop_reason is typed `str` (never None): if the stream ends
+    # without any chunk ever setting finish_reason (e.g. early-stop before the
+    # terminal chunk), stop_reason must still fall back to "end_turn".
+    chunks = [_chunk(content="a"), _chunk(content="b")]  # no finish_reason anywhere
+    p = _provider(monkeypatch, chunks)
+    res = await p.stream(
+        CanonicalRequest(messages=[text("user", "hi")], max_tokens=16), lambda s: None
+    )
+    assert res.stop_reason == "end_turn"
+
+
+@pytest.mark.asyncio
 async def test_stream_merges_tool_call_deltas(monkeypatch) -> None:
     chunks = [
         _chunk(tool_calls=[_tc(0, id="c1", name="run_python", arguments='{"co')]),

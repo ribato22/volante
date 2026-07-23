@@ -106,6 +106,18 @@ async def test_stream_early_stop_returns_partial_without_final(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
+async def test_stream_final_stop_reason_defaults_to_end_turn_when_missing(monkeypatch) -> None:
+    # CanonicalResponse.stop_reason is typed `str` (never None): a final message
+    # with stop_reason=None at the SDK boundary must still yield a str.
+    final = _Final([_Blk(type="text", text="done")], stop_reason=None)
+    p = _provider(monkeypatch, [], final)
+    res = await p.stream(
+        CanonicalRequest(messages=[text("user", "go")], max_tokens=16), lambda s: None
+    )
+    assert res.stop_reason == "end_turn"
+
+
+@pytest.mark.asyncio
 async def test_stream_final_tool_use(monkeypatch) -> None:
     final = _Final(
         [_Blk(type="tool_use", id="u1", name="run_python", input={"code": "x"})],

@@ -314,7 +314,9 @@ class OpenAICompatProvider:
             content.append(ToolUseBlock(id=acc["id"] or "", name=acc["name"] or "", input=args))
         if not content:
             content = [TextBlock(text="")]
-        stop_reason = _FINISH_REASON_MAP.get(finish_reason, "end_turn")
+        # finish_reason may still be None (stream ended without a terminal chunk) —
+        # "" never matches a _FINISH_REASON_MAP key, so this is behavior-preserving.
+        stop_reason = _FINISH_REASON_MAP.get(finish_reason or "", "end_turn")
 
         prompt_toks = getattr(usage_obj, "prompt_tokens", None)
         completion_toks = getattr(usage_obj, "completion_tokens", None)

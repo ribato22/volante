@@ -167,7 +167,7 @@ class AnthropicProvider:
             content=content,
             usage=usage,
             model=getattr(resp, "model", None) or self.model,
-            stop_reason=getattr(resp, "stop_reason", None),
+            stop_reason=getattr(resp, "stop_reason", None) or "end_turn",
             latency_ms=latency_ms,
         )
 
@@ -225,6 +225,6 @@ class AnthropicProvider:
             content=content,
             usage=usage,
             model=getattr(final, "model", None) or self.model,
-            stop_reason=getattr(final, "stop_reason", None),
+            stop_reason=getattr(final, "stop_reason", None) or "end_turn",
             latency_ms=latency_ms,
         )

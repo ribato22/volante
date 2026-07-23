@@ -32,6 +32,9 @@ jobs:
       - name: Lint (ruff)
         run: uv run ruff check .
 
+      - name: Type-check (mypy; enforces the shipped py.typed promise)
+        run: uv run mypy src/baton
+
       - name: Test (no network; integration tests skipped by default)
         run: uv run pytest --cov=src/baton --cov=eval --cov-report=term-missing
 
