@@ -110,11 +110,13 @@ def _build(args: argparse.Namespace) -> tuple[Registry, Runtime]:
     return registry, make_runtime()
 
 
-def _subscription_calls(result: RunResult, registry: Registry) -> int:
-    """Number of subscription-billed models observed in usage_total (plan_included /
-    plan_credit). The exact per-call count is intentionally NOT a RunResult field
-    (locked contract §5.3, surfaced only as blackboard status entries the CLI can't
-    read); this is the CLI-side proxy from usage_total + registry billing."""
+def _subscription_models(result: RunResult, registry: Registry) -> int:
+    """Number of DISTINCT subscription-billed models observed in usage_total
+    (plan_included / plan_credit) -- NOT a call count (e.g. 4 calls to one
+    claude-code model still reports 1 here). The exact per-call count is
+    intentionally NOT a RunResult field (locked contract §5.3, surfaced only as
+    blackboard status entries the CLI can't read); this is the CLI-side proxy
+    from usage_total + registry billing."""
     n = 0
     for model_id in result.usage_total:
         try:
@@ -134,7 +136,7 @@ def _summary_lines(result: RunResult, registry: Registry) -> list[str]:
         head,
         f"billed_usd: ${result.billed_usd:.6f}   credit_usd: ${result.credit_usd:.6f}",
         f"duration_ms: {result.duration_ms}   "
-        f"subscription_calls: {_subscription_calls(result, registry)}",
+        f"subscription_models: {_subscription_models(result, registry)}",
     ]
 
 
@@ -148,7 +150,7 @@ def _summary_json(result: RunResult, registry: Registry) -> str:
             "credit_usd": result.credit_usd,
             "cost_usd": result.cost_usd,
             "duration_ms": result.duration_ms,
-            "subscription_calls": _subscription_calls(result, registry),
+            "subscription_models": _subscription_models(result, registry),
         }
     )
 

@@ -182,13 +182,13 @@ def test_main_streams_plan_worker_and_synth(monkeypatch, capsys) -> None:
     assert "[synth]" in out  # synthesizer streamed via on_text
 
 
-def test_summary_shows_zero_subscription_calls_for_card(monkeypatch, capsys) -> None:
+def test_summary_shows_zero_subscription_models_for_card(monkeypatch, capsys) -> None:
     registry, runtime = _one_task_runtime()  # billing="card"
     monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
 
     cli.main(["do one", "--no-stream"])
 
-    assert "subscription_calls: 0" in capsys.readouterr().out
+    assert "subscription_models: 0" in capsys.readouterr().out
 
 
 def test_summary_counts_plan_included_and_records_credit(monkeypatch, capsys) -> None:
@@ -198,7 +198,9 @@ def test_summary_counts_plan_included_and_records_credit(monkeypatch, capsys) ->
     cli.main(["do one", "--no-stream"])
 
     out = capsys.readouterr().out
-    assert "subscription_calls: 1" in out
+    # Honest label: DISTINCT subscription-billed models seen, not a call count
+    # (4 calls to one claude-code model would still report 1 here).
+    assert "subscription_models: 1" in out
     # Honesty invariant (§5.3): subscription-only run bills $0 cash, records credit.
     assert "billed_usd: $0.000000" in out
     assert "credit_usd: $0.003000" in out
@@ -220,7 +222,7 @@ def test_main_json_summary(monkeypatch, capsys) -> None:
     assert payload["status"] == "success"
     assert payload["billed_usd"] == pytest.approx(0.003)
     assert payload["credit_usd"] == pytest.approx(0.0)
-    assert payload["subscription_calls"] == 0
+    assert payload["subscription_models"] == 0
     assert payload["final"] == "FINAL ANSWER"
 
 
