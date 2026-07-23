@@ -317,3 +317,30 @@ async def test_complete_ignores_req_temperature_and_max_tokens(monkeypatch):
     call = adapter.argv_calls[-1]
     assert call["max_output"] == 4096  # conservative provider cap, NOT req.max_tokens (§8.3)
     assert call["stream"] is False
+
+
+async def test_child_env_increments_depth(monkeypatch):
+    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    runner = _RecordingRunner(_ok_result())
+    provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner)
+    await provider.complete(_req())
+    assert runner.env["BATON_CLI_AGENT_DEPTH"] == "1"  # depth 0 -> child gets 1
+
+
+async def test_child_env_scrubs_openai_api_key(monkeypatch):
+    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-should-not-leak")
+    runner = _RecordingRunner(_ok_result())
+    provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner)
+    await provider.complete(_req())
+    assert "OPENAI_API_KEY" not in runner.env  # adapter scrub hook honored
+
+
+async def test_depth_guard_refuses_recursion(monkeypatch):
+    monkeypatch.setenv("BATON_CLI_AGENT_DEPTH", "1")
+    provider = CliAgentProvider(
+        _FakeAdapter(), "opus", runner=_RecordingRunner(_ok_result()), max_depth=1
+    )
+    with pytest.raises(ProviderError) as ei:
+        await provider.complete(_req())
+    assert ei.value.retryable is False  # depth cap -> fail-fast, no reroute-backoff

@@ -205,8 +205,15 @@ class CliAgentProvider:
         self._sem = asyncio.Semaphore(concurrency)
 
     def _child_env(self) -> dict[str, str]:
-        # Task 3 minimal: no depth guard / increment yet (added in Task 4).
-        return self.adapter.child_env(dict(os.environ), depth=0)
+        depth = int(os.environ.get(self.depth_env, "0"))
+        if depth >= self.max_depth:
+            raise ProviderError(
+                f"{self.name}: refusing to recurse "
+                f"(depth {depth} >= max_depth {self.max_depth}); "
+                "Baton may be running inside a CLI agent",
+                retryable=False,
+            )
+        return self.adapter.child_env(dict(os.environ), depth=depth + 1)
 
     async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
         env = self._child_env()
