@@ -274,7 +274,14 @@ class CliAgentProvider:
             # from the terminal `type:"result"` line instead of a blind Usage(0, 0).
             result_line = self.adapter.stream_result_line(lines)
             if result_line is not None:
-                return self.adapter.parse(CliRunResult(result_line, "", 0), req)
+                terminal = CliRunResult(result_line, "", 0)
+                # Mirror the complete-path guard on the TERMINAL line: on a real
+                # spawn, `result.stdout` above is concatenated JSONL (multi-line) and
+                # never parses as one JSON object, so `is_error(result)` can't see a
+                # mid-stream `is_error: true` -- the single-object terminal line can.
+                if self.adapter.is_error(terminal):
+                    raise self.adapter.classify_error(terminal)
+                return self.adapter.parse(terminal, req)
         return CanonicalResponse(
             content=[TextBlock(text="".join(parts))],
             usage=Usage(prompt_tokens=0, completion_tokens=0, estimated=True),

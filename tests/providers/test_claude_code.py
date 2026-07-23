@@ -5,6 +5,9 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
+from baton.providers.base import ProviderError
 from baton.providers.claude_code import ClaudeCodeAdapter
 from baton.providers.cli_agent import CliAgentProvider, CliRunResult
 from baton.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage, text
@@ -308,6 +311,34 @@ async def test_stream_through_provider_surfaces_usage_and_cost() -> None:
     assert resp.usage.estimated is False
     assert resp.cost_usd == 0.004
     assert resp.latency_ms == 900
+
+
+_STREAM_LINES_TERMINAL_ERROR = [
+    json.dumps({"type": "system", "subtype": "init", "session_id": "s1"}),
+    json.dumps(
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "Working..."}]}}
+    ),
+    json.dumps(
+        {"type": "result", "subtype": "error_during_execution", "is_error": True,
+         "result": "Claude usage limit reached. Try again later."}
+    ),
+]
+
+
+async def test_stream_terminal_is_error_reroutes() -> None:
+    # Bug: on a REAL spawn, result.stdout is concatenated JSONL (multi-line), which
+    # doesn't parse as one JSON object -- is_error(aggregate) silently returns False,
+    # so a stream ending in a terminal is_error:true result was returned as a bogus
+    # SUCCESS instead of rerouting. Fix: check is_error on the TERMINAL line itself
+    # (the same single-object shape `parse`/`classify_error` already handle).
+    provider = CliAgentProvider(
+        ClaudeCodeAdapter(), "opus", runner=_stream_runner(_STREAM_LINES_TERMINAL_ERROR)
+    )
+    req = CanonicalRequest(messages=[text("user", "capital?")], max_tokens=64)
+    with pytest.raises(ProviderError) as ei:
+        await provider.stream(req, lambda _d: False)
+    assert ei.value.quota_exhausted is True   # reroute, not a bogus success/credit
+    assert ei.value.retryable is False
 
 
 def test_claude_code_model_info_seed() -> None:
