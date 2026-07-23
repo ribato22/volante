@@ -127,3 +127,15 @@ class CodexAdapter:
             latency_ms=0,
             cost_usd=cost_usd,  # provider-authoritative call cost → credit ledger (§5.3)
         )
+
+    def parse_delta(self, line: str) -> str | None:
+        line = line.strip()
+        if not line:
+            return None
+        try:
+            evt = json.loads(line)
+        except json.JSONDecodeError:
+            return None
+        if evt.get("type") == "agent_message":
+            return evt.get("message") or evt.get("text") or None
+        return None

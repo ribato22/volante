@@ -114,3 +114,16 @@ def test_parse_sets_cost_usd_when_total_cost_present() -> None:
     ])
     resp = CodexAdapter().parse(_run_result(jsonl), _req())
     assert resp.cost_usd == 0.0123
+
+
+def test_parse_delta_returns_text_for_agent_message() -> None:
+    line = json.dumps({"type": "agent_message", "message": "chunk-1"})
+    assert CodexAdapter().parse_delta(line) == "chunk-1"
+
+
+def test_parse_delta_none_for_lifecycle_and_garbage() -> None:
+    a = CodexAdapter()
+    assert a.parse_delta(json.dumps({"type": "turn.started"})) is None
+    assert a.parse_delta(json.dumps({"type": "turn.completed", "usage": {}})) is None
+    assert a.parse_delta("not json at all") is None
+    assert a.parse_delta("") is None
