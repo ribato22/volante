@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 
 from baton.providers.claude_code import ClaudeCodeAdapter
-from baton.providers.cli_agent import CliRunResult
-from baton.types import CanonicalRequest, TextBlock, Usage, text
+from baton.providers.cli_agent import CliAgentProvider, CliRunResult
+from baton.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage, text
 
 
 def _req(sys_prompt: str | None, user: str) -> CanonicalRequest:
@@ -195,3 +197,88 @@ def test_is_error_false_when_unparseable() -> None:
     a = ClaudeCodeAdapter()
     res = CliRunResult(stdout="not json", stderr="boom", returncode=1)
     assert a.is_error(res) is False
+
+
+_FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _runner_returning(result: CliRunResult):
+    async def runner(argv, *, stdin, env, timeout, on_line=None):
+        return result
+    return runner
+
+
+def test_result_fixture_is_dated() -> None:
+    # §8.3: fixture output CLI WAJIB bertanggal (permukaan billing/skema volatil).
+    files = list(_FIXTURES.glob("claude_code_result.*.json"))
+    assert files, "fixture claude -p bertanggal wajib ada"
+    assert all(re.search(r"\.\d{4}-\d{2}-\d{2}\.json$", f.name) for f in files)
+
+
+async def test_complete_through_provider_carries_cost_usd() -> None:
+    fixture = (_FIXTURES / "claude_code_result.2026-07-22.json").read_text()
+    provider = CliAgentProvider(
+        ClaudeCodeAdapter(),
+        "opus",
+        runner=_runner_returning(CliRunResult(stdout=fixture, stderr="", returncode=0)),
+    )
+    req = CanonicalRequest(messages=[text("user", "capital of France?")], max_tokens=64)
+    resp = await provider.complete(req)
+    assert isinstance(resp, CanonicalResponse)
+    assert resp.content[0].text == "The capital of France is Paris."
+    assert resp.usage == Usage(prompt_tokens=812, completion_tokens=37)
+    assert resp.usage.estimated is False
+    assert resp.cost_usd == 0.0123          # total_cost_usd -> carrier kredit (§5.3)
+    assert resp.latency_ms == 4213
+
+
+_STREAM_LINES = [
+    json.dumps({"type": "system", "subtype": "init", "session_id": "s1"}),
+    json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Paris"}]}}),
+    json.dumps(
+        {"type": "assistant",
+         "message": {"content": [{"type": "text", "text": " is the capital."}]}}
+    ),
+    json.dumps(
+        {"type": "result", "subtype": "success", "is_error": False,
+         "result": "Paris is the capital.", "total_cost_usd": 0.004,
+         "usage": {"input_tokens": 5, "output_tokens": 6}, "duration_ms": 900}
+    ),
+]
+
+
+def _stream_runner(lines: list[str]):
+    final = CliRunResult(stdout="\n".join(lines), stderr="", returncode=0)
+
+    async def runner(argv, *, stdin, env, timeout, on_line=None):
+        for ln in lines:
+            if on_line is not None and on_line(ln):  # truthy -> provider minta stop
+                break
+        return final
+    return runner
+
+
+async def test_stream_forwards_assistant_text_deltas() -> None:
+    provider = CliAgentProvider(
+        ClaudeCodeAdapter(), "opus", runner=_stream_runner(_STREAM_LINES)
+    )
+    req = CanonicalRequest(messages=[text("user", "capital?")], max_tokens=64)
+    got: list[str] = []
+    resp = await provider.stream(req, got.append)
+    assert got == ["Paris", " is the capital."]   # init/result -> parse_delta None
+    assert isinstance(resp, CanonicalResponse)
+
+
+async def test_stream_early_stop_on_truthy_callback() -> None:
+    provider = CliAgentProvider(
+        ClaudeCodeAdapter(), "opus", runner=_stream_runner(_STREAM_LINES)
+    )
+    req = CanonicalRequest(messages=[text("user", "capital?")], max_tokens=64)
+    got: list[str] = []
+
+    def cb(s: str) -> bool:
+        got.append(s)
+        return True  # stop setelah delta pertama
+
+    await provider.stream(req, cb)
+    assert got == ["Paris"]  # delta kedua tak diteruskan (early-stop)

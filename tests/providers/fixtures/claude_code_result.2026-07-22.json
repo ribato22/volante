@@ -1,0 +1,10 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 4213,
+  "session_id": "0f2c9c1e-2026-07-22",
+  "result": "The capital of France is Paris.",
+  "total_cost_usd": 0.0123,
+  "usage": { "input_tokens": 812, "output_tokens": 37 }
+}
