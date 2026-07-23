@@ -41,6 +41,7 @@ def test_argv_json_append_is_canonical_no_bare() -> None:
         "--model", "opus",
         "--tools", "",
         "--strict-mcp-config",
+        "--disallowedTools", "LSP",
         "--append-system-prompt", "SYS",
     ]
     # OAuth langganan HARUS hidup + tak boleh skip permission (§8.1).
@@ -65,6 +66,26 @@ def test_argv_stream_switches_output_format() -> None:
     assert "--verbose" not in json_argv
 
 
+def test_argv_disallows_lsp_explicitly_stream_and_nonstream() -> None:
+    # §13 gate finding (live-verified 2026-07-23): `--tools ""` removed Read/Bash/etc,
+    # but the built-in LSP tool SURVIVED availability-wise (it was only
+    # permission-DENIED at runtime, safe but not removed). Belt-and-suspenders:
+    # `-p` fail-closed (permission denial) is the PRIMARY guarantee; this makes
+    # availability-removal explicit for LSP too, in BOTH stream and non-stream argv.
+    for stream in (False, True):
+        argv = ClaudeCodeAdapter().argv(
+            _req(None, "hi"), model="opus", max_output=4096,
+            system_prompt_mode="append", stream=stream,
+        )
+        assert "--disallowedTools" in argv
+        assert argv[argv.index("--disallowedTools") + 1] == "LSP"
+        # Belt-and-suspenders is additive, not a replacement for the primary guard.
+        assert "--tools" in argv
+        assert argv[argv.index("--tools") + 1] == ""
+        assert "--strict-mcp-config" in argv
+        assert "--dangerously-skip-permissions" not in argv
+
+
 def test_argv_replace_mode_uses_system_prompt_flag() -> None:
     argv = ClaudeCodeAdapter().argv(
         _req("SYS", "hi"), model="opus", max_output=4096,
@@ -81,7 +102,7 @@ def test_argv_omits_system_flag_when_no_system_message() -> None:
     )
     assert "--append-system-prompt" not in argv
     assert "--system-prompt" not in argv
-    assert argv[-1] == "--strict-mcp-config"  # trailing flag when no sys prompt
+    assert argv[-2:] == ["--disallowedTools", "LSP"]  # trailing flags when no sys prompt
 
 
 def test_stdin_is_user_text_only() -> None:

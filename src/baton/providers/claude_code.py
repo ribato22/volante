@@ -72,6 +72,13 @@ class ClaudeCodeAdapter:
             "--model", model,
             "--tools", "",              # WAJIB: buang semua built-in tool (§8.1)
             "--strict-mcp-config",      # nol MCP; JANGAN --bare (mematikan OAuth)
+            # Belt-and-suspenders (§13 gate, live-verified 2026-07-23, CLI 2.1.161):
+            # `-p` fail-closed permission-denial is the PRIMARY guarantee (the
+            # built-in LSP tool was DENIED, so no file was read -- safe), but
+            # `--tools ""` alone did NOT remove LSP's AVAILABILITY. Disallow it
+            # explicitly too so availability-removal is complete, not just relying
+            # on runtime permission denial.
+            "--disallowedTools", "LSP",
         ]
         if stream:
             # CLI mewajibkan --verbose untuk `--print --output-format stream-json`
