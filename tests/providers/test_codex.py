@@ -161,3 +161,49 @@ def test_classify_generic_failure_is_non_retryable_non_quota() -> None:
     )
     assert err.retryable is False
     assert err.quota_exhausted is False
+
+
+# --- is_error / stream_result_line ------------------------------------------
+# The CliAgentAdapter Protocol grew these two hooks after this plan section was
+# drafted (B1/B2 review): CodexAdapter MUST implement them or it fails
+# `isinstance(_, CliAgentAdapter)` and CliAgentProvider's error/stream guards
+# silently no-op. PROVISIONAL: codex exit-0-but-failed-turn signalling is not yet
+# live-verified (§14); we key off an explicit `{"type": "error"}` event OR a
+# truthy `error` field on `turn.completed` -- reconfirm both at the live gate.
+
+
+def test_is_error_true_for_explicit_error_event() -> None:
+    jsonl = "\n".join([
+        json.dumps({"type": "thread.started", "thread_id": "th_3"}),
+        json.dumps({"type": "error", "message": "codex: sandbox denied"}),
+    ])
+    assert CodexAdapter().is_error(_run_result(jsonl)) is True
+
+
+def test_is_error_true_when_turn_completed_carries_error_field() -> None:
+    jsonl = "\n".join([
+        json.dumps({"type": "agent_message", "message": "partial"}),
+        json.dumps({"type": "turn.completed", "error": {"message": "turn failed"}}),
+    ])
+    assert CodexAdapter().is_error(_run_result(jsonl)) is True
+
+
+def test_is_error_false_for_clean_turn_completed() -> None:
+    assert CodexAdapter().is_error(_run_result(_JSONL)) is False
+
+
+def test_is_error_false_when_unparseable() -> None:
+    res = _run_result("not json", stderr="boom", returncode=1)
+    assert CodexAdapter().is_error(res) is False
+
+
+def test_stream_result_line_returns_last_turn_completed_line() -> None:
+    lines = _JSONL.splitlines()
+    assert CodexAdapter().stream_result_line(lines) == lines[-1]
+
+
+def test_stream_result_line_none_when_no_turn_completed() -> None:
+    a = CodexAdapter()
+    lines = _JSONL.splitlines()[:-1]  # drop the turn.completed line
+    assert a.stream_result_line(lines) is None
+    assert a.stream_result_line([]) is None

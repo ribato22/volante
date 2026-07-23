@@ -160,3 +160,40 @@ class CodexAdapter:
             f"codex exec failed (exit {result.returncode})",
             retryable=False, status=None,
         )
+
+    def is_error(self, result: CliRunResult) -> bool:
+        # codex exec can exit 0 while a turn still failed mid-run (PROVISIONAL wire
+        # shape, live-verify deferred §14): either a standalone `{"type":"error"}`
+        # event, or a truthy `error` field carried on `turn.completed`. Any other
+        # shape / unparseable JSONL defaults to False (returncode already covers it).
+        for raw in result.stdout.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                evt = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            etype = evt.get("type")
+            if etype == "error":
+                return True
+            if etype == "turn.completed" and evt.get("error"):
+                return True
+        return False
+
+    def stream_result_line(self, lines: list[str]) -> str | None:
+        # codex exec --json ends a successful turn with a terminal `turn.completed`
+        # JSONL line carrying `usage` (+ optional `total_cost_usd`) -- the same
+        # envelope shape `parse` already consumes. Walk backwards for the LAST one
+        # (defensive; never trust wire order).
+        for line in reversed(lines):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                evt = json.loads(stripped)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(evt, dict) and evt.get("type") == "turn.completed":
+                return line
+        return None
