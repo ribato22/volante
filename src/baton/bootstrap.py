@@ -287,21 +287,51 @@ def build_providers_from_env(
     return registry, providers, baseline_model_id
 
 
+def _temperature_controllable(registry: Registry, model_id: str) -> bool:
+    """True iff the model honors req.temperature. Subscription CLI agents (billing
+    plan_included/plan_credit) ignore temperature (§8.3) and so cannot deliver the
+    deterministic temperature=0.0 the planner needs; card-billed API/Ollama/free-tier can."""
+    return registry.get(model_id).billing == "card"
+
+
+def _planner_model_id(
+    registry: Registry, providers: dict[str, LLMProvider], baseline_model_id: str
+) -> str:
+    """Pick the Supervisor/Synthesizer model. Prefer `baseline_model_id` when it is
+    temperature-controllable (card); else the highest-tier card model that HAS a provider — so
+    planning/synthesis stay deterministic even when `prefer` routes work to subscription (§7.1);
+    else fall back to the baseline (subscription-only setup — the CLI runs
+    `verify_claude_plan_gate` before trusting claude -p to plan)."""
+    if _temperature_controllable(registry, baseline_model_id):
+        return baseline_model_id
+    card = [m for m in registry.all() if m.id in providers and m.billing == "card"]
+    if card:
+        return sorted(card, key=lambda m: (-m.tier, m.cost_per_1k_out, m.id))[0].id
+    return baseline_model_id
+
+
 def make_runtime_factory(
-    registry: Registry, providers: dict[str, LLMProvider], model_id: str
+    registry: Registry,
+    providers: dict[str, LLMProvider],
+    model_id: str,
+    *,
+    prefer: str = "quality",
 ) -> Callable[[], Runtime]:
     """Factory Runtime segar per pemanggilan (Supervisor non-re-entrant, CostMeter
-    per-run) berbagi registry + providers. Supervisor/Synthesizer memakai model
-    kuat (model_id); Worker/AgenticWorker memakai peta providers penuh."""
+    per-run) berbagi registry + providers. Supervisor/Synthesizer memakai planner
+    temperature-controllable (card) yang dipilih `_planner_model_id` (§7.1), bukan
+    langsung `model_id` — Worker/AgenticWorker tetap memakai peta providers penuh
+    dan Router memakai `prefer`."""
+    planner_id = _planner_model_id(registry, providers, model_id)
 
     def make_runtime() -> Runtime:
         cost_meter = CostMeter()
         return Runtime(
-            supervisor=Supervisor(providers[model_id], model_id, cost_meter),
-            router=Router(registry),
+            supervisor=Supervisor(providers[planner_id], planner_id, cost_meter),
+            router=Router(registry, prefer=prefer),
             projector=Projector(registry),
             worker=Worker(providers, cost_meter),
-            synthesizer=Synthesizer(providers[model_id], model_id, cost_meter),
+            synthesizer=Synthesizer(providers[planner_id], planner_id, cost_meter),
             registry=registry,
             cost_meter=cost_meter,
             agentic_worker=AgenticWorker(providers, cost_meter),

@@ -3,7 +3,25 @@ from __future__ import annotations
 import pytest
 
 import baton.bootstrap as bootstrap
-from baton.bootstrap import build_providers_from_env
+from baton.bootstrap import _planner_model_id, build_providers_from_env, make_runtime_factory
+from baton.providers.fake import FakeProvider
+from baton.registry import Registry
+from baton.types import ModelInfo
+
+
+def _model(mid: str, *, billing: str = "card", tier: int = 2) -> ModelInfo:
+    return ModelInfo(
+        id=mid,
+        provider="fake",
+        strengths={"coding", "reasoning"},
+        context_window=128_000,
+        max_output_tokens=4_096,
+        supports_tools=True,
+        cost_per_1k_in=0.0,
+        cost_per_1k_out=0.0,
+        tier=tier,
+        billing=billing,
+    )
 
 
 def _clear_all_provider_env(monkeypatch) -> None:
@@ -83,3 +101,68 @@ def test_subscription_never_displaces_card_baseline(monkeypatch):
     _registry, providers, baseline = build_providers_from_env(include_subscription=True)
     assert baseline == "anthropic/claude-opus-4-8"  # card model stays baseline
     assert "claude-code/opus" in providers  # registered, just not baseline
+
+
+def test_planner_prefers_card_over_subscription():
+    # Even when the baseline handed in is a subscription model, planning must land on a
+    # temperature-controllable (card) model (§7.1: claude -p ignores temperature).
+    registry = Registry([
+        _model("sub/x", billing="plan_included", tier=4),
+        _model("api/y", billing="card", tier=3),
+    ])
+    providers = {"sub/x": FakeProvider(), "api/y": FakeProvider()}
+    assert _planner_model_id(registry, providers, "sub/x") == "api/y"
+
+
+def test_planner_keeps_card_baseline_unchanged():
+    # Back-compat: a card baseline (today's only case) is returned as-is.
+    registry = Registry([_model("api/y", billing="card", tier=3)])
+    providers = {"api/y": FakeProvider()}
+    assert _planner_model_id(registry, providers, "api/y") == "api/y"
+
+
+def test_planner_picks_highest_tier_card_deterministically():
+    registry = Registry([
+        _model("sub/x", billing="plan_included", tier=4),
+        _model("card/lo", billing="card", tier=2),
+        _model("card/hi", billing="card", tier=4),
+    ])
+    providers = {"sub/x": FakeProvider(), "card/lo": FakeProvider(), "card/hi": FakeProvider()}
+    assert _planner_model_id(registry, providers, "sub/x") == "card/hi"
+
+
+def test_planner_falls_back_to_subscription_when_only_option():
+    # Subscription-only setup: nothing card exists -> the baseline (subscription) is returned;
+    # the CLI runs verify_claude_plan_gate before trusting it to plan.
+    registry = Registry([_model("sub/x", billing="plan_included", tier=4)])
+    providers = {"sub/x": FakeProvider()}
+    assert _planner_model_id(registry, providers, "sub/x") == "sub/x"
+
+
+def test_make_runtime_factory_wires_card_planner_and_synth():
+    registry = Registry([
+        _model("sub/x", billing="plan_included", tier=4),
+        _model("api/y", billing="card", tier=3),
+    ])
+    providers = {"sub/x": FakeProvider(), "api/y": FakeProvider()}
+    runtime = make_runtime_factory(registry, providers, "sub/x", prefer="cash_protect_quota")()
+    assert runtime.supervisor._model_id == "api/y"
+    assert runtime.synthesizer._model_id == "api/y"
+
+
+def test_make_runtime_factory_threads_prefer_into_router():
+    # Router(registry) alone silently ignores the objective; make_runtime_factory must
+    # forward `prefer` so runtime.router actually routes on it (not the Router default).
+    registry = Registry([_model("api/y", billing="card", tier=3)])
+    providers = {"api/y": FakeProvider()}
+    runtime = make_runtime_factory(registry, providers, "api/y", prefer="cash_protect_quota")()
+    assert runtime.router._prefer == "cash_protect_quota"
+
+
+def test_make_runtime_factory_default_prefer_is_quality_back_compat():
+    # Existing callers (demo.py, webui/server.py, tests/eval) call
+    # make_runtime_factory(registry, providers, model_id) with no `prefer` -> unchanged.
+    registry = Registry([_model("api/y", billing="card", tier=3)])
+    providers = {"api/y": FakeProvider()}
+    runtime = make_runtime_factory(registry, providers, "api/y")()
+    assert runtime.router._prefer == "quality"
