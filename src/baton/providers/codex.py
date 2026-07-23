@@ -35,6 +35,12 @@ if TYPE_CHECKING:
 _SCRUB_KEYS = ("OPENAI_API_KEY", "CODEX_API_KEY")
 _DEPTH_ENV = "BATON_CLI_AGENT_DEPTH"  # mirrors CliAgentProvider.depth_env default
 
+# Baton-internal SENTINEL key for the stream_result_line() text-bridge (see there).
+# Namespaced (leading underscore + "baton") so it can NEVER collide with a real
+# Codex CLI wire key -- unlike a plausible key such as "message", which the real
+# `turn.completed` event could plausibly grow one day.
+_STREAM_MESSAGE_KEY = "_baton_stream_message"
+
 
 def _est(s: str) -> int:
     """Cheap token estimate; never 0 (contract: JANGAN Usage(0, 0))."""
@@ -111,11 +117,15 @@ class CodexAdapter:
                 usage_out = usage.get("output_tokens")
                 cost_usd = evt.get("total_cost_usd", cost_usd)
                 # `stream_result_line` synthesizes a self-contained terminal line
-                # (folds the accumulated agent_message text in here) so a
-                # single-line `parse()` on it -- as CliAgentProvider.stream does --
-                # still recovers the final text; real `turn.completed` events don't
-                # carry this key, so this is a no-op on the `complete()` path.
-                synth_msg = evt.get("message")
+                # (folds the accumulated agent_message text into the Baton-internal
+                # SENTINEL key below) so a single-line `parse()` on it -- as
+                # CliAgentProvider.stream does -- still recovers the final text.
+                # The sentinel is namespaced/Baton-internal: the real Codex CLI
+                # cannot emit it, so this branch is a guaranteed no-op on the
+                # `complete()` path regardless of what the live `turn.completed`
+                # wire shape turns out to carry (§14) -- in particular, a real
+                # (plausible) `message` field on `turn.completed` is IGNORED here.
+                synth_msg = evt.get(_STREAM_MESSAGE_KEY)
                 if synth_msg:
                     texts.append(synth_msg)
         final_text = "\n".join(texts)
@@ -196,7 +206,10 @@ class CodexAdapter:
         # text (that lives on the earlier `agent_message` event(s)). CliAgentProvider
         # .stream() feeds ONLY this ONE returned line into `parse()`, so we
         # SYNTHESIZE a self-contained line here: fold the accumulated agent_message
-        # text into a `message` key on a copy of the last `turn.completed` event.
+        # text into a Baton-internal SENTINEL key (`_STREAM_MESSAGE_KEY`, NOT the
+        # plausible-real-wire-key `message`) on a copy of the last `turn.completed`
+        # event. The sentinel is namespaced so the real Codex CLI can never emit
+        # it -- immune to whatever the live `turn.completed` shape turns out to be.
         # PROVISIONAL (§14): a bridging shape, not the real Codex CLI terminal
         # line -- reconfirm at the live gate.
         texts: list[str] = []
@@ -220,7 +233,7 @@ class CodexAdapter:
         if terminal is None:
             return None
         merged = dict(terminal)
-        merged.setdefault("message", "\n".join(texts))
+        merged[_STREAM_MESSAGE_KEY] = "\n".join(texts)
         return json.dumps(merged)
 
 

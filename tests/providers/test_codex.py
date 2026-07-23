@@ -59,6 +59,35 @@ def test_child_env_sets_depth_plus_one() -> None:
     assert CodexAdapter().child_env({}, depth=1)["BATON_CLI_AGENT_DEPTH"] == "2"
 
 
+def test_child_env_depth_increment_matches_claude_code_adapter() -> None:
+    # Provably consistent with ClaudeCodeAdapter (mirrors its own depth test,
+    # `test_child_env_bumps_depth_and_preserves_oauth` -- child env is "1" from a
+    # depth=0 call): the two CliAgentAdapter implementations must never diverge on
+    # how the shared CliAgentProvider recursion-depth env travels.
+    from baton.providers.claude_code import DEPTH_ENV, ClaudeCodeAdapter
+
+    for depth in (0, 1, 3):
+        codex_env = CodexAdapter().child_env({}, depth=depth)
+        claude_env = ClaudeCodeAdapter().child_env({}, depth=depth)
+        assert codex_env["BATON_CLI_AGENT_DEPTH"] == claude_env[DEPTH_ENV] == str(depth + 1)
+
+
+async def test_depth_guard_refuses_recursion_for_codex(monkeypatch) -> None:
+    # End-to-end (through the real CliAgentProvider, not just the adapter in
+    # isolation): the anti-recursion guard must still block at the first hop for
+    # Codex, exactly like it does for ClaudeCode (test_cli_agent.py's
+    # test_depth_guard_refuses_recursion). Guard fires BEFORE spawn.
+    from baton.providers.cli_agent import CliAgentProvider
+
+    monkeypatch.setenv("BATON_CLI_AGENT_DEPTH", "1")
+    runner = _CaptureRunner(_JSONL)
+    provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner, max_depth=1)
+    with pytest.raises(ProviderError) as ei:
+        await provider.complete(_req())
+    assert ei.value.retryable is False
+    assert runner.argv is None  # guard fires BEFORE spawn -- runner never invoked
+
+
 def test_stdin_is_prompt_text_system_then_user() -> None:
     req = CanonicalRequest(
         messages=[text("system", "be terse"), text("user", "add two numbers")],
@@ -204,15 +233,49 @@ def test_stream_result_line_returns_synthesized_turn_completed_line() -> None:
     # lives on the earlier `agent_message` event) -- unlike Claude's self-contained
     # terminal `result` envelope. Because CliAgentProvider.stream() feeds ONLY this
     # ONE returned line into `parse()`, stream_result_line folds the accumulated
-    # agent_message text into a `message` key so parse() still recovers it
-    # (PROVISIONAL bridging shape, §14).
+    # agent_message text into a Baton-namespaced SENTINEL key (`_baton_stream_message`,
+    # NOT the plausible-real-wire-key `message`) so parse() still recovers it
+    # (PROVISIONAL bridging shape, §14). The sentinel is Baton-internal -- the real
+    # Codex CLI cannot emit it -- so a genuine live `turn.completed` shape can never
+    # collide with it (see test_parse_ignores_real_message_key_on_turn_completed).
     lines = _JSONL.splitlines()
     result_line = CodexAdapter().stream_result_line(lines)
     assert result_line is not None
     parsed = json.loads(result_line)
     assert parsed["type"] == "turn.completed"
     assert parsed["usage"] == {"input_tokens": 120, "output_tokens": 34}
-    assert parsed["message"] == "Hello from Codex"
+    assert parsed["_baton_stream_message"] == "Hello from Codex"
+    assert "message" not in parsed  # never write the plausible-real-wire key
+
+
+def test_parse_reads_baton_stream_message_sentinel_on_turn_completed() -> None:
+    # This is the shape stream_result_line() synthesizes: a single turn.completed
+    # line carrying the sentinel. parse() must recover the text from it exactly
+    # like it would from an earlier agent_message event.
+    jsonl = json.dumps({
+        "type": "turn.completed",
+        "usage": {"input_tokens": 7, "output_tokens": 3},
+        "_baton_stream_message": "bridged text",
+    })
+    resp = CodexAdapter().parse(_run_result(jsonl), _req())
+    assert resp.content[0].text == "bridged text"
+
+
+def test_parse_ignores_real_message_key_on_turn_completed() -> None:
+    # Hardening: `message` is a PLAUSIBLE real Codex wire key. If the installed
+    # CLI ever emits a `message`/status field directly on a real turn.completed,
+    # parse()'s non-synthetic complete() path must NOT treat it as agent text --
+    # only the Baton-internal `_baton_stream_message` sentinel is honored.
+    jsonl = "\n".join([
+        json.dumps({"type": "agent_message", "message": "real answer"}),
+        json.dumps({
+            "type": "turn.completed",
+            "message": "some unrelated real-CLI status string",
+            "usage": {"input_tokens": 7, "output_tokens": 3},
+        }),
+    ])
+    resp = CodexAdapter().parse(_run_result(jsonl), _req())
+    assert resp.content[0].text == "real answer"  # NOT duplicated/corrupted
 
 
 def test_stream_result_line_none_when_no_turn_completed() -> None:
