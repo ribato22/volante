@@ -182,3 +182,14 @@ class ClaudeCodeAdapter:
         if data is None:
             return False
         return bool(data.get("is_error", False))
+
+    def stream_result_line(self, lines: list[str]) -> str | None:
+        # `claude -p --output-format stream-json` ends with a terminal
+        # `{"type":"result", ..., "usage":{...}, "total_cost_usd":...}` line -- same
+        # envelope shape `parse` already consumes. Walk backwards for the LAST one
+        # (defensive; the CLI emits exactly one, but never trust wire order).
+        for line in reversed(lines):
+            data = _try_json(line)
+            if data is not None and data.get("type") == "result":
+                return line
+        return None

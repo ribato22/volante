@@ -174,6 +174,8 @@ class CliAgentAdapter(Protocol):
 
     def is_error(self, result: CliRunResult) -> bool: ...
 
+    def stream_result_line(self, lines: list[str]) -> str | None: ...
+
 
 class CliAgentProvider:
     """LLMProvider over a subscription CLI agent (claude -p / codex exec) via an INJECTED
@@ -244,10 +246,12 @@ class CliAgentProvider:
         )
         prompt = self.adapter.stdin(req)
         parts: list[str] = []
+        lines: list[str] = []
         stopped = False
 
         def _on_line(line: str) -> bool:
             nonlocal stopped
+            lines.append(line)
             delta = self.adapter.parse_delta(line)
             if delta is None:
                 return False
@@ -265,6 +269,12 @@ class CliAgentProvider:
             result.timed_out or result.returncode != 0 or self.adapter.is_error(result)
         ):
             raise self.adapter.classify_error(result)
+        if not stopped:
+            # §5.3: cost_usd is the primary credit source -- surface REAL usage/cost
+            # from the terminal `type:"result"` line instead of a blind Usage(0, 0).
+            result_line = self.adapter.stream_result_line(lines)
+            if result_line is not None:
+                return self.adapter.parse(CliRunResult(result_line, "", 0), req)
         return CanonicalResponse(
             content=[TextBlock(text="".join(parts))],
             usage=Usage(prompt_tokens=0, completion_tokens=0, estimated=True),

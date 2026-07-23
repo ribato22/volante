@@ -200,9 +200,15 @@ class _FakeAdapter:
 
     name = "fake_cli"
 
-    def __init__(self, *, is_error_result: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        is_error_result: bool = False,
+        stream_result_line_value: str | None = None,
+    ) -> None:
         self.argv_calls: list[dict] = []
         self._is_error_result = is_error_result
+        self._stream_result_line_value = stream_result_line_value
 
     def argv(self, req, *, model, max_output, system_prompt_mode, stream):
         self.argv_calls.append(
@@ -255,6 +261,12 @@ class _FakeAdapter:
 
     def is_error(self, result):
         return self._is_error_result
+
+    def stream_result_line(self, lines):
+        # Real adapters (e.g. ClaudeCodeAdapter) return the terminal `type:"result"`
+        # line so the provider can surface real usage/cost from a streamed run;
+        # this fake defaults to None (unchanged behavior) unless a test configures it.
+        return self._stream_result_line_value
 
 
 class _RecordingRunner:
@@ -400,6 +412,48 @@ async def test_stream_relays_deltas_and_early_stop(monkeypatch):
     assert seen == ["Hel", "lo"]           # 3rd delta never delivered (stopped)
     assert resp.content[0].text == "Hello"  # accumulated partial
     assert resp.usage.estimated is True
+
+
+async def test_stream_surfaces_usage_and_cost_from_terminal_result_line(monkeypatch):
+    # §5.3: cost_usd is the primary credit source -- a STREAMED subscription call
+    # must not report Usage(0, 0) / no cost just because it went through .stream().
+    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    lines = [json.dumps({"type": "text", "text": "Hello"}) + "\n"]
+    result_line = json.dumps(
+        {
+            "result": "Hello",
+            "usage": {"input_tokens": 3, "output_tokens": 2},
+            "total_cost_usd": 0.02,
+        }
+    )
+    adapter = _FakeAdapter(stream_result_line_value=result_line)
+    runner = _RecordingRunner(CliRunResult("", "", 0), lines=lines)
+    provider = CliAgentProvider(adapter, "opus", runner=runner)
+    resp = await provider.stream(_req(), lambda _d: False)
+    assert resp.content[0].text == "Hello"
+    assert (resp.usage.prompt_tokens, resp.usage.completion_tokens) == (3, 2)
+    assert resp.usage.estimated is False
+    assert resp.cost_usd == 0.02  # terminal result line -> real usage/cost, not Usage(0,0)
+
+
+async def test_stream_early_stop_keeps_partial_even_with_result_line(monkeypatch):
+    # Early-stop (cooperative cancel) must NOT be overridden by a terminal result
+    # line -- the accumulated partial is the correct answer when the caller asked
+    # to stop early, even if the runner happens to hand back a result line.
+    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    lines = [
+        json.dumps({"type": "text", "text": "Hel"}) + "\n",
+        json.dumps({"type": "text", "text": "lo world"}) + "\n",
+    ]
+    result_line = json.dumps(
+        {"result": "Hello world", "usage": {"input_tokens": 3, "output_tokens": 2}}
+    )
+    adapter = _FakeAdapter(stream_result_line_value=result_line)
+    runner = _RecordingRunner(CliRunResult("", "", 0), lines=lines)
+    provider = CliAgentProvider(adapter, "opus", runner=runner)
+    resp = await provider.stream(_req(), lambda _d: True)  # stop after first delta
+    assert resp.content[0].text == "Hel"       # partial, NOT the full result-line text
+    assert resp.usage.estimated is True         # unchanged early-stop contract
 
 
 async def test_stream_sets_stream_flag_true(monkeypatch):

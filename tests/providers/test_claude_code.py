@@ -282,3 +282,29 @@ async def test_stream_early_stop_on_truthy_callback() -> None:
 
     await provider.stream(req, cb)
     assert got == ["Paris"]  # delta kedua tak diteruskan (early-stop)
+
+
+def test_stream_result_line_returns_last_result_type_line() -> None:
+    a = ClaudeCodeAdapter()
+    assert a.stream_result_line(_STREAM_LINES) == _STREAM_LINES[-1]
+
+
+def test_stream_result_line_none_when_no_result_line() -> None:
+    a = ClaudeCodeAdapter()
+    assert a.stream_result_line(_STREAM_LINES[:-1]) is None
+    assert a.stream_result_line([]) is None
+
+
+async def test_stream_through_provider_surfaces_usage_and_cost() -> None:
+    # §5.3: cost_usd is the primary credit source -- a STREAMED subscription call
+    # must surface REAL usage/cost from the terminal result line, not Usage(0, 0).
+    provider = CliAgentProvider(
+        ClaudeCodeAdapter(), "opus", runner=_stream_runner(_STREAM_LINES)
+    )
+    req = CanonicalRequest(messages=[text("user", "capital?")], max_tokens=64)
+    resp = await provider.stream(req, lambda _d: False)
+    assert resp.content[0].text == "Paris is the capital."
+    assert resp.usage == Usage(prompt_tokens=5, completion_tokens=6)
+    assert resp.usage.estimated is False
+    assert resp.cost_usd == 0.004
+    assert resp.latency_ms == 900
