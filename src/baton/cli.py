@@ -72,6 +72,22 @@ def _build(args: argparse.Namespace) -> tuple[Registry, Runtime]:
     return registry, make_runtime()
 
 
+def _subscription_calls(result: RunResult, registry: Registry) -> int:
+    """Number of subscription-billed models observed in usage_total (plan_included /
+    plan_credit). The exact per-call count is intentionally NOT a RunResult field
+    (locked contract §5.3, surfaced only as blackboard status entries the CLI can't
+    read); this is the CLI-side proxy from usage_total + registry billing."""
+    n = 0
+    for model_id in result.usage_total:
+        try:
+            info = registry.get(model_id)
+        except ValueError:  # Registry.get raises on unknown model_id
+            continue
+        if info.billing in ("plan_included", "plan_credit"):
+            n += 1
+    return n
+
+
 def _summary_lines(result: RunResult, registry: Registry) -> list[str]:
     head = f"status: {result.status}"
     if result.failed_task:
@@ -79,7 +95,8 @@ def _summary_lines(result: RunResult, registry: Registry) -> list[str]:
     return [
         head,
         f"billed_usd: ${result.billed_usd:.6f}   credit_usd: ${result.credit_usd:.6f}",
-        f"duration_ms: {result.duration_ms}",
+        f"duration_ms: {result.duration_ms}   "
+        f"subscription_calls: {_subscription_calls(result, registry)}",
     ]
 
 

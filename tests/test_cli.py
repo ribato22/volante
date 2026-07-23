@@ -176,3 +176,25 @@ def test_main_streams_plan_worker_and_synth(monkeypatch, capsys) -> None:
     assert "[plan]" in out  # supervisor.plan streamed via on_text
     assert "[T1] art-1" in out  # worker delta labeled by task_id
     assert "[synth]" in out  # synthesizer streamed via on_text
+
+
+def test_summary_shows_zero_subscription_calls_for_card(monkeypatch, capsys) -> None:
+    registry, runtime = _one_task_runtime()  # billing="card"
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
+
+    cli.main(["do one", "--no-stream"])
+
+    assert "subscription_calls: 0" in capsys.readouterr().out
+
+
+def test_summary_counts_plan_included_and_records_credit(monkeypatch, capsys) -> None:
+    registry, runtime = _one_task_runtime(billing="plan_included")
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
+
+    cli.main(["do one", "--no-stream"])
+
+    out = capsys.readouterr().out
+    assert "subscription_calls: 1" in out
+    # Honesty invariant (§5.3): subscription-only run bills $0 cash, records credit.
+    assert "billed_usd: $0.000000" in out
+    assert "credit_usd: $0.003000" in out
