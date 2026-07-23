@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from baton.providers.base import OnText, ProviderError
-from baton.types import CanonicalRequest, CanonicalResponse
+from baton.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage
 
 # claude/codex --output-format stream-json emit one JSON object per line; a single
 # line (e.g. a tool_result) routinely exceeds asyncio's default 64KB StreamReader
@@ -232,6 +232,39 @@ class CliAgentProvider:
         return self.adapter.parse(result, req)
 
     async def stream(self, req: CanonicalRequest, on_text: OnText) -> CanonicalResponse:
-        # Task 3 minimal: fall back to complete (matches FakeProvider). Real per-line
-        # streaming + early-stop kill added in Task 6.
-        return await self.complete(req)
+        env = self._child_env()
+        argv = self.adapter.argv(
+            req,
+            model=self.model,
+            max_output=self.max_output,
+            system_prompt_mode=self.system_prompt_mode,
+            stream=True,
+        )
+        prompt = self.adapter.stdin(req)
+        parts: list[str] = []
+        stopped = False
+
+        def _on_line(line: str) -> bool:
+            nonlocal stopped
+            delta = self.adapter.parse_delta(line)
+            if delta is None:
+                return False
+            parts.append(delta)
+            if on_text(delta):  # truthy -> cooperative early-stop (kills process group)
+                stopped = True
+                return True
+            return False
+
+        async with self._sem:
+            result = await self._runner(
+                argv, stdin=prompt, env=env, timeout=self.timeout, on_line=_on_line
+            )
+        if not stopped and (result.timed_out or result.returncode != 0):
+            raise self.adapter.classify_error(result)
+        return CanonicalResponse(
+            content=[TextBlock(text="".join(parts))],
+            usage=Usage(prompt_tokens=0, completion_tokens=0, estimated=True),
+            model=self.name,
+            stop_reason="end_turn",
+            latency_ms=0,
+        )

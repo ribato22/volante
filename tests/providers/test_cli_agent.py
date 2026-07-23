@@ -363,3 +363,50 @@ async def test_complete_timed_out_result_is_classified(monkeypatch):
     with pytest.raises(ProviderError) as ei:
         await provider.complete(_req())
     assert ei.value.quota_exhausted is True
+
+
+async def test_stream_relays_deltas_and_early_stop(monkeypatch):
+    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    lines = [
+        json.dumps({"type": "text", "text": "Hel"}) + "\n",
+        json.dumps({"type": "text", "text": "lo"}) + "\n",
+        json.dumps({"type": "text", "text": " world"}) + "\n",
+    ]
+    runner = _RecordingRunner(CliRunResult("", "", 0), lines=lines)
+    provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner)
+    seen: list[str] = []
+
+    def _on_text(delta: str) -> bool:
+        seen.append(delta)
+        return len(seen) >= 2  # truthy after 2 deltas -> cooperative early-stop
+
+    resp = await provider.stream(_req(), _on_text)
+    assert seen == ["Hel", "lo"]           # 3rd delta never delivered (stopped)
+    assert resp.content[0].text == "Hello"  # accumulated partial
+    assert resp.usage.estimated is True
+
+
+async def test_stream_sets_stream_flag_true(monkeypatch):
+    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    adapter = _FakeAdapter()
+    provider = CliAgentProvider(adapter, "opus", runner=_RecordingRunner(CliRunResult("", "", 0)))
+    await provider.stream(_req(), lambda _d: False)
+    assert adapter.argv_calls[-1]["stream"] is True
+
+
+async def test_concurrency_cap_serializes_spawns(monkeypatch):
+    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    inflight = 0
+    max_seen = 0
+
+    async def _runner(argv, *, stdin, env, timeout, on_line=None):
+        nonlocal inflight, max_seen
+        inflight += 1
+        max_seen = max(max_seen, inflight)
+        await asyncio.sleep(0.03)
+        inflight -= 1
+        return _ok_result()
+
+    provider = CliAgentProvider(_FakeAdapter(), "opus", runner=_runner, concurrency=1)
+    await asyncio.gather(*(provider.complete(_req()) for _ in range(4)))
+    assert max_seen == 1  # per-provider cap nested in fan-out semaphore (§8.2)
