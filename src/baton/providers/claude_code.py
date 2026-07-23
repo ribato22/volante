@@ -17,6 +17,17 @@ def _system_text(req: CanonicalRequest) -> str:
     return "\n".join(parts)
 
 
+def _user_text(req: CanonicalRequest) -> str:
+    parts: list[str] = []
+    for m in req.messages:
+        if m.role == "system":
+            continue
+        for b in m.content:
+            if isinstance(b, TextBlock):
+                parts.append(b.text)
+    return "\n".join(parts)
+
+
 class ClaudeCodeAdapter:
     """CliAgentAdapter (Fase 6) untuk `claude -p` jalur LANGGANAN/OAuth.
 
@@ -54,3 +65,14 @@ class ClaudeCodeAdapter:
             )
             out += [flag, sys_text]
         return out
+
+    def stdin(self, req: CanonicalRequest) -> str:
+        # prompt user via stdin (--input-format text); sistem sudah di argv.
+        return _user_text(req)
+
+    def child_env(self, base: dict[str, str], *, depth: int) -> dict[str, str]:
+        env = dict(base)
+        env[DEPTH_ENV] = str(depth + 1)  # guard rekursi: anak +1 (§8.2)
+        # OAuth langganan DIPERTAHANKAN: TIDAK menyuntik/menghapus ANTHROPIC_API_KEY
+        # di sini (kontras Codex yang scrub OPENAI_API_KEY). Keputusan scrub = §13.
+        return env

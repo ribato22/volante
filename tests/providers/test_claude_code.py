@@ -66,3 +66,23 @@ def test_argv_omits_system_flag_when_no_system_message() -> None:
     assert "--append-system-prompt" not in argv
     assert "--system-prompt" not in argv
     assert argv[-1] == "--strict-mcp-config"  # trailing flag when no sys prompt
+
+
+def test_stdin_is_user_text_only() -> None:
+    # --input-format text: prompt user lewat stdin; sistem lewat argv (Task 1).
+    a = ClaudeCodeAdapter()
+    assert a.stdin(_req("SYS", "hello world")) == "hello world"
+    assert a.stdin(_req(None, "just user")) == "just user"
+
+
+def test_child_env_bumps_depth_and_preserves_oauth() -> None:
+    from baton.providers.claude_code import DEPTH_ENV
+
+    a = ClaudeCodeAdapter()
+    base = {"PATH": "/bin", "ANTHROPIC_API_KEY": "sk-should-survive", DEPTH_ENV: "0"}
+    env = a.child_env(base, depth=0)
+    assert env[DEPTH_ENV] == "1"                        # anak +1 (§8.2)
+    assert env["PATH"] == "/bin"                        # base diteruskan
+    # OAuth langganan dipertahankan: key TIDAK disuntik/dihapus di sini (kontras Codex).
+    assert env["ANTHROPIC_API_KEY"] == "sk-should-survive"
+    assert base[DEPTH_ENV] == "0"                       # tak mutasi input
