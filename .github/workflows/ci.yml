@@ -33,4 +33,4 @@ jobs:
         run: uv run ruff check .
 
       - name: Test (no network; integration tests skipped by default)
-        run: uv run pytest
+        run: uv run pytest --cov=src/baton --cov=eval --cov-report=term-missing

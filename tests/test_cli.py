@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import tomllib
 from pathlib import Path
@@ -48,6 +49,23 @@ def test_parse_args_all_flags() -> None:
 def test_parse_args_rejects_unknown_prefer() -> None:
     with pytest.raises(SystemExit):  # argparse choices guard
         cli._parse_args(["g", "--prefer", "bogus"])
+
+
+def test_version_flag_registered_and_exits_cleanly(capsys: pytest.CaptureFixture) -> None:
+    # `action="version"` prints to stdout and raises SystemExit(0) -- verify both,
+    # without needing a fully wired provider/runtime (this must work even with
+    # zero configured providers, since it's an argparse-level action).
+    with pytest.raises(SystemExit) as exc_info:
+        cli._parse_args(["--version"])
+    assert exc_info.value.code == 0
+    assert capsys.readouterr().out.strip() == importlib.metadata.version("baton")
+
+
+def test_main_version_flag_exits_zero(capsys: pytest.CaptureFixture) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["--version"])
+    assert exc_info.value.code == 0
+    assert capsys.readouterr().out.strip() == "0.1.0"
 
 
 # ---- FakeProvider-backed real Runtime (stubs mirror tests/test_runtime.py) ----

@@ -37,6 +37,17 @@ All notable changes to this project are documented here. The format is based on
 - `make_runtime_factory` gains a keyword-only `prefer` (default `"cash_protect_quota"`, matching
   `Router`'s own default — genuine back-compat) and now forwards it to
   `Router(registry, prefer=prefer)` instead of always defaulting the router's objective.
+- The `baton` one-command CLI (`[project.scripts] baton = baton.cli:main`): streams the plan / labelled
+  per-task worker output / synthesis live, then prints a `billed_usd` vs `credit_usd` +
+  `subscription_models` summary. Flags: `--prefer/--provider/--model/--json/--no-stream` and
+  `--version`. Exit codes `0` success / `1` run failure / `2` config error / `130` Ctrl-C (prints
+  partial output, never a traceback), plus clean broken-pipe handling (e.g. `baton goal | head`).
+- `Router.route_ranked` right-sizes the tier tiebreak among cash-tied models (lowest adequate tier
+  first), so same-cost subscription providers distribute work across providers instead of always
+  picking one.
+- Supervisor bounded self-correcting plan retry (up to 3 attempts) that feeds the actual rejection
+  error back to the planner, for CLI-agent planners that answer the goal instead of emitting the
+  plan JSON.
 
 ### Fixed
 - `Worker.run_one_shot` now forwards `resp.cost_usd` into `CostMeter.add(..., cost_usd=...)`, so a
@@ -53,8 +64,17 @@ All notable changes to this project are documented here. The format is based on
   `build_codex_model()` — e.g. missing the `long_context` strength, a different default
   `context_window`); both legs now build their registered `ModelInfo` from those single-source
   helpers.
+- `claude -p` streaming requires `--verbose` with `--output-format stream-json` (added; the CLI
+  otherwise refuses the spawn); `ClaudeCodeAdapter.argv` also passes `--disallowedTools LSP`
+  (belt-and-suspenders on top of `--tools ""`) and `child_env` scrubs `ANTHROPIC_API_KEY`
+  (guarantees the call bills the subscription, never the metered API key). The `CodexAdapter`'s
+  JSONL wire shape was corrected to the live format: agent text lives in
+  `item.completed`/`agent_message`, usage lives on the terminal `turn.completed` event, and there is
+  no `total_cost_usd` anywhere on the real wire.
 
 ### Changed
+- ClaudeCode default `CLAUDE_CODE_SYSTEM_PROMPT_MODE` is now `replace` (was `append`) — live-verified
+  that `append` makes `claude -p` answer the goal instead of planning.
 - **Routing may cost more for multi-provider setups.** The new difficulty→tier filter means a default
   (`medium`) task no longer routes to a very weak/cheap model when a stronger tier-adequate one exists.
   Example: with Opus (tier 4) + Kimi (tier 3) + a local tier-1 model configured, a `medium` task now

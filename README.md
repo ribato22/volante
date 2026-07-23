@@ -1,7 +1,7 @@
 # Baton
 
 [![CI](https://github.com/ribato/baton/actions/workflows/ci.yml/badge.svg)](https://github.com/ribato/baton/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/ribato/baton/blob/main/LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](pyproject.toml)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 
@@ -36,7 +36,7 @@ CrewAI / LiteLLM) as a study of how these systems actually work under the hood.
 - **Forgery-resistant evaluation.** A 3-arm eval (baseline vs. orchestration vs. single-agent) with
   a scorer that runs untrusted solution code under **process + filesystem separation** so a model
   cannot fake a passing score.
-- **Tested.** 330+ tests, zero-network by default (`FakeProvider` + local subprocesses), `ruff`-clean.
+- **Tested.** 560+ tests, zero-network by default (`FakeProvider` + local subprocesses), `ruff`-clean.
 
 ## Architecture
 
@@ -93,7 +93,7 @@ Requires **Python 3.12+** and [`uv`](https://docs.astral.sh/uv/).
 git clone https://github.com/ribato/baton
 cd baton
 uv sync --dev            # install deps + dev tools
-uv run pytest            # 330+ tests, no network
+uv run pytest            # 560+ tests, no network
 uv run ruff check .      # lint
 ```
 
@@ -145,10 +145,102 @@ totals: baseline $0.0210  orchestration $0.0480  agentic $0.0350
 VERDICT: ORCHESTRATION
 ```
 
+## Usage
+
+Baton ships three surfaces: a one-command **CLI** (the primary entrypoint), an optional **Web UI**,
+and an importable **library**. All three need at least one configured provider — see
+[Providers](#providers) — or (Web UI only) fall back to a no-key demo.
+
+### CLI (primary)
+
+```bash
+uv run baton "write a haiku about concurrency, then explain the metaphor"
+```
+
+`baton` streams the plan, each parallel worker's output (labelled per task), and the synthesis live,
+then prints a summary. Flags (`baton --help`):
+
+| Flag | Description |
+|---|---|
+| `--prefer {cash_protect_quota,quality,local,cheap}` | routing objective (default `cash_protect_quota`); **only `cash_protect_quota` is currently active** — the other choices are accepted but reserved for future use |
+| `--provider NAME` / `-P NAME` | restrict the planner/synth baseline to this provider |
+| `--model ID` | override the planner/synth `model_id` |
+| `--json` | print the run summary as one parseable JSON line; disables streaming |
+| `--no-stream` | disable live streaming of plan/worker/synth text |
+| `--version` | print the installed version and exit |
+
+Exit codes: `0` success, `1` run failure, `2` config error (e.g. no provider configured), `130`
+Ctrl-C (prints whatever partial output had streamed so far — never a raw traceback).
+
+The text-mode summary reports `billed_usd` (real cash spent) vs. `credit_usd` (subscription/plan
+API-equivalent valuation of subscription calls, not cash) plus `subscription_models` (the count of
+distinct subscription-billed models used) — a subscription run is cash-free but still consumes your
+interactive quota (see below).
+
+### Web UI
+
+```bash
+uv sync --extra ui
+uv run python -m webui          # then open http://127.0.0.1:8000
+```
+
+A small FastAPI + Server-Sent-Events app streams a run live in the browser — the plan, each parallel
+worker's output (labelled per task), the synthesis, and the final result with cost. It runs with your
+configured providers, or a built-in `FakeProvider` demo if none are set (no API key needed). This is
+a **source-checkout feature** — `webui/` is not shipped in the built wheel/PyPI package.
+
+`BATON_UI_HOST` / `BATON_UI_PORT` override the bind address. The page inserts all model output via
+`textContent` only (never raw HTML), so streamed text cannot inject markup.
+
+### Library
+
+```python
+import asyncio
+from baton.bootstrap import build_providers_from_env, make_runtime_factory
+
+
+async def main() -> None:
+    registry, providers, model_id = build_providers_from_env()
+    runtime = make_runtime_factory(registry, providers, model_id)()
+    result = await runtime.aexecute("your goal")
+    print(result.status, result.billed_usd, result.credit_usd)
+
+
+asyncio.run(main())
+```
+
+For a guided tour with hardcoded goals, see the demo script:
+`uv run python demo.py orchestrate|agentic|eval` (walked through in [Quickstart](#quickstart)).
+
+### Using your Claude / ChatGPT subscription (no API key)
+
+Baton can drive the *official headless CLIs* you're already logged into instead of (or alongside) a
+card-billed API key:
+
+```bash
+export CLAUDE_CODE_ENABLED=1               # needs `claude` installed and logged in
+# CLAUDE_CODE_SYSTEM_PROMPT_MODE=replace is the default — makes `claude -p` behave as a
+# raw completion; `append` breaks strict-JSON planning, so leave it unset unless you know why.
+export CODEX_ENABLED=1 CODEX_TIER=3         # needs `codex login`
+uv run baton "your goal"
+```
+
+> ⚠️ **Subscription runs are cash-free but consume your interactive Claude Code / Codex quota** —
+> the same pool your interactive coding sessions draw from. A heavy orchestration run can trip a
+> rate-limit pause. The default `cash_protect_quota` objective mitigates this by sending bulk/easy
+> work to cheaper local/free-tier models and reserving subscription models for hard tasks only.
+> A card-billed, free-tier, or local model as **planner** is recommended: subscription CLIs ignore
+> `temperature`, so Baton retries planning with self-correction and can gate `claude -p` as planner
+> behind a live parse-plan check (it only plans if it demonstrably emits valid plan JSON).
+>
+> This drives the **official headless CLIs** (`claude -p`, `codex exec`) that you are already logged
+> into — never the claude.ai / ChatGPT web apps. Scraping those web apps is not implemented (it would
+> violate their Terms of Service).
+
 ## Providers
 
 Set environment variables for any subset; baseline priority is
-**Anthropic > OpenAI-compat > Kimi > Ollama**. See [`.env.example`](.env.example) for the full list.
+**Anthropic > OpenAI-compat > Kimi > Ollama**. See [`.env.example`](https://github.com/ribato/baton/blob/main/.env.example) for the full list.
 
 | Provider | Env | Access |
 |---|---|---|
@@ -172,7 +264,7 @@ Set environment variables for any subset; baseline priority is
 > subscription pool vs. a metered API-rate credit bucket has flipped several times in months
 > (announced 2026-06-15, then paused; still paused as of 2026-07-22). When Anthropic next announces a
 > billing change, repeat the live gate in
-> [the design spec §13](docs/superpowers/specs/2026-07-22-baton-subscription-providers-and-vibe-cli-design.md)
+> [the design spec §13](https://github.com/ribato/baton/blob/main/docs/superpowers/specs/2026-07-22-baton-subscription-providers-and-vibe-cli-design.md)
 > and re-check the Help Center banner, then update the "verified" date in §A of that spec.
 
 **Free, high-intelligence option** — Google AI Studio (Gemini Flash), via the generic slot:
@@ -191,22 +283,7 @@ The generic slot defaults to industry-standard values (context 128k, output 8k, 
 **Several providers at once** — add `OPENAI_COMPAT_2_*`, `OPENAI_COMPAT_3_*`, … (each with its own
 `model_id` / pricing / context). For example Gemini plus Groq, so the supervisor plans on Gemini
 while the cheaper Groq model runs the parallel workers — genuine cross-provider orchestration. See
-[`.env.example`](.env.example).
-
-## Web UI
-
-An optional [FastAPI](https://fastapi.tiangolo.com/) + Server-Sent-Events app streams a run live in
-the browser — the plan, each parallel worker's output (labelled per task), the synthesis, and the
-final result with cost. It uses your configured providers, or a built-in `FakeProvider` demo if none
-are set (so it runs with no API key).
-
-```bash
-uv sync --extra ui
-uv run python -m webui          # then open http://127.0.0.1:8000
-```
-
-`BATON_UI_HOST` / `BATON_UI_PORT` override the bind address. The page inserts all model output via
-`textContent` only (never raw HTML), so streamed text cannot inject markup.
+[`.env.example`](https://github.com/ribato/baton/blob/main/.env.example).
 
 ## Evaluation
 
@@ -218,7 +295,7 @@ The scorer runs the model's generated `solution.py` in a subprocess under **proc
 separation**: a trusted runner drives the untrusted solution in a *separate* process that never sees
 the expected outputs (nonce-authenticated RPC), so a solution must actually compute correct answers —
 it cannot fake a passing score. See
-[`docs/superpowers/specs/2026-07-21-eval-process-separation-design.md`](docs/superpowers/specs/2026-07-21-eval-process-separation-design.md).
+[`docs/superpowers/specs/2026-07-21-eval-process-separation-design.md`](https://github.com/ribato/baton/blob/main/docs/superpowers/specs/2026-07-21-eval-process-separation-design.md).
 
 Read the verdict together with the warnings the harness emits:
 
@@ -252,7 +329,7 @@ src/baton/     # engine (importable package: `baton`)
   tools/              # Sandbox, DockerSandbox, run_python, fetch_url, read_file
 eval/                 # goals, 3-arm harness, forgery-resistant scorer, runner
 webui/                # optional FastAPI + SSE web UI (uv run python -m webui)
-tests/                # 330+ tests (unit + opt-in integration)
+tests/                # 560+ tests (unit + opt-in integration)
 docs/superpowers/     # design specs and implementation plans
 demo.py               # end-to-end demo (orchestrate | agentic | eval)
 ```
@@ -263,8 +340,17 @@ demo.py               # end-to-end demo (orchestrate | agentic | eval)
   subprocesses; integration tests that touch the network/Docker are marked `integration` and skipped
   by default (`uv run pytest -m integration` to opt in).
 - **Lint:** `uv run ruff check .` (line length 100; `E,F,I,UP,B`).
-- Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Security reports:
-  [SECURITY.md](SECURITY.md). Release notes: [CHANGELOG.md](CHANGELOG.md).
+- Contributions welcome — see [CONTRIBUTING.md](https://github.com/ribato/baton/blob/main/CONTRIBUTING.md).
+  Security reports: [SECURITY.md](https://github.com/ribato/baton/blob/main/SECURITY.md). Release notes:
+  [CHANGELOG.md](https://github.com/ribato/baton/blob/main/CHANGELOG.md).
+
+## Non-goals
+
+Baton is a from-scratch **study engine** for multi-model orchestration, not a production framework.
+It deliberately avoids LangChain, LiteLLM, and CrewAI — the point is to see how a supervisor, router,
+projector, and blackboard actually work under the hood, not to hide them behind an abstraction. Don't
+adopt it as a drop-in production agent framework; treat it as a reference implementation to read,
+fork, and learn from.
 
 ## Roadmap
 
@@ -274,4 +360,4 @@ demo.py               # end-to-end demo (orchestrate | agentic | eval)
 
 ## License
 
-[MIT](LICENSE) © 2026 ribato.
+[MIT](https://github.com/ribato/baton/blob/main/LICENSE) © 2026 ribato.

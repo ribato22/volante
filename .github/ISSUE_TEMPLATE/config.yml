@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question / discuss an idea
+    url: https://github.com/ribato/baton/discussions
+    about: For open-ended questions or design discussion before filing a bug/feature issue.
+  - name: Report a security vulnerability
+    url: https://github.com/ribato/baton/security/advisories/new
+    about: Please do NOT open a public issue for security problems — see SECURITY.md.

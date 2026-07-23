@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.metadata
 import json
 import os
 import sys
@@ -25,6 +26,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="baton",
         description="Orchestrate GOAL across your configured models.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=importlib.metadata.version("baton"),
     )
     parser.add_argument("goal", help="the objective to orchestrate")
     parser.add_argument(
