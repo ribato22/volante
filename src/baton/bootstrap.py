@@ -152,7 +152,13 @@ def _register_subscription_providers(
             tier=tier,
             timeout=float(env.get("CLAUDE_CODE_TIMEOUT", "120")),
             max_output=max_output,
-            system_prompt_mode=env.get("CLAUDE_CODE_SYSTEM_PROMPT_MODE", "append"),
+            # Default "replace" (live-verified 2026-07-23): with "append", opus as a full
+            # Claude Code agent ANSWERS the goal instead of emitting the planner's strict
+            # JSON DAG (its base system prompt outranks the appended instruction) -> a real
+            # run failed with "planner did not return valid JSON". "replace" swaps in the
+            # planner/worker persona so `claude -p` behaves as a raw completion. Override
+            # via CLAUDE_CODE_SYSTEM_PROMPT_MODE=append if you want the layered behavior.
+            system_prompt_mode=env.get("CLAUDE_CODE_SYSTEM_PROMPT_MODE", "replace"),
         )
         extra_models.append(info)
         _warn_subscription("claude-code")

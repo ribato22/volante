@@ -191,7 +191,7 @@ class CliAgentProvider:
         tier: int = 4,
         timeout: float = 120.0,
         max_output: int = 4096,  # conservative; CLI ignores req.max_tokens
-        system_prompt_mode: str = "append",  # "append" | "replace"
+        system_prompt_mode: str = "replace",  # "replace" (default) | "append"; see bootstrap
         concurrency: int = 1,  # per-provider cap, nested in fan-out sem
         depth_env: str = "BATON_CLI_AGENT_DEPTH",
         max_depth: int = 1,  # anti-recursion (Baton may run INSIDE Claude Code)

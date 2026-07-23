@@ -76,6 +76,18 @@ def test_claude_code_registered_when_enabled_and_detected(monkeypatch, capsys):
     assert "interactive" in err and "quota" in err
     # No duplicate registry entry even if default_models() also seeds claude-code.
     assert [m.id for m in registry.all()].count("claude-code/opus") == 1
+    # Live-verified default is "replace" (append breaks planning — opus answers the goal
+    # instead of emitting the strict plan JSON). Override via CLAUDE_CODE_SYSTEM_PROMPT_MODE.
+    assert providers["claude-code/opus"].system_prompt_mode == "replace"
+
+
+def test_claude_code_system_prompt_mode_append_override(monkeypatch):
+    _clear_all_provider_env(monkeypatch)
+    monkeypatch.setenv("CLAUDE_CODE_ENABLED", "1")
+    monkeypatch.setenv("CLAUDE_CODE_SYSTEM_PROMPT_MODE", "append")
+    monkeypatch.setattr(bootstrap, "_detect_cli", lambda binary: binary == "claude")
+    _registry, providers, _baseline = build_providers_from_env(include_subscription=True)
+    assert providers["claude-code/opus"].system_prompt_mode == "append"
 
 
 def test_include_subscription_false_excludes_even_when_enabled(monkeypatch):
