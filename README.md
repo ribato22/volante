@@ -157,8 +157,23 @@ Set environment variables for any subset; baseline priority is
 | **Moonshot / Kimi** | `MOONSHOT_API_KEY` | Paid API |
 | **Ollama** | `OLLAMA_BASE_URL` | **Local & free** |
 
-> **Subscriptions are not APIs.** A `claude.ai` / ChatGPT / Antigravity subscription cannot be used
-> here — those are chat products, separate from the programmatic APIs the engine calls.
+> **Subscription CLI agents are opt-in and consume your interactive quota.** Scraping claude.ai /
+> ChatGPT is not built (ToS, fragile, ban risk). Instead Baton can drive the *official headless CLIs*
+> you're already logged into — Claude Code (`claude -p`) and Codex (`codex exec`) — with no API key.
+> This is **off by default** (`CLAUDE_CODE_ENABLED=1` / `CODEX_ENABLED=1` plus the CLI installed) and
+> is **never** used by the eval. Honest caveat: `claude -p` and `codex exec` today draw from the
+> **same interactive subscription pool** as the chat apps (not a separate/metered bucket), so a full
+> orchestration run — and especially the 3-arm eval — can burn your Claude Code / Codex allowance and
+> trip a mid-run hard-pause. Baton reports `credit_usd` (subscription value consumed) separately from
+> `billed_usd` (cash), routes only hard/high-tier tasks to subscription (bulk work goes to
+> local/free-tier), and caps subscription calls per run (`BATON_MAX_SUBSCRIPTION_CALLS`, default 4).
+>
+> **Billing surface moves — re-verify before trusting it.** Whether `claude -p` bills against the
+> subscription pool vs. a metered API-rate credit bucket has flipped several times in months
+> (announced 2026-06-15, then paused; still paused as of 2026-07-22). When Anthropic next announces a
+> billing change, repeat the live gate in
+> [the design spec §13](docs/superpowers/specs/2026-07-22-baton-subscription-providers-and-vibe-cli-design.md)
+> and re-check the Help Center banner, then update the "verified" date in §A of that spec.
 
 **Free, high-intelligence option** — Google AI Studio (Gemini Flash), via the generic slot:
 

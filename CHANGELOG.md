@@ -18,6 +18,25 @@ All notable changes to this project are documented here. The format is based on
   route a run to the next candidate (with mandatory per-candidate re-projection) instead of backing off,
   across both the one-shot and agentic paths; a per-run `BATON_MAX_SUBSCRIPTION_CALLS` cap (default 4)
   bounds subscription dispatches.
+- Opt-in subscription CLI-agent providers wired into
+  `build_providers_from_env(include_subscription=True)`: Claude Code (`claude -p`) and Codex
+  (`codex exec`) register only when `CLAUDE_CODE_ENABLED=1` / `CODEX_ENABLED=1` **and** the CLI is
+  detected on PATH. They are `billing="plan_included"` (they draw your interactive subscription
+  quota) and print an honesty warning on registration.
+- Local-first wiring: Supervisor/Synthesizer default to a temperature-controllable (card-billed
+  API/Ollama/free-tier) model even when routing prefers subscription, so planning stays
+  deterministic (`claude -p` ignores temperature); `verify_claude_plan_gate` promotes `claude -p`
+  to planner only when it emits a plan that passes the supervisor's own parser.
+- Eval fence: `build_providers_from_env()` defaults to `include_subscription=False`, so the eval
+  never consumes interactive subscription quota.
+- `make_runtime_factory` gains a keyword-only `prefer` (default `"quality"`, back-compat) and now
+  forwards it to `Router(registry, prefer=prefer)` instead of always defaulting the router's
+  objective.
+
+### Fixed
+- `Worker.run_one_shot` now forwards `resp.cost_usd` into `CostMeter.add(..., cost_usd=...)`, so a
+  subscription CLI-agent provider's authoritative call cost reaches the credit ledger
+  (`costs_usd()`'s `credit_usd`) instead of being silently dropped.
 
 ### Changed
 - **Routing may cost more for multi-provider setups.** The new difficulty→tier filter means a default
