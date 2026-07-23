@@ -7,7 +7,7 @@ import subprocess
 import pytest
 
 from baton.providers.base import ProviderError
-from baton.providers.codex import CodexAdapter
+from baton.providers.codex import CodexAdapter, codex_detected
 from baton.types import CanonicalRequest, text
 
 
@@ -207,3 +207,22 @@ def test_stream_result_line_none_when_no_turn_completed() -> None:
     lines = _JSONL.splitlines()[:-1]  # drop the turn.completed line
     assert a.stream_result_line(lines) is None
     assert a.stream_result_line([]) is None
+
+
+def test_codex_detected_true_on_exit_zero() -> None:
+    def fake_run(argv, **kwargs):
+        assert argv == ["codex", "login", "status"]
+        return subprocess.CompletedProcess(argv, 0, stdout="Logged in", stderr="")
+    assert codex_detected(run=fake_run) is True
+
+
+def test_codex_detected_false_on_nonzero() -> None:
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr="Not logged in")
+    assert codex_detected(run=fake_run) is False
+
+
+def test_codex_detected_false_when_binary_missing() -> None:
+    def fake_run(argv, **kwargs):
+        raise FileNotFoundError("codex")
+    assert codex_detected(run=fake_run) is False

@@ -197,3 +197,22 @@ class CodexAdapter:
             if isinstance(evt, dict) and evt.get("type") == "turn.completed":
                 return line
         return None
+
+
+def codex_detected(
+    run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+) -> bool:
+    """Detect a usable Codex subscription login: `codex login status` exits 0.
+
+    Injectable `run` keeps this unit-testable without spawning a real process
+    (bootstrap gating, §7.2 / Phase 9). Any spawn/OS failure ⇒ not available."""
+    try:
+        proc = run(
+            ["codex", "login", "status"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
