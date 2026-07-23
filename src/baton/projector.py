@@ -40,6 +40,7 @@ class Projector:
         system_content = (
             "You are a specialized worker in an AI orchestration engine. "
             "Execute the assigned task using only the provided context. "
+            "Respond in the same language as the overall goal. "
             f"Overall goal: {bb.goal}"
         )
         task_line = f"Task: {task.description}"

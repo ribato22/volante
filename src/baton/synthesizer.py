@@ -36,7 +36,9 @@ class Synthesizer:
         prompt = (
             f"Goal:\n{goal}\n\n"
             "You are given the artifacts produced by completed sub-tasks. "
-            "Combine them into a single, coherent final answer for the goal.\n\n"
+            "Combine them into a single, coherent final answer for the goal. "
+            "Write the final answer in the same language as the goal above "
+            "(e.g. an English goal gets an English answer).\n\n"
             f"Artifacts:\n{body}"
         )
         req = CanonicalRequest(
