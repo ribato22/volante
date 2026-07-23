@@ -208,10 +208,15 @@ def test_main_json_summary(monkeypatch, capsys) -> None:
     registry, runtime = _one_task_runtime()
     monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
 
-    code = cli.main(["do one", "--no-stream", "--json"])
+    # NOTE: no --no-stream here -- streaming defaults ON, but --json must suppress it
+    # on its own (JSON mode = machine mode: exactly one parseable line, no deltas).
+    code = cli.main(["do one", "--json"])
 
     assert code == 0
-    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    out = capsys.readouterr().out
+    lines = out.strip("\n").splitlines()
+    assert len(lines) == 1  # exactly one line: no "[plan]"/"[T1] art-1"/"[synth]" deltas
+    payload = json.loads(lines[0])
     assert payload["status"] == "success"
     assert payload["billed_usd"] == pytest.approx(0.003)
     assert payload["credit_usd"] == pytest.approx(0.0)

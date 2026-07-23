@@ -195,9 +195,12 @@ def main(argv: list[str] | None = None) -> int:
         # _build can itself make a live provider call (the §7.1 planner-gate probe
         # for a subscription-only setup); Ctrl-C there must also exit cleanly.
         return _print_interrupted(collected)
+    # --json is machine mode: it must print exactly one parseable JSON line, so it
+    # disables streaming regardless of --no-stream (which only matters in text mode).
+    stream = not args.no_stream and not args.json
     try:
         result = asyncio.run(
-            _aexecute(runtime, args.goal, stream=not args.no_stream, collected=collected)
+            _aexecute(runtime, args.goal, stream=stream, collected=collected)
         )
     except KeyboardInterrupt:
         return _print_interrupted(collected)
