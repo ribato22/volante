@@ -87,17 +87,20 @@ CrewAI / LiteLLM) as a study of how these systems actually work under the hood.
 
 ## Quickstart
 
-Requires **Python 3.12+** and [`uv`](https://docs.astral.sh/uv/).
+Requires **Python 3.11+** and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
 git clone https://github.com/ribato22/baton
 cd baton
 uv sync --dev            # install deps + dev tools
-uv run pytest            # 560+ tests, no network
+uv run pytest            # 580+ tests, no network
 uv run ruff check .      # lint
+
+# See it orchestrate end-to-end with ZERO API keys (FakeProvider demo):
+uv run python examples/fake_provider.py
 ```
 
-Configure at least one provider (see [Providers](#providers)), then run a demo:
+Then configure at least one real provider (see [Providers](#providers)) and run a demo:
 
 ```bash
 cp .env.example .env     # fill in one provider, then `set -a; . .env; set +a`

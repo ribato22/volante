@@ -14,7 +14,7 @@ class TextBlock:
 class ToolUseBlock:
     id: str
     name: str
-    input: dict
+    input: dict[str, Any]
     type: str = "tool_use"
 
 
@@ -42,7 +42,7 @@ def text(role: str, s: str) -> CanonicalMessage:
 class ToolSpec:
     name: str
     description: str
-    input_schema: dict
+    input_schema: dict[str, Any]
 
 
 @dataclass
