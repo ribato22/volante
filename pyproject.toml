@@ -1,6 +1,6 @@
 # pyproject.toml
 [project]
-name = "baton"
+name = "baton-orchestrator"
 dynamic = ["version"]
 description = "Baton — a from-scratch, cross-provider multi-model AI orchestration engine (supervisor routing, agentic tools, forgery-resistant evaluation)."
 readme = "README.md"
@@ -56,7 +56,8 @@ mcp = [
 [project.scripts]
 baton = "baton.cli:main"
 
-# Distribution name and importable package are both `baton`.
+# PyPI distribution name is `baton-orchestrator` (plain `baton` is taken); the
+# importable package and the CLI command are both still `baton`.
 [project.urls]
 Homepage = "https://github.com/ribato22/baton"
 Repository = "https://github.com/ribato22/baton"

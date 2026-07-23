@@ -110,7 +110,7 @@ wheels = [
 ]
 
 [[package]]
-name = "baton"
+name = "baton-orchestrator"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.metadata
 import json
 import tomllib
 from pathlib import Path
@@ -8,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import baton.cli as cli
+from baton import __version__
 from baton.cost import CostMeter
 from baton.providers.base import ProviderError
 from baton.providers.fake import FakeProvider
@@ -58,7 +58,7 @@ def test_version_flag_registered_and_exits_cleanly(capsys: pytest.CaptureFixture
     with pytest.raises(SystemExit) as exc_info:
         cli._parse_args(["--version"])
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.strip() == importlib.metadata.version("baton")
+    assert capsys.readouterr().out.strip() == __version__
 
 
 def test_main_version_flag_exits_zero(capsys: pytest.CaptureFixture) -> None:
