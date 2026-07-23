@@ -86,3 +86,34 @@ class CodexAdapter:
         # codex exec reads its prompt from stdin (no positional PROMPT in argv);
         # system + user text is folded into one prompt (exec has no system slot).
         return _prompt_text(req)
+
+    def parse(self, result: CliRunResult, req: CanonicalRequest) -> CanonicalResponse:
+        texts: list[str] = []
+        usage_in: int | None = None
+        usage_out: int | None = None
+        for raw in result.stdout.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                evt = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # tolerate non-JSON banner/log lines
+            etype = evt.get("type")
+            if etype == "agent_message":
+                msg = evt.get("message") or evt.get("text") or ""
+                if msg:
+                    texts.append(msg)
+            elif etype == "turn.completed":
+                usage = evt.get("usage") or {}
+                usage_in = usage.get("input_tokens")
+                usage_out = usage.get("output_tokens")
+        final_text = "\n".join(texts)
+        usage = Usage(prompt_tokens=int(usage_in), completion_tokens=int(usage_out))
+        return CanonicalResponse(
+            content=[TextBlock(text=final_text)],
+            usage=usage,
+            model="codex",  # provider tag; registry id (codex/<m>) is the accounting key
+            stop_reason="end_turn",
+            latency_ms=0,
+        )

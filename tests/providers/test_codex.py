@@ -63,3 +63,30 @@ def test_stdin_is_prompt_text_system_then_user() -> None:
         max_tokens=64,
     )
     assert CodexAdapter().stdin(req) == "be terse\nadd two numbers"
+
+
+_JSONL = "\n".join([
+    json.dumps({"type": "thread.started", "thread_id": "th_1"}),
+    json.dumps({"type": "turn.started"}),
+    json.dumps({"type": "agent_message", "message": "Hello from Codex"}),
+    json.dumps({"type": "turn.completed",
+                "usage": {"input_tokens": 120, "output_tokens": 34}}),
+])
+
+
+def _run_result(stdout: str, *, stderr: str = "", returncode: int = 0,
+                timed_out: bool = False):
+    from baton.providers.cli_agent import CliRunResult
+    return CliRunResult(
+        stdout=stdout, stderr=stderr, returncode=returncode, timed_out=timed_out
+    )
+
+
+def test_parse_final_text_and_usage_from_turn_completed() -> None:
+    resp = CodexAdapter().parse(_run_result(_JSONL), _req("write a function"))
+    assert resp.content[0].text == "Hello from Codex"
+    assert resp.usage.prompt_tokens == 120
+    assert resp.usage.completion_tokens == 34
+    assert resp.usage.estimated is False
+    assert resp.model == "codex"
+    assert resp.cost_usd is None  # this JSONL carried no total_cost_usd
