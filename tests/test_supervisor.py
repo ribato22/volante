@@ -6,10 +6,26 @@ import pytest
 
 from baton.cost import CostMeter
 from baton.providers.fake import FakeProvider
-from baton.supervisor import Supervisor
-from baton.types import CanonicalResponse, Task, TextBlock, Usage
+from baton.supervisor import _MAX_PLAN_ATTEMPTS, Supervisor
+from baton.types import CanonicalRequest, CanonicalResponse, Task, TextBlock, Usage
 
 _PLANNER_MODEL = "anthropic/claude-sonnet-5"
+
+
+class _CountingProvider(FakeProvider):
+    """FakeProvider ekstensi: rekam jumlah panggilan + request aktual per
+    panggilan. Dipakai untuk verifikasi retry-loop plan() (jumlah percobaan &
+    isi pesan koreksi yang disisipkan di antara attempt)."""
+
+    def __init__(self, responses: list[CanonicalResponse]) -> None:
+        super().__init__(responses=responses)
+        self.calls = 0
+        self.requests: list[CanonicalRequest] = []
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        self.calls += 1
+        self.requests.append(req)
+        return await super().complete(req)
 
 
 def _resp(
@@ -237,7 +253,9 @@ async def test_plan_streams_when_on_text_given() -> None:
 async def test_plan_rejects_empty_plan() -> None:
     # Regresi: plan kosong [] lolos DAG-check (Kahn resolved==0==len) dan bikin
     # aexecute lapor "success" tanpa kerja. Harus ditolak ValueError.
-    provider = FakeProvider(responses=[_resp("[]")])
+    # Planner mengulang [] di setiap attempt (retry tak menolong planner yang
+    # keras kepala) -> ValueError "empty" tetap yang di-re-raise di attempt terakhir.
+    provider = FakeProvider(responses=[_resp("[]")] * _MAX_PLAN_ATTEMPTS)
     sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
 
     with pytest.raises(ValueError, match="empty"):
@@ -245,7 +263,7 @@ async def test_plan_rejects_empty_plan() -> None:
 
 
 async def test_plan_rejects_empty_plan_inside_fence() -> None:
-    provider = FakeProvider(responses=[_resp("```json\n[]\n```")])
+    provider = FakeProvider(responses=[_resp("```json\n[]\n```")] * _MAX_PLAN_ATTEMPTS)
     sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
 
     with pytest.raises(ValueError, match="empty"):
@@ -286,7 +304,9 @@ async def test_plan_non_list_depends_on_rejected() -> None:
             }
         ]
     )
-    provider = FakeProvider(responses=[_resp(plan_json)])
+    # Planner mengulang depends_on non-array yang sama di setiap attempt ->
+    # ValueError "depends_on" tetap yang di-re-raise di attempt terakhir.
+    provider = FakeProvider(responses=[_resp(plan_json)] * _MAX_PLAN_ATTEMPTS)
     sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
 
     with pytest.raises(ValueError, match="depends_on"):
@@ -389,3 +409,74 @@ async def test_reentrant_call_is_not_billed() -> None:
     totals = cost_meter.totals()
     assert totals[_PLANNER_MODEL].prompt_tokens == 15
     assert totals[_PLANNER_MODEL].completion_tokens == 5
+
+
+async def test_plan_retries_and_succeeds_after_bad_json() -> None:
+    # Live-observed finding: planner (claude -p subscription CLI agent) kadang
+    # MENJAWAB goal (prosa/markdown) alih-alih JSON array, walau _PLAN_SYSTEM
+    # tegas. Attempt 1 gagal parse -> plan() harus koreksi & retry, bukan
+    # langsung raise.
+    bad_reply = "Here is the answer: tea is a wonderful beverage with a long history..."
+    provider = _CountingProvider(
+        responses=[
+            _resp(bad_reply, prompt=50, completion=40),
+            _resp(_one_task_plan(), prompt=20, completion=8),
+        ]
+    )
+    cost_meter = CostMeter()
+    sup = Supervisor(provider, _PLANNER_MODEL, cost_meter)
+
+    tasks = await sup.plan("Write a short essay about tea")
+
+    assert [t.id for t in tasks] == ["t1"]
+    assert provider.calls == 2
+
+    # Kedua attempt ditagih (bill-per-attempt, bukan hanya attempt terakhir).
+    totals = cost_meter.totals()
+    assert totals[_PLANNER_MODEL].prompt_tokens == 70
+    assert totals[_PLANNER_MODEL].completion_tokens == 48
+
+    # Attempt ke-2 harus menyertakan balasan buruk model + koreksi tegas,
+    # disisipkan DI ANTARA attempt (bukan request identik yang diulang).
+    second_req = provider.requests[1]
+    roles = [m.role for m in second_req.messages]
+    assert roles == ["system", "user", "assistant", "user"]
+    first_system = provider.requests[0].messages[0].content[0].text
+    assert second_req.messages[0].content[0].text == first_system
+    assert second_req.messages[2].content[0].text == bad_reply
+    correction = second_req.messages[3].content[0].text
+    assert "JSON" in correction
+    assert "not" in correction.lower() or "do not" in correction.lower()
+
+
+async def test_plan_raises_after_max_attempts() -> None:
+    # Planner SELALU menjawab prosa -> plan() harus raise setelah PERSIS
+    # _MAX_PLAN_ATTEMPTS panggilan, bukan retry tanpa batas.
+    prose = _resp(
+        "Sure! Here's a plan in plain English: first do X, then do Y.",
+        prompt=10,
+        completion=10,
+    )
+    provider = _CountingProvider(responses=[prose] * _MAX_PLAN_ATTEMPTS)
+    cost_meter = CostMeter()
+    sup = Supervisor(provider, _PLANNER_MODEL, cost_meter)
+
+    with pytest.raises(ValueError, match="planner did not return valid JSON"):
+        await sup.plan("a goal the planner keeps answering instead of decomposing")
+
+    assert provider.calls == _MAX_PLAN_ATTEMPTS
+    totals = cost_meter.totals()
+    assert totals[_PLANNER_MODEL].prompt_tokens == 10 * _MAX_PLAN_ATTEMPTS
+    assert totals[_PLANNER_MODEL].completion_tokens == 10 * _MAX_PLAN_ATTEMPTS
+
+
+async def test_plan_valid_on_first_try_makes_exactly_one_call() -> None:
+    # Regresi: JSON valid di attempt pertama -> TEPAT satu panggilan provider,
+    # tanpa retry (path bahagia tak berubah).
+    provider = _CountingProvider(responses=[_resp(_one_task_plan())])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+
+    tasks = await sup.plan("plan me")
+
+    assert [t.id for t in tasks] == ["t1"]
+    assert provider.calls == 1

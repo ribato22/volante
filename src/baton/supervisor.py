@@ -28,6 +28,19 @@ _PLAN_SYSTEM = (
 
 _DIFFICULTIES: set[str] = {"trivial", "easy", "medium", "hard"}
 
+# Live-observed finding: a subscription-CLI planner (e.g. `claude -p`) can
+# probabilistically ANSWER the goal (prose/markdown) instead of emitting the
+# strict JSON task array, even with _PLAN_SYSTEM. A single-shot plan has no
+# recovery, so plan() retries a bounded number of times with a corrective
+# follow-up before giving up.
+_MAX_PLAN_ATTEMPTS = 3
+
+_PLAN_CORRECTION = (
+    "Your previous reply was NOT a valid JSON task array — do not answer or "
+    "explain the goal. Reply with ONLY the JSON array of task objects (keys: "
+    "id, description, type, mode, difficulty, depends_on), nothing else."
+)
+
 
 class Supervisor:
     def __init__(
@@ -50,17 +63,37 @@ class Supervisor:
             )
         self._used = True
         req = self._build_request(goal)
-        # on_text -> streaming (progres planning live); else complete (nol regresi).
-        resp = await call_provider(self._provider, req, on_text)
-        # PATCH v2.1: tagih panggilan planning ke model_id SETELAH complete()
-        # sukses dan SEBELUM validasi -> panggilan yang benar-benar dieksekusi
-        # tetap terhitung meski plan-nya ternyata invalid.
-        self._cost_meter.add(self._model_id, resp.usage)
-        raw = _extract_text(resp)
-        data = _parse_plan_json(raw)
-        tasks = _build_tasks(data)
-        _validate(tasks)
-        return tasks
+        for attempt in range(1, _MAX_PLAN_ATTEMPTS + 1):
+            # on_text -> streaming (progres planning live); else complete (nol
+            # regresi). NOTE: on retry, a partial re-stream of the corrected
+            # attempt is re-emitted to on_text — acceptable (bounded retries).
+            resp = await call_provider(self._provider, req, on_text)
+            # PATCH v2.1: tagih panggilan planning ke model_id SETELAH complete()
+            # sukses dan SEBELUM validasi -> panggilan yang benar-benar dieksekusi
+            # tetap terhitung meski plan-nya ternyata invalid. Setiap attempt
+            # dari retry loop ditagih, bukan hanya attempt terakhir.
+            self._cost_meter.add(self._model_id, resp.usage)
+            raw = _extract_text(resp)
+            try:
+                data = _parse_plan_json(raw)
+                tasks = _build_tasks(data)
+                _validate(tasks)
+                return tasks
+            except ValueError:
+                if attempt == _MAX_PLAN_ATTEMPTS:
+                    raise
+                # Corrective follow-up: append the model's bad reply + a firm
+                # correction, then retry within the same plan() call.
+                req = CanonicalRequest(
+                    messages=[
+                        *req.messages,
+                        text("assistant", raw),
+                        text("user", _PLAN_CORRECTION),
+                    ],
+                    max_tokens=req.max_tokens,
+                    temperature=req.temperature,
+                )
+        raise AssertionError("unreachable: loop always returns or raises")
 
     def _build_request(self, goal: str) -> CanonicalRequest:
         return CanonicalRequest(
