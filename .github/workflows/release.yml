@@ -9,15 +9,19 @@ on:
   push:
     tags: ["v*"]
 
+# Least privilege at the top level; the publish job opts into id-token below.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build distribution
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
           python-version: "3.12"
           enable-cache: true
@@ -25,11 +29,22 @@ jobs:
       - name: Build sdist + wheel
         run: uv build
 
+      - name: Verify the git tag matches the built version
+        # A mislabeled tag would otherwise publish an immutable, wrongly-versioned
+        # artifact to PyPI. Parse the version straight from the built wheel filename
+        # (baton-<version>-py3-none-any.whl) and require tag `vX.Y.Z` == `X.Y.Z`.
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          wheel="$(ls dist/*.whl | head -n1)"
+          built="$(basename "$wheel" | cut -d- -f2)"
+          echo "tag=$tag built=$built"
+          test "$tag" = "$built" || { echo "::error::tag v$tag != built version $built"; exit 1; }
+
       - name: Check package metadata (twine)
         run: uvx twine check dist/*
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist
           path: dist/
@@ -41,14 +56,15 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/project/baton/
+    # Job-scoped: only this job gets the OIDC token used for Trusted Publishing.
     permissions:
       id-token: write
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist
           path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # v1.14.1

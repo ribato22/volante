@@ -43,5 +43,11 @@ subject that says what and why.
 
 ## Reporting bugs
 
-Open a [GitHub issue](https://github.com/ribato/baton/issues) with a minimal reproduction. For
+Open a [GitHub issue](https://github.com/ribato22/baton/issues) with a minimal reproduction. For
 security issues, follow [SECURITY.md](SECURITY.md) instead.
+
+## Code of Conduct
+
+This project is governed by the [Contributor Covenant](CODE_OF_CONDUCT.md). By participating you
+agree to uphold it; report unacceptable behavior **privately** via the contact in that document
+(not the public issue tracker).

@@ -1,0 +1,10 @@
+{
+  // Recommended extensions for working on Baton. VSCode will offer to install these.
+  "recommendations": [
+    "ms-python.python",
+    "charliermarsh.ruff",
+    "ms-python.mypy-type-checker",
+    "tamasfe.even-better-toml",
+    "editorconfig.editorconfig"
+  ]
+}

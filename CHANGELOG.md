@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **IDE / MCP integration.** A Model Context Protocol server (`baton_mcp/`, optional `mcp` extra;
+  run `uv run --extra mcp python -m baton_mcp`) exposes one tool, `baton_run(goal, prefer?)`, so an AI
+  assistant inside an editor (Claude Code, Cursor, VS Code agent mode, Windsurf) can delegate a whole
+  goal to Baton and get the synthesized answer + cash/plan-credit footer back. Ships shared
+  VSCode config (`.vscode/tasks.json` one-keystroke Run-goal / Web-UI / MCP / test / lint tasks,
+  `.vscode/extensions.json`) and a README "In your IDE (VSCode) & MCP" section. Like `webui/`, the
+  server is source-checkout-only (not in the wheel), so no broken console-script ships.
 - Cost model: `ModelInfo.tier`/`billing` (`card` | `plan_credit` | `plan_included`), `Task.difficulty`,
   and a two-ledger `CostMeter` (`costs_usd()` splits `billed_usd` vs `credit_usd`; `RunResult` surfaces
   both). All defaulted/inert today (every seed is `billing="card"`) — groundwork for subscription
@@ -93,6 +100,15 @@ All notable changes to this project are documented here. The format is based on
   routes to Kimi instead of the tier-1 model. Single-provider and local-only setups are unaffected
   (best-effort fallback preserves prior behavior).
 
+### Security
+- Hardened the GitHub Actions workflows before first publish: top-level least-privilege
+  `permissions: contents: read` on CI and Release (the publish job alone opts into `id-token: write`),
+  every `uses:` pinned to a full commit SHA (incl. the OIDC-privileged `pypa/gh-action-pypi-publish`),
+  and a release-time guard that fails if the pushed `vX.Y.Z` tag doesn't match the built wheel version
+  (prevents an immutable, mislabeled artifact from reaching PyPI).
+- The Code of Conduct now routes reports to a **private** channel (maintainer email / private GitHub
+  Security Advisory) instead of the public issue tracker, and is linked from CONTRIBUTING and the README.
+
 ## [0.1.0] - 2026-07-22
 
 ### Added
@@ -116,5 +132,6 @@ All notable changes to this project are documented here. The format is based on
   `FakeProvider` demo. Install with the `ui` extra; run via `python -m webui`.
 - Project docs: README, LICENSE (MIT), SECURITY, CONTRIBUTING, CI, and design specs under `docs/`.
 
-[Unreleased]: https://github.com/ribato/baton/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/ribato/baton/releases/tag/v0.1.0
+<!-- Version-compare links are added per release once the matching git tag exists.
+     No release has been tagged yet, so only the live commit history is linked. -->
+[Unreleased]: https://github.com/ribato22/baton/commits/main

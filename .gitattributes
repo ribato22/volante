@@ -1,0 +1,11 @@
+# Normalize line endings across platforms.
+* text=auto eol=lf
+
+# Keep GitHub Linguist's language stats representative of the engine itself:
+# the internal design docs/plans are large but are documentation, not code.
+*.md            linguist-documentation
+docs/**         linguist-documentation
+uv.lock         linguist-generated=true -diff
+
+# Treat lockfiles/notebooks as generated in diffs.
+*.ipynb         linguist-generated=true
