@@ -115,19 +115,36 @@ def _register_subscription_providers(
     baseline_model_id: str | None,
 ) -> str | None:
     """Register ClaudeCode/Codex CLI-agent providers, but ONLY when opted in (`*_ENABLED=1`)
-    AND the CLI binary is detected. Each registration prints the §9 warning. Models are
-    `billing="plan_included"` (they draw the interactive pool, not per-token cash) and are
-    added AFTER the card providers so they never displace a temperature-controllable baseline
-    planner (§7.1). Returns the (possibly unchanged) baseline_model_id."""
+    AND the CLI is confirmed available. Each registration prints the §9 warning. The
+    registered `ModelInfo` for BOTH legs comes from the existing single-source-of-truth
+    seed helpers (`claude_code_model_info()` / `build_codex_model()`) — NOT inlined here —
+    so there is exactly one place that knows the shape of each seed (avoids the two
+    definitions drifting, e.g. strengths/context_window disagreeing) and the registered
+    id follows the configured wire model. Models are `billing="plan_included"` (they draw
+    the interactive pool, not per-token cash) and are added AFTER the card providers so
+    they never displace a temperature-controllable baseline planner (§7.1). Returns the
+    (possibly unchanged) baseline_model_id.
+
+    Detection is intentionally ASYMMETRIC: Codex has a real login-status probe
+    (`codex_detected()` = `codex login status` exit 0), purpose-built for this call site,
+    so a `codex` binary merely sitting on PATH but not logged in is correctly treated as
+    NOT available (a bare PATH hit would register a ~$0-cash provider the router ranks
+    first for every hard task, wasting a candidate attempt before reroute). Claude Code has
+    no equivalent `claude login status`-style helper yet, so that leg stays on a PATH-only
+    `_detect_cli("claude")` check; a not-logged-in `claude` binary self-heals via
+    `ClaudeCodeAdapter.classify_error` mapping auth failures to `quota_exhausted`, which
+    Runtime reroutes to the next candidate anyway."""
     from baton.providers.cli_agent import CliAgentProvider, subprocess_cli_runner
+    from baton.providers.codex import codex_detected
 
     if env.get("CLAUDE_CODE_ENABLED") == "1" and _detect_cli("claude"):
-        from baton.providers.claude_code import ClaudeCodeAdapter
+        from baton.providers.claude_code import ClaudeCodeAdapter, claude_code_model_info
 
         model = env.get("CLAUDE_CODE_MODEL", "opus")
         tier = int(env.get("CLAUDE_CODE_TIER", "4"))
         max_output = int(env.get("CLAUDE_CODE_MAX_OUTPUT", "4096"))
-        mid = "claude-code/opus"
+        info = claude_code_model_info(model, tier=tier, max_output_tokens=max_output)
+        mid = info.id
         providers[mid] = CliAgentProvider(
             ClaudeCodeAdapter(),
             model,
@@ -137,58 +154,33 @@ def _register_subscription_providers(
             max_output=max_output,
             system_prompt_mode=env.get("CLAUDE_CODE_SYSTEM_PROMPT_MODE", "append"),
         )
-        extra_models.append(
-            ModelInfo(
-                id=mid,
-                provider="claude_code",
-                strengths={"coding", "reasoning"},
-                context_window=200_000,
-                max_output_tokens=max_output,
-                supports_tools=False,  # one-shot text; agentic delegation is a non-goal (§3)
-                cost_per_1k_in=0.015,  # underlying API rate -> consumption valuation only (§5.1)
-                cost_per_1k_out=0.075,
-                tier=tier,
-                billing="plan_included",
-            )
-        )
+        extra_models.append(info)
         _warn_subscription("claude-code")
         if baseline_model_id is None:
             baseline_model_id = mid
 
-    if env.get("CODEX_ENABLED") == "1" and _detect_cli("codex"):
-        from baton.providers.codex import CodexAdapter
+    if env.get("CODEX_ENABLED") == "1" and codex_detected():
+        from baton.providers.codex import CodexAdapter, build_codex_model
 
-        tier_raw = env.get("CODEX_TIER")
-        if tier_raw is None:
+        if env.get("CODEX_TIER") is None:
             raise RuntimeError(
                 "CODEX_ENABLED=1 requires CODEX_TIER (no model-name sniffing, §6.1)"
             )
-        tier = int(tier_raw)
-        model = env.get("CODEX_MODEL", "")  # empty -> adapter uses the user's Codex config
+        info = build_codex_model(env)
+        # Empty/unset CODEX_MODEL -> CodexAdapter.argv OMITS `--config model=...`
+        # entirely (fixed alongside this), so codex exec follows the user's own config.
+        model = env.get("CODEX_MODEL", "")
         max_output = int(env.get("CODEX_MAX_OUTPUT", "4096"))
-        mid = f"codex/{model or 'default'}"
+        mid = info.id
         providers[mid] = CliAgentProvider(
             CodexAdapter(),
             model,
             runner=subprocess_cli_runner,
-            tier=tier,
+            tier=info.tier,
             timeout=float(env.get("CODEX_TIMEOUT", "120")),
             max_output=max_output,
         )
-        extra_models.append(
-            ModelInfo(
-                id=mid,
-                provider="codex",
-                strengths={"coding", "reasoning"},
-                context_window=int(env.get("CODEX_CONTEXT", "128000")),
-                max_output_tokens=max_output,
-                supports_tools=False,  # one-shot text only (§3)
-                cost_per_1k_in=0.0,  # ChatGPT-plan credit; no per-token cash (§5.1)
-                cost_per_1k_out=0.0,
-                tier=tier,
-                billing="plan_included",
-            )
-        )
+        extra_models.append(info)
         _warn_subscription("codex")
         if baseline_model_id is None:
             baseline_model_id = mid
@@ -339,13 +331,17 @@ def make_runtime_factory(
     providers: dict[str, LLMProvider],
     model_id: str,
     *,
-    prefer: str = "quality",
+    prefer: str = "cash_protect_quota",
 ) -> Callable[[], Runtime]:
     """Factory Runtime segar per pemanggilan (Supervisor non-re-entrant, CostMeter
     per-run) berbagi registry + providers. Supervisor/Synthesizer memakai planner
     temperature-controllable (card) yang dipilih `_planner_model_id` (§7.1), bukan
     langsung `model_id` — Worker/AgenticWorker tetap memakai peta providers penuh
-    dan Router memakai `prefer`."""
+    dan Router memakai `prefer`. Default `prefer="cash_protect_quota"` MATCHES
+    `Router.__init__`'s own default — genuine back-compat: pre-branch `Router(registry)`
+    (no `prefer` kwarg existed yet) already behaved as `cash_protect_quota`; defaulting
+    to `"quality"` here would have silently flipped every existing caller (demo.py,
+    webui/server.py, tests/eval) without them asking for it."""
     planner_id = _planner_model_id(registry, providers, model_id)
 
     def make_runtime() -> Runtime:

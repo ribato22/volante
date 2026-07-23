@@ -93,9 +93,87 @@ def test_codex_requires_explicit_tier(monkeypatch):
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
     monkeypatch.setenv("CODEX_ENABLED", "1")
     monkeypatch.setenv("CODEX_MODEL", "gpt-5-codex")
-    monkeypatch.setattr(bootstrap, "_detect_cli", lambda binary: True)
+    monkeypatch.setattr("baton.providers.codex.codex_detected", lambda: True)
     with pytest.raises(RuntimeError, match="CODEX_TIER"):
         build_providers_from_env(include_subscription=True)
+
+
+def test_codex_gate_uses_codex_detected_not_bare_path_lookup(monkeypatch):
+    # A `codex` binary can sit on PATH without being logged in. The gate MUST be
+    # `codex_detected()` (`codex login status` exit 0), not a bare shutil.which — a
+    # PATH-only check would register a live-looking (~$0 cash) provider that the
+    # router ranks first for every hard task, wasting a candidate attempt before reroute.
+    _clear_all_provider_env(monkeypatch)
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("CODEX_ENABLED", "1")
+    monkeypatch.setenv("CODEX_TIER", "3")
+    monkeypatch.setattr(bootstrap, "_detect_cli", lambda binary: True)  # PATH says "found"
+    monkeypatch.setattr("baton.providers.codex.codex_detected", lambda: False)  # not logged in
+    _registry, providers, _baseline = build_providers_from_env(include_subscription=True)
+    assert not any(mid.startswith("codex/") for mid in providers)
+
+
+def test_codex_registered_when_enabled_and_login_ok(monkeypatch, capsys):
+    _clear_all_provider_env(monkeypatch)
+    monkeypatch.setenv("CODEX_ENABLED", "1")
+    monkeypatch.setenv("CODEX_TIER", "3")
+    monkeypatch.setattr("baton.providers.codex.codex_detected", lambda: True)
+    registry, providers, _baseline = build_providers_from_env(include_subscription=True)
+    assert "codex/default" in providers  # unset CODEX_MODEL -> sensible default id
+    info = registry.get("codex/default")
+    assert info.tier == 3
+    assert info.billing == "plan_included"
+    err = capsys.readouterr().err.lower()
+    assert "interactive" in err and "quota" in err
+
+
+def test_codex_id_follows_configured_model(monkeypatch):
+    _clear_all_provider_env(monkeypatch)
+    monkeypatch.setenv("CODEX_ENABLED", "1")
+    monkeypatch.setenv("CODEX_TIER", "3")
+    monkeypatch.setenv("CODEX_MODEL", "gpt-5-codex")
+    monkeypatch.setattr("baton.providers.codex.codex_detected", lambda: True)
+    _registry, providers, _baseline = build_providers_from_env(include_subscription=True)
+    assert "codex/gpt-5-codex" in providers
+    assert "codex/default" not in providers
+
+
+def test_claude_code_id_follows_configured_model(monkeypatch):
+    _clear_all_provider_env(monkeypatch)
+    monkeypatch.setenv("CLAUDE_CODE_ENABLED", "1")
+    monkeypatch.setenv("CLAUDE_CODE_MODEL", "sonnet")
+    monkeypatch.setattr(bootstrap, "_detect_cli", lambda binary: binary == "claude")
+    _registry, providers, _baseline = build_providers_from_env(include_subscription=True)
+    assert "claude-code/sonnet" in providers
+    assert "claude-code/opus" not in providers
+
+
+def test_subscription_model_info_comes_from_shared_seed_helpers(monkeypatch):
+    # #3: no inline-duplicated ModelInfo — both leg's registered ModelInfo must match
+    # what the existing single-source-of-truth seed helpers produce (drift regression
+    # guard: claude_code_model_info's strengths include long_context; build_codex_model's
+    # default context_window is 256_000, not a bootstrap-local 128_000).
+    from baton.providers.claude_code import claude_code_model_info
+    from baton.providers.codex import build_codex_model
+
+    _clear_all_provider_env(monkeypatch)
+    monkeypatch.setenv("CLAUDE_CODE_ENABLED", "1")
+    monkeypatch.setenv("CODEX_ENABLED", "1")
+    monkeypatch.setenv("CODEX_TIER", "3")
+    monkeypatch.setattr(bootstrap, "_detect_cli", lambda binary: binary == "claude")
+    monkeypatch.setattr("baton.providers.codex.codex_detected", lambda: True)
+    registry, _providers, _baseline = build_providers_from_env(include_subscription=True)
+
+    cc = registry.get("claude-code/opus")
+    expected_cc = claude_code_model_info("opus", tier=4, max_output_tokens=4096)
+    assert cc.strengths == expected_cc.strengths
+    assert "long_context" in cc.strengths
+    assert cc.context_window == expected_cc.context_window
+
+    cx = registry.get("codex/default")
+    expected_cx = build_codex_model({"CODEX_TIER": "3"})
+    assert cx.context_window == expected_cx.context_window == 256_000
+    assert cx.strengths == expected_cx.strengths
 
 
 def test_subscription_never_displaces_card_baseline(monkeypatch):
@@ -164,13 +242,15 @@ def test_make_runtime_factory_threads_prefer_into_router():
     assert runtime.router._prefer == "cash_protect_quota"
 
 
-def test_make_runtime_factory_default_prefer_is_quality_back_compat():
-    # Existing callers (demo.py, webui/server.py, tests/eval) call
-    # make_runtime_factory(registry, providers, model_id) with no `prefer` -> unchanged.
+def test_make_runtime_factory_default_prefer_is_cash_protect_quota_back_compat():
+    # Genuine back-compat: pre-branch `Router(registry)` defaulted to
+    # "cash_protect_quota" (Router's own default). Existing callers (demo.py,
+    # webui/server.py, tests/eval) call make_runtime_factory(registry, providers,
+    # model_id) with no `prefer` -> must still land on that same default, not "quality".
     registry = Registry([_model("api/y", billing="card", tier=3)])
     providers = {"api/y": FakeProvider()}
     runtime = make_runtime_factory(registry, providers, "api/y")()
-    assert runtime.router._prefer == "quality"
+    assert runtime.router._prefer == "cash_protect_quota"
 
 
 def _plan_resp(payload: str) -> CanonicalResponse:
