@@ -20,12 +20,18 @@ keywords = [
     "evaluation",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    # Honest, not aspirational: the subprocess sandbox and CLI-agent providers use
+    # os.setsid/killpg (POSIX-only). The pure-Python library core (Runtime, Router,
+    # Registry, etc., minus baton.tools.sandbox / cli_agent) is importable cross-platform.
     "Operating System :: POSIX",
+    "Environment :: Console",
+    "Framework :: AsyncIO",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Typing :: Typed",
 ]
@@ -50,6 +56,8 @@ baton = "baton.cli:main"
 Homepage = "https://github.com/ribato/baton"
 Repository = "https://github.com/ribato/baton"
 Issues = "https://github.com/ribato/baton/issues"
+Changelog = "https://github.com/ribato/baton/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/ribato/baton#readme"
 
 [dependency-groups]
 dev = [
