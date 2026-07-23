@@ -1,7 +1,7 @@
 # Baton
 
-[![CI](https://github.com/ribato/baton/actions/workflows/ci.yml/badge.svg)](https://github.com/ribato/baton/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/ribato/baton/blob/main/LICENSE)
+[![CI](https://github.com/ribato22/baton/actions/workflows/ci.yml/badge.svg)](https://github.com/ribato22/baton/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/ribato22/baton/blob/main/LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](pyproject.toml)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 
@@ -90,7 +90,7 @@ CrewAI / LiteLLM) as a study of how these systems actually work under the hood.
 Requires **Python 3.12+** and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
-git clone https://github.com/ribato/baton
+git clone https://github.com/ribato22/baton
 cd baton
 uv sync --dev            # install deps + dev tools
 uv run pytest            # 560+ tests, no network
@@ -244,10 +244,62 @@ uv run baton "your goal"
 > into — never the claude.ai / ChatGPT web apps. Scraping those web apps is not implemented (it would
 > violate their Terms of Service).
 
+### In your IDE (VSCode) & MCP
+
+Baton is a CLI first, so it already works in **any** editor's integrated terminal (`uv run baton
+"…"`). For VSCode there are two extra conveniences:
+
+**1. One-keystroke tasks.** The repo ships [`.vscode/tasks.json`](.vscode/tasks.json). Open
+*Terminal → Run Task…* (or press `⌘/Ctrl+Shift+B`) and pick:
+
+| Task | What it does |
+|------|--------------|
+| **Baton: Run goal** | Prompts for a goal and orchestrates it (streams plan → workers → synthesis). |
+| **Baton: Web UI** | Serves the live Web UI at <http://127.0.0.1:8000>. |
+| **Baton: MCP server (stdio)** | Runs the MCP server for AI-agent integration (below). |
+| **Baton: Test / Lint** | `pytest` / `ruff` over the project. |
+
+**2. MCP server — let the AI *inside* your editor call Baton.** Baton ships an
+[MCP](https://modelcontextprotocol.io) server ([`baton_mcp/`](baton_mcp/)) exposing one tool,
+`baton_run(goal, prefer?)`, that plans → routes → runs → synthesizes and returns the final answer
+plus an honest cash/plan-credit footer. Any MCP-capable assistant (Claude Code, Cursor, VS Code
+Copilot *agent mode*, Windsurf) can then delegate whole goals to Baton.
+
+```bash
+uv sync --extra mcp                 # install the `mcp` dependency
+uv run --extra mcp python -m baton_mcp   # speaks MCP over stdio (what clients launch)
+```
+
+Register it with your client. **Claude Code** — one command:
+
+```bash
+claude mcp add baton -- uv run --extra mcp python -m baton_mcp
+```
+
+**Cursor / VS Code / Windsurf** — add to the client's MCP config (e.g. `.cursor/mcp.json`, or
+VS Code's `.vscode/mcp.json` under a `"servers"` key):
+
+```jsonc
+{
+  "mcpServers": {
+    "baton": {
+      "command": "uv",
+      "args": ["run", "--extra", "mcp", "python", "-m", "baton_mcp"],
+      "cwd": "/absolute/path/to/baton"
+    }
+  }
+}
+```
+
+The server reads providers from the environment exactly like the CLI (including
+`CLAUDE_CODE_ENABLED` / `CODEX_ENABLED`), so configure at least one provider first — it does **not**
+fall back to a demo. A full branded VSCode *extension* is intentionally **not** shipped; the CLI +
+tasks + MCP cover the same ground without a marketplace artifact to maintain.
+
 ## Providers
 
 Set environment variables for any subset; baseline priority is
-**Anthropic > OpenAI-compat > Kimi > Ollama**. See [`.env.example`](https://github.com/ribato/baton/blob/main/.env.example) for the full list.
+**Anthropic > OpenAI-compat > Kimi > Ollama**. See [`.env.example`](https://github.com/ribato22/baton/blob/main/.env.example) for the full list.
 
 | Provider | Env | Access |
 |---|---|---|
@@ -271,7 +323,7 @@ Set environment variables for any subset; baseline priority is
 > subscription pool vs. a metered API-rate credit bucket has flipped several times in months
 > (announced 2026-06-15, then paused; still paused as of 2026-07-22). When Anthropic next announces a
 > billing change, repeat the live gate in
-> [the design spec §13](https://github.com/ribato/baton/blob/main/docs/superpowers/specs/2026-07-22-baton-subscription-providers-and-vibe-cli-design.md)
+> [the design spec §13](https://github.com/ribato22/baton/blob/main/docs/superpowers/specs/2026-07-22-baton-subscription-providers-and-vibe-cli-design.md)
 > and re-check the Help Center banner, then update the "verified" date in §A of that spec.
 
 **Free, high-intelligence option** — Google AI Studio (Gemini Flash), via the generic slot:
@@ -290,7 +342,7 @@ The generic slot defaults to industry-standard values (context 128k, output 8k, 
 **Several providers at once** — add `OPENAI_COMPAT_2_*`, `OPENAI_COMPAT_3_*`, … (each with its own
 `model_id` / pricing / context). For example Gemini plus Groq, so the supervisor plans on Gemini
 while the cheaper Groq model runs the parallel workers — genuine cross-provider orchestration. See
-[`.env.example`](https://github.com/ribato/baton/blob/main/.env.example).
+[`.env.example`](https://github.com/ribato22/baton/blob/main/.env.example).
 
 ## Evaluation
 
@@ -302,7 +354,7 @@ The scorer runs the model's generated `solution.py` in a subprocess under **proc
 separation**: a trusted runner drives the untrusted solution in a *separate* process that never sees
 the expected outputs (nonce-authenticated RPC), so a solution must actually compute correct answers —
 it cannot fake a passing score. See
-[`docs/superpowers/specs/2026-07-21-eval-process-separation-design.md`](https://github.com/ribato/baton/blob/main/docs/superpowers/specs/2026-07-21-eval-process-separation-design.md).
+[`docs/superpowers/specs/2026-07-21-eval-process-separation-design.md`](https://github.com/ribato22/baton/blob/main/docs/superpowers/specs/2026-07-21-eval-process-separation-design.md).
 
 Read the verdict together with the warnings the harness emits:
 
@@ -348,9 +400,10 @@ demo.py               # end-to-end demo (orchestrate | agentic | eval)
   subprocesses; integration tests that touch the network/Docker are marked `integration` and skipped
   by default (`uv run pytest -m integration` to opt in).
 - **Lint:** `uv run ruff check .` (line length 100; `E,F,I,UP,B`).
-- Contributions welcome — see [CONTRIBUTING.md](https://github.com/ribato/baton/blob/main/CONTRIBUTING.md).
-  Security reports: [SECURITY.md](https://github.com/ribato/baton/blob/main/SECURITY.md). Release notes:
-  [CHANGELOG.md](https://github.com/ribato/baton/blob/main/CHANGELOG.md).
+- Contributions welcome — see [CONTRIBUTING.md](https://github.com/ribato22/baton/blob/main/CONTRIBUTING.md)
+  and our [Code of Conduct](https://github.com/ribato22/baton/blob/main/CODE_OF_CONDUCT.md).
+  Security reports: [SECURITY.md](https://github.com/ribato22/baton/blob/main/SECURITY.md). Release notes:
+  [CHANGELOG.md](https://github.com/ribato22/baton/blob/main/CHANGELOG.md).
 
 ## Non-goals
 
@@ -368,4 +421,4 @@ fork, and learn from.
 
 ## License
 
-[MIT](https://github.com/ribato/baton/blob/main/LICENSE) © 2026 ribato.
+[MIT](https://github.com/ribato22/baton/blob/main/LICENSE) © 2026 ribato.

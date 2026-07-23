@@ -26,5 +26,5 @@ The `main` branch is the supported version. This is pre-1.0 software; APIs may c
 ## Reporting a vulnerability
 
 Please **do not** open a public issue for security problems. Instead, open a private
-[GitHub Security Advisory](https://github.com/ribato/baton/security/advisories/new) with a
+[GitHub Security Advisory](https://github.com/ribato22/baton/security/advisories/new) with a
 description, a reproduction, and the impact. You will get an acknowledgement as soon as possible.

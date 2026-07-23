@@ -38,7 +38,10 @@ runs/
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/
+# Ignore personal editor state, but share the project's task/extension config.
+.vscode/*
+!.vscode/tasks.json
+!.vscode/extensions.json
 *.swp
 
 # Playwright MCP scratch (screenshots/snapshots)

@@ -47,17 +47,22 @@ ui = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
 ]
+# MCP server (baton_mcp/): `uv sync --extra mcp` then `uv run python -m baton_mcp`.
+# Exposes Baton as a tool to IDE AI agents (Claude Code, Cursor, VS Code, Windsurf).
+mcp = [
+    "mcp>=1.2",
+]
 
 [project.scripts]
 baton = "baton.cli:main"
 
 # Distribution name and importable package are both `baton`.
 [project.urls]
-Homepage = "https://github.com/ribato/baton"
-Repository = "https://github.com/ribato/baton"
-Issues = "https://github.com/ribato/baton/issues"
-Changelog = "https://github.com/ribato/baton/blob/main/CHANGELOG.md"
-Documentation = "https://github.com/ribato/baton#readme"
+Homepage = "https://github.com/ribato22/baton"
+Repository = "https://github.com/ribato22/baton"
+Issues = "https://github.com/ribato22/baton/issues"
+Changelog = "https://github.com/ribato22/baton/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/ribato22/baton#readme"
 
 [dependency-groups]
 dev = [
@@ -68,6 +73,7 @@ dev = [
     "mypy>=1.11",
     "fastapi>=0.110",   # webui tests
     "uvicorn>=0.29",
+    "mcp>=1.2",         # baton_mcp tests
 ]
 
 [build-system]
@@ -96,7 +102,7 @@ filterwarnings = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests", "eval", "webui"]
+src = ["src", "tests", "eval", "webui", "baton_mcp"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
