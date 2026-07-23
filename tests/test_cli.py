@@ -266,6 +266,29 @@ def test_main_planner_provider_error_returns_nonzero_no_traceback(monkeypatch, c
     assert "bad api key" in err
 
 
+class _BrokenStdout:
+    """Simulates a reader that closed the pipe early (`baton goal | head`)."""
+
+    def write(self, s: str) -> int:
+        raise BrokenPipeError()
+
+    def flush(self) -> None:
+        raise BrokenPipeError()
+
+    def fileno(self) -> int:
+        raise OSError("no real fd under test")
+
+
+def test_main_broken_pipe_exits_cleanly_without_raising(monkeypatch) -> None:
+    registry, runtime = _one_task_runtime()
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
+    monkeypatch.setattr(cli.sys, "stdout", _BrokenStdout())
+
+    code = cli.main(["do one", "--no-stream"])  # must not raise BrokenPipeError
+
+    assert code == 0
+
+
 def test_main_keyboard_interrupt_during_build_returns_130(monkeypatch, capsys) -> None:
     # _build (registry/provider wiring + the §7.1 planner-gate probe) can itself run
     # a live provider call; Ctrl-C there must also exit 130, never a traceback.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 
 from baton.bootstrap import (
@@ -172,6 +173,19 @@ async def _aexecute(
     return await runtime.aexecute(goal, on_text=on_text, on_worker_text=on_worker)
 
 
+def _handle_broken_pipe() -> int:
+    """The reader closed the pipe early (e.g. `baton goal | head`). Redirect stdout to
+    os.devnull so the interpreter's shutdown flush doesn't raise a SECOND
+    BrokenPipeError (the classic 'Exception ignored in: <...>' noise), then exit
+    cleanly -- a closed downstream reader is not a baton failure."""
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+    except OSError:
+        pass  # stdout has no real fd (e.g. under test) -- nothing to redirect
+    return 0
+
+
 def _print_interrupted(collected: list[str]) -> int:
     # Ctrl-C mid-run: there is no RunResult. Print whatever partial text streamed
     # (empty if interrupted before any streaming started, e.g. during _build's
@@ -202,19 +216,23 @@ def main(argv: list[str] | None = None) -> int:
         result = asyncio.run(
             _aexecute(runtime, args.goal, stream=stream, collected=collected)
         )
+        if args.json:
+            print(_summary_json(result, registry))
+        else:
+            if result.final:
+                print("\n\nFINAL:\n" + str(result.final).strip())
+            for line in _summary_lines(result, registry):
+                print(line)
     except KeyboardInterrupt:
         return _print_interrupted(collected)
+    except BrokenPipeError:
+        # Downstream reader closed early (e.g. `baton goal | head`), possibly mid-stream
+        # or mid-summary; a closed pipe is not a baton failure.
+        return _handle_broken_pipe()
     except Exception as exc:  # noqa: BLE001 - user-facing entrypoint: no raw tracebacks.
         # Supervisor.plan/Worker/Synthesizer can raise ProviderError (network/auth) or
         # ValueError (planner returned an unparseable/invalid plan) uncaught by Runtime;
         # print a clean one-liner instead of a traceback.
         print(f"baton: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
-    if args.json:
-        print(_summary_json(result, registry))
-    else:
-        if result.final:
-            print("\n\nFINAL:\n" + str(result.final).strip())
-        for line in _summary_lines(result, registry):
-            print(line)
     return 0 if result.status == "success" else 1
