@@ -132,3 +132,17 @@ class ClaudeCodeAdapter:
             latency_ms=int(data.get("duration_ms") or 0),
             cost_usd=float(cost) if cost is not None else None,
         )
+
+    def parse_delta(self, line: str) -> str | None:
+        # Skema stream-json direkonfirmasi live di gerbang §13; granularitas event
+        # "assistant" saat penulisan = pesan teks (bukan delta huruf-per-huruf).
+        data = _try_json(line)
+        if data is None or data.get("type") != "assistant":
+            return None
+        msg = data.get("message") or {}
+        text_out = "".join(
+            str(b.get("text", ""))
+            for b in (msg.get("content") or [])
+            if isinstance(b, dict) and b.get("type") == "text"
+        )
+        return text_out or None

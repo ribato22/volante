@@ -123,3 +123,23 @@ def test_parse_json_without_usage_estimates_but_keeps_cost() -> None:
     resp = ClaudeCodeAdapter().parse(res, _req(None, "q"))
     assert resp.usage.estimated is True         # usage hilang -> estimasi
     assert resp.cost_usd == 0.5                 # tapi cost otoritatif tetap dipakai
+
+
+def test_parse_delta_extracts_assistant_text() -> None:
+    a = ClaudeCodeAdapter()
+    line = json.dumps(
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "Paris"}]}}
+    )
+    assert a.parse_delta(line) == "Paris"
+
+
+def test_parse_delta_ignores_control_and_non_text_lines() -> None:
+    a = ClaudeCodeAdapter()
+    assert a.parse_delta(json.dumps({"type": "system", "subtype": "init"})) is None
+    assert a.parse_delta(json.dumps({"type": "result", "result": "x"})) is None
+    assert a.parse_delta("not json") is None
+    # blok non-text (mis. tool_use bocor) -> tak diperlakukan sebagai teks.
+    tu = json.dumps(
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t"}]}}
+    )
+    assert a.parse_delta(tu) is None
