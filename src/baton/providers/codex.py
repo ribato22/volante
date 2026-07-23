@@ -81,3 +81,8 @@ class CodexAdapter:
             env.pop(key, None)
         env[_DEPTH_ENV] = str(depth + 1)  # anti-recursion guard (§8.2)
         return env
+
+    def stdin(self, req: CanonicalRequest) -> str:
+        # codex exec reads its prompt from stdin (no positional PROMPT in argv);
+        # system + user text is folded into one prompt (exec has no system slot).
+        return _prompt_text(req)

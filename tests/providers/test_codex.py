@@ -55,3 +55,11 @@ def test_child_env_scrubs_openai_and_codex_keys() -> None:
 def test_child_env_sets_depth_plus_one() -> None:
     assert CodexAdapter().child_env({}, depth=0)["BATON_CLI_AGENT_DEPTH"] == "1"
     assert CodexAdapter().child_env({}, depth=1)["BATON_CLI_AGENT_DEPTH"] == "2"
+
+
+def test_stdin_is_prompt_text_system_then_user() -> None:
+    req = CanonicalRequest(
+        messages=[text("system", "be terse"), text("user", "add two numbers")],
+        max_tokens=64,
+    )
+    assert CodexAdapter().stdin(req) == "be terse\nadd two numbers"
