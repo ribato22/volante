@@ -41,7 +41,7 @@ async def subprocess_cli_runner(
 ) -> CliRunResult:
     """Real runner: spawn a CLI agent in a FRESH temp cwd + its OWN session, feed the
     prompt via stdin. killpg(SIGKILL) on BOTH TimeoutError AND CancelledError, then
-    await proc.wait() (mirror src/baton/tools/sandbox.py). on_line handled in Task 2."""
+    await proc.wait() (mirror src/baton/tools/sandbox.py)."""
     workdir = tempfile.mkdtemp(prefix="baton-cli-")
     proc = await asyncio.create_subprocess_exec(
         *argv,
@@ -53,22 +53,75 @@ async def subprocess_cli_runner(
         start_new_session=True,  # grup proses sendiri → killpg bunuh cucu juga
     )
     try:
-        try:
-            out, err = await asyncio.wait_for(
-                proc.communicate(stdin.encode()), timeout=timeout
+        if on_line is None:
+            try:
+                out, err = await asyncio.wait_for(
+                    proc.communicate(stdin.encode()), timeout=timeout
+                )
+            except TimeoutError:
+                _killpg(proc)
+                await proc.wait()
+                return CliRunResult("", "", -9, timed_out=True)
+            except asyncio.CancelledError:
+                _killpg(proc)
+                await proc.wait()
+                raise
+            return CliRunResult(
+                out.decode(errors="replace"),
+                err.decode(errors="replace"),
+                proc.returncode if proc.returncode is not None else -1,
             )
-        except TimeoutError:
-            _killpg(proc)
-            await proc.wait()
-            return CliRunResult("", "", -9, timed_out=True)
-        except asyncio.CancelledError:
-            _killpg(proc)
-            await proc.wait()
-            raise
-        return CliRunResult(
-            out.decode(errors="replace"),
-            err.decode(errors="replace"),
-            proc.returncode if proc.returncode is not None else -1,
-        )
+        return await _stream_lines(proc, stdin, timeout, on_line)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+async def _stream_lines(
+    proc: asyncio.subprocess.Process,
+    stdin: str,
+    timeout: float,
+    on_line: Callable[[str], object],
+) -> CliRunResult:
+    """Feed stdin, then relay stdout lines to on_line (for --output-format stream-json).
+    Truthy on_line -> cooperative early-stop: killpg the producer and return the
+    accumulated partial. killpg on BOTH TimeoutError AND CancelledError as well."""
+    assert proc.stdin is not None and proc.stdout is not None
+    proc.stdin.write(stdin.encode())
+    await proc.stdin.drain()
+    proc.stdin.close()
+    parts: list[str] = []
+    stopped = False
+
+    async def _pump() -> None:
+        nonlocal stopped
+        async for raw in proc.stdout:  # type: ignore[union-attr]
+            parts.append(raw.decode(errors="replace"))
+            if on_line(parts[-1]):  # truthy -> cooperative early-stop
+                stopped = True
+                return
+
+    try:
+        await asyncio.wait_for(_pump(), timeout=timeout)
+    except TimeoutError:
+        _killpg(proc)
+        await proc.wait()
+        return CliRunResult("".join(parts), "", -9, timed_out=True)
+    except asyncio.CancelledError:
+        _killpg(proc)
+        await proc.wait()
+        raise
+    if stopped:
+        _killpg(proc)  # early-stop: kill the remaining producer
+        await proc.wait()
+        return CliRunResult(
+            "".join(parts), "", proc.returncode if proc.returncode is not None else -9
+        )
+    err = b""
+    if proc.stderr is not None:
+        err = await proc.stderr.read()
+    await proc.wait()
+    return CliRunResult(
+        "".join(parts),
+        err.decode(errors="replace"),
+        proc.returncode if proc.returncode is not None else -1,
+    )
