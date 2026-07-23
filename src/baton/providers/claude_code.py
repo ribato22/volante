@@ -89,7 +89,9 @@ class ClaudeCodeAdapter:
 
     def child_env(self, base: dict[str, str], *, depth: int) -> dict[str, str]:
         env = dict(base)
-        env[DEPTH_ENV] = str(depth + 1)  # guard rekursi: anak +1 (§8.2)
+        # `depth` is already the CHILD's intended depth (CliAgentProvider bumps it
+        # before calling child_env) -- write through verbatim, don't double-bump.
+        env[DEPTH_ENV] = str(depth)  # guard rekursi (§8.2)
         # OAuth langganan DIPERTAHANKAN: TIDAK menyuntik/menghapus ANTHROPIC_API_KEY
         # di sini (kontras Codex yang scrub OPENAI_API_KEY). Keputusan scrub = §13.
         return env

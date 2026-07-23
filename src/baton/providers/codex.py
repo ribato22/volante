@@ -84,7 +84,9 @@ class CodexAdapter:
         env = dict(base)  # copy: never mutate the caller's environment
         for key in _SCRUB_KEYS:
             env.pop(key, None)
-        env[_DEPTH_ENV] = str(depth + 1)  # anti-recursion guard (§8.2)
+        # `depth` is already the CHILD's intended depth (CliAgentProvider bumps it
+        # before calling child_env) -- write through verbatim, don't double-bump.
+        env[_DEPTH_ENV] = str(depth)  # anti-recursion guard (§8.2)
         return env
 
     def stdin(self, req: CanonicalRequest) -> str:

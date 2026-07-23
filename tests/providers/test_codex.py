@@ -73,14 +73,17 @@ def test_child_env_scrubs_openai_and_codex_keys() -> None:
     assert base["OPENAI_API_KEY"] == "sk-leak"  # caller dict NOT mutated
 
 
-def test_child_env_sets_depth_plus_one() -> None:
-    assert CodexAdapter().child_env({}, depth=0)["BATON_CLI_AGENT_DEPTH"] == "1"
-    assert CodexAdapter().child_env({}, depth=1)["BATON_CLI_AGENT_DEPTH"] == "2"
+def test_child_env_sets_depth_verbatim() -> None:
+    # `depth` passed in is already the CHILD's intended depth (CliAgentProvider
+    # does the +1 before calling child_env); the adapter writes it through
+    # unchanged -- no double-bump (§8.2 fix).
+    assert CodexAdapter().child_env({}, depth=0)["BATON_CLI_AGENT_DEPTH"] == "0"
+    assert CodexAdapter().child_env({}, depth=1)["BATON_CLI_AGENT_DEPTH"] == "1"
 
 
-def test_child_env_depth_increment_matches_claude_code_adapter() -> None:
+def test_child_env_depth_matches_claude_code_adapter() -> None:
     # Provably consistent with ClaudeCodeAdapter (mirrors its own depth test,
-    # `test_child_env_bumps_depth_and_preserves_oauth` -- child env is "1" from a
+    # `test_child_env_sets_depth_and_preserves_oauth` -- child env is "0" from a
     # depth=0 call): the two CliAgentAdapter implementations must never diverge on
     # how the shared CliAgentProvider recursion-depth env travels.
     from baton.providers.claude_code import DEPTH_ENV, ClaudeCodeAdapter
@@ -88,7 +91,7 @@ def test_child_env_depth_increment_matches_claude_code_adapter() -> None:
     for depth in (0, 1, 3):
         codex_env = CodexAdapter().child_env({}, depth=depth)
         claude_env = ClaudeCodeAdapter().child_env({}, depth=depth)
-        assert codex_env["BATON_CLI_AGENT_DEPTH"] == claude_env[DEPTH_ENV] == str(depth + 1)
+        assert codex_env["BATON_CLI_AGENT_DEPTH"] == claude_env[DEPTH_ENV] == str(depth)
 
 
 async def test_depth_guard_refuses_recursion_for_codex(monkeypatch) -> None:
@@ -390,6 +393,20 @@ def test_codex_adapter_conforms_to_protocol() -> None:
     assert isinstance(adapter, CliAgentAdapter)
     provider = CliAgentProvider(adapter, "gpt-5-codex", runner=_CaptureRunner(_JSONL))
     assert isinstance(provider, LLMProvider)
+
+
+async def test_complete_through_provider_nets_depth_one_at_top_level(monkeypatch) -> None:
+    # End-to-end through the real CliAgentProvider + real CodexAdapter: a
+    # top-level run (no BATON_CLI_AGENT_DEPTH in the parent env, i.e. depth 0) must
+    # net the CHILD a depth of "1", not "2" -- regression guard for the adapter
+    # double-increment bug (provider already adds +1; adapter must not add another).
+    from baton.providers.cli_agent import CliAgentProvider
+
+    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    runner = _CaptureRunner(_JSONL)
+    provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner)
+    await provider.complete(_req("write a function"))
+    assert runner.env["BATON_CLI_AGENT_DEPTH"] == "1"
 
 
 async def test_complete_through_cli_agent_provider_scrubs_env(monkeypatch) -> None:

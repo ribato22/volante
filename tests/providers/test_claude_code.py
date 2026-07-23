@@ -83,13 +83,16 @@ def test_stdin_is_user_text_only() -> None:
     assert a.stdin(_req(None, "just user")) == "just user"
 
 
-def test_child_env_bumps_depth_and_preserves_oauth() -> None:
+def test_child_env_sets_depth_and_preserves_oauth() -> None:
     from baton.providers.claude_code import DEPTH_ENV
 
     a = ClaudeCodeAdapter()
     base = {"PATH": "/bin", "ANTHROPIC_API_KEY": "sk-should-survive", DEPTH_ENV: "0"}
+    # `depth` passed in is already the CHILD's intended depth (CliAgentProvider does
+    # the +1 before calling child_env); the adapter writes it through unchanged
+    # (§8.2, fix: no double-bump).
     env = a.child_env(base, depth=0)
-    assert env[DEPTH_ENV] == "1"                        # anak +1 (§8.2)
+    assert env[DEPTH_ENV] == "0"
     assert env["PATH"] == "/bin"                        # base diteruskan
     # OAuth langganan dipertahankan: key TIDAK disuntik/dihapus di sini (kontras Codex).
     assert env["ANTHROPIC_API_KEY"] == "sk-should-survive"
@@ -216,6 +219,25 @@ def test_result_fixture_is_dated() -> None:
     files = list(_FIXTURES.glob("claude_code_result.*.json"))
     assert files, "fixture claude -p bertanggal wajib ada"
     assert all(re.search(r"\.\d{4}-\d{2}-\d{2}\.json$", f.name) for f in files)
+
+
+async def test_complete_through_provider_nets_depth_one_at_top_level(monkeypatch) -> None:
+    # End-to-end through the real CliAgentProvider + real ClaudeCodeAdapter: a
+    # top-level run (no BATON_CLI_AGENT_DEPTH in the parent env, i.e. depth 0) must
+    # net the CHILD a depth of "1", not "2" -- regression guard for the adapter
+    # double-increment bug (provider already adds +1; adapter must not add another).
+    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    fixture = (_FIXTURES / "claude_code_result.2026-07-22.json").read_text()
+    captured: dict[str, dict] = {}
+
+    async def runner(argv, *, stdin, env, timeout, on_line=None):
+        captured["env"] = env
+        return CliRunResult(stdout=fixture, stderr="", returncode=0)
+
+    provider = CliAgentProvider(ClaudeCodeAdapter(), "opus", runner=runner)
+    req = CanonicalRequest(messages=[text("user", "hi")], max_tokens=64)
+    await provider.complete(req)
+    assert captured["env"]["BATON_CLI_AGENT_DEPTH"] == "1"
 
 
 async def test_complete_through_provider_carries_cost_usd() -> None:
