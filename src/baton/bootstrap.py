@@ -11,11 +11,14 @@ sampai dipanggil)."""
 from __future__ import annotations
 
 import os
+import shutil
+import sys
 from typing import TYPE_CHECKING
 
 from baton.agent import AgenticWorker
 from baton.cost import CostMeter
 from baton.projector import Projector
+from baton.providers.base import LLMProvider
 from baton.registry import Registry, default_models
 from baton.router import Router
 from baton.runtime import Runtime
@@ -26,8 +29,6 @@ from baton.worker import Worker
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    from baton.providers.base import LLMProvider
 
 
 def _openai_compat_from_env(
@@ -87,6 +88,112 @@ def _all_openai_compat_from_env(
         slots.append(slot)
         n += 1
     return slots
+
+
+def _detect_cli(binary: str) -> bool:
+    """True iff `binary` is on PATH (the 'CLI detected' gate for subscription providers,
+    §7.2). Tiny + monkeypatchable so gating tests need no real binary or spawn."""
+    return shutil.which(binary) is not None
+
+
+def _warn_subscription(label: str) -> None:
+    """Print the §9 honesty warning to stderr: orchestrating on a subscription CLI agent
+    consumes your INTERACTIVE quota (a full run — worse, the eval suite — can burn the
+    Claude Code / Codex allowance and trip a mid-run hard-pause)."""
+    print(
+        f"WARNING: {label} is a subscription CLI agent — this run draws from your "
+        "INTERACTIVE subscription quota (not a metered API); a large run or the eval "
+        "suite can exhaust the quota and trigger a mid-run hard-pause.",
+        file=sys.stderr,
+    )
+
+
+def _register_subscription_providers(
+    providers: dict[str, LLMProvider],
+    extra_models: list[ModelInfo],
+    env: dict[str, str],
+    baseline_model_id: str | None,
+) -> str | None:
+    """Register ClaudeCode/Codex CLI-agent providers, but ONLY when opted in (`*_ENABLED=1`)
+    AND the CLI binary is detected. Each registration prints the §9 warning. Models are
+    `billing="plan_included"` (they draw the interactive pool, not per-token cash) and are
+    added AFTER the card providers so they never displace a temperature-controllable baseline
+    planner (§7.1). Returns the (possibly unchanged) baseline_model_id."""
+    from baton.providers.cli_agent import CliAgentProvider, subprocess_cli_runner
+
+    if env.get("CLAUDE_CODE_ENABLED") == "1" and _detect_cli("claude"):
+        from baton.providers.claude_code import ClaudeCodeAdapter
+
+        model = env.get("CLAUDE_CODE_MODEL", "opus")
+        tier = int(env.get("CLAUDE_CODE_TIER", "4"))
+        max_output = int(env.get("CLAUDE_CODE_MAX_OUTPUT", "4096"))
+        mid = "claude-code/opus"
+        providers[mid] = CliAgentProvider(
+            ClaudeCodeAdapter(),
+            model,
+            runner=subprocess_cli_runner,
+            tier=tier,
+            timeout=float(env.get("CLAUDE_CODE_TIMEOUT", "120")),
+            max_output=max_output,
+            system_prompt_mode=env.get("CLAUDE_CODE_SYSTEM_PROMPT_MODE", "append"),
+        )
+        extra_models.append(
+            ModelInfo(
+                id=mid,
+                provider="claude_code",
+                strengths={"coding", "reasoning"},
+                context_window=200_000,
+                max_output_tokens=max_output,
+                supports_tools=False,  # one-shot text; agentic delegation is a non-goal (§3)
+                cost_per_1k_in=0.015,  # underlying API rate -> consumption valuation only (§5.1)
+                cost_per_1k_out=0.075,
+                tier=tier,
+                billing="plan_included",
+            )
+        )
+        _warn_subscription("claude-code")
+        if baseline_model_id is None:
+            baseline_model_id = mid
+
+    if env.get("CODEX_ENABLED") == "1" and _detect_cli("codex"):
+        from baton.providers.codex import CodexAdapter
+
+        tier_raw = env.get("CODEX_TIER")
+        if tier_raw is None:
+            raise RuntimeError(
+                "CODEX_ENABLED=1 requires CODEX_TIER (no model-name sniffing, §6.1)"
+            )
+        tier = int(tier_raw)
+        model = env.get("CODEX_MODEL", "")  # empty -> adapter uses the user's Codex config
+        max_output = int(env.get("CODEX_MAX_OUTPUT", "4096"))
+        mid = f"codex/{model or 'default'}"
+        providers[mid] = CliAgentProvider(
+            CodexAdapter(),
+            model,
+            runner=subprocess_cli_runner,
+            tier=tier,
+            timeout=float(env.get("CODEX_TIMEOUT", "120")),
+            max_output=max_output,
+        )
+        extra_models.append(
+            ModelInfo(
+                id=mid,
+                provider="codex",
+                strengths={"coding", "reasoning"},
+                context_window=int(env.get("CODEX_CONTEXT", "128000")),
+                max_output_tokens=max_output,
+                supports_tools=False,  # one-shot text only (§3)
+                cost_per_1k_in=0.0,  # ChatGPT-plan credit; no per-token cash (§5.1)
+                cost_per_1k_out=0.0,
+                tier=tier,
+                billing="plan_included",
+            )
+        )
+        _warn_subscription("codex")
+        if baseline_model_id is None:
+            baseline_model_id = mid
+
+    return baseline_model_id
 
 
 def build_providers_from_env(
@@ -159,15 +266,23 @@ def build_providers_from_env(
         if baseline_model_id is None:
             baseline_model_id = mid
 
+    if include_subscription:
+        baseline_model_id = _register_subscription_providers(
+            providers, extra_models, dict(os.environ), baseline_model_id
+        )
+
     if not providers:
         raise RuntimeError(
             "No providers configured. Set ANTHROPIC_API_KEY, OPENAI_COMPAT_BASE_URL "
             "(+ OPENAI_COMPAT_MODEL/_KEY), MOONSHOT_API_KEY, and/or OLLAMA_BASE_URL "
             "before running the eval."
         )
-    registry = Registry(
-        [m for m in default_models() if m.id in providers] + extra_models
-    )
+    by_id: dict[str, ModelInfo] = {
+        m.id: m for m in default_models() if m.id in providers
+    }
+    for m in extra_models:
+        by_id[m.id] = m  # env-configured / subscription models override any default seed
+    registry = Registry(list(by_id.values()))
     assert baseline_model_id is not None  # dijamin oleh guard di atas
     return registry, providers, baseline_model_id
 
