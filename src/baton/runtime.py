@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import logging
 import os
 import random
 import shutil
@@ -23,6 +25,8 @@ from baton.tools.run_python import RunPythonTool
 from baton.tools.sandbox import Sandbox, sandbox_for
 from baton.types import ContentBlock, Entry, RunResult, Task, TextBlock
 from baton.worker import Worker
+
+logger = logging.getLogger(__name__)
 
 # billing yang dihitung sebagai kuota langganan (bukan cash) untuk guard per-run.
 _SUBSCRIPTION_BILLING = frozenset({"plan_included", "plan_credit"})
@@ -102,7 +106,41 @@ class Runtime:
         # fail-fast lewat return False — bukan crash yang membuang state.
         model_id = "unknown"
         try:
-            model_ids = self.router.route_ranked(task)
+            try:
+                model_ids = self.router.route_ranked(task)
+            except ValueError:
+                if task.mode != "agentic":
+                    raise
+                # No tool-capable model is configured (common in subscription-only
+                # setups: claude -p / codex exec are supports_tools=False). Degrade
+                # the agentic task to a one_shot completion — the model answers
+                # without the tool loop — instead of failing the whole run. Logged
+                # so a user who genuinely needs tool use knows to configure a
+                # tool-capable provider (Anthropic API, or an OpenAI-compat slot
+                # with tools).
+                logger.warning(
+                    "task %r is agentic but no tool-capable model is configured; "
+                    "running it as one_shot (degraded — configure a tool-capable "
+                    "provider for real tool use)",
+                    task.id,
+                )
+                bb.append(
+                    Entry(
+                        run_id=run_id,
+                        task_id=task.id,
+                        attempt=0,
+                        kind="status",
+                        payload=(
+                            "degraded: agentic -> one_shot (no tool-capable model "
+                            "configured)"
+                        ),
+                        model_id=None,
+                        usage=None,
+                        timestamp=time.time(),
+                    )
+                )
+                task = dataclasses.replace(task, mode="one_shot")
+                model_ids = self.router.route_ranked(task)
             model_id = model_ids[0] if model_ids else "unknown"
             return await self._run_task_body(
                 task, bb, run_id, sem, model_ids, on_worker_text

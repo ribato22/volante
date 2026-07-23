@@ -23,6 +23,12 @@ _PLAN_SYSTEM = (
     '"mode" (one of: one_shot, agentic), '
     '"difficulty" (one of: trivial, easy, medium, hard), '
     'and "depends_on" (array of task ids that must finish first). '
+    '"mode" defaults to one_shot: use one_shot for any task the assigned model can '
+    "complete purely by generating text from what it already knows or from context "
+    "already on the blackboard -- this covers ALL research, analysis, writing, and "
+    "reasoning tasks (no tools needed). Use agentic ONLY when the task genuinely "
+    "requires a tool loop: it must EXECUTE/run code, READ a local file, or FETCH a "
+    "URL to do its job. When in doubt, pick one_shot. "
     "Do not include any prose or markdown outside the JSON array."
 )
 

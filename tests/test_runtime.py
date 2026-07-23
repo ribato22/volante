@@ -4,11 +4,13 @@ import asyncio
 
 import pytest
 
+from baton.agent import AgenticResult, TurnRecord
 from baton.cost import CostMeter
 from baton.projector import Projector
 from baton.providers.base import ProviderError
 from baton.providers.fake import FakeProvider
 from baton.registry import Registry
+from baton.router import Router
 from baton.runtime import Runtime
 from baton.types import (
     CanonicalRequest,
@@ -734,6 +736,113 @@ def test_subscription_guard_reroutes_to_direct_when_cap_reached(monkeypatch) -> 
     # Hitungan cap tersurat sebagai status blackboard (di-surface ringkasan CLI).
     statuses = [e.payload for e in projector.last_bb.entries() if e.kind == "status"]
     assert any("subscription cap 1 reached" in s for s in statuses)
+
+
+class _BoomAgenticWorker:
+    """AgenticWorker pengganti yang MELEMPAR bila dipanggil — buktikan degradasi
+    ke one_shot tak pernah menyentuh AgenticWorker sama sekali."""
+
+    async def run(self, req, model_id, tools, on_text=None):
+        raise AssertionError("AgenticWorker must not be called when degrading to one_shot")
+
+
+def test_agentic_task_degrades_to_one_shot_when_no_tool_capable_model(caplog) -> None:
+    # Live repro: subscription-only registry -> semua model supports_tools=False ->
+    # Router.route_ranked(needs_tools=True) tak punya kandidat -> ValueError. Sebelum
+    # fix, ini menggagalkan seluruh run. Sesudah fix: task didegradasi ke one_shot dan
+    # sukses lewat Worker biasa (AgenticWorker TIDAK dipanggil).
+    cm = CostMeter()
+    plan = [Task(id="T1", description="write a brief", type="code", mode="agentic")]
+    supervisor = _StubSupervisor(plan)
+    registry = _registry("m1")  # _model(): supports_tools=False
+    router = Router(registry)
+    projector = _StubProjector()
+    worker = Worker(
+        providers={"m1": FakeProvider(responses=[_resp("art-1", "m1")], name="m1")},
+        cost_meter=cm,
+    )
+    synthesizer = _StubSynthesizer()
+    runtime = Runtime(
+        supervisor,
+        router,
+        projector,
+        worker,
+        synthesizer,
+        registry,
+        cm,
+        agentic_worker=_BoomAgenticWorker(),
+    )
+
+    with caplog.at_level("WARNING"):
+        result = runtime.execute("goal")
+
+    assert result.status == "success"
+    assert result.partial_artifacts == {"T1": "art-1"}  # one-shot Worker path menghasilkan artifact
+    assert any(
+        "agentic" in rec.message and "one_shot" in rec.message for rec in caplog.records
+    )
+
+
+class _FakeAgentic:
+    """Salinan minimal dari test_runtime_agentic.py: catat pemanggilan, hasil skrip."""
+
+    def __init__(self) -> None:
+        self.seen: list[str] = []
+
+    async def run(self, req, model_id, tools, on_text=None):
+        self.seen.append(req.task_id)
+        return AgenticResult(
+            final_text=f"done:{req.task_id}",
+            usage_total={model_id: Usage(prompt_tokens=10, completion_tokens=4)},
+            turns=[TurnRecord(0, "final", f"done:{req.task_id}", Usage(3, 2), model_id)],
+        )
+
+
+def test_agentic_task_runs_agentic_when_tool_capable_model_present() -> None:
+    # Regresi: quando ADA model tool-capable, agentic task tetap lewat _run_agentic
+    # normal (TANPA degradasi) — Router.route_ranked(needs_tools=True) berhasil.
+    cm = CostMeter()
+    plan = [Task(id="T1", description="write a brief", type="code", mode="agentic")]
+    supervisor = _StubSupervisor(plan)
+    registry = Registry(
+        [
+            ModelInfo(
+                id="m1",
+                provider="fake",
+                strengths={"coding"},
+                context_window=100_000,
+                max_output_tokens=4_096,
+                supports_tools=True,
+                cost_per_1k_in=0.001,
+                cost_per_1k_out=0.002,
+            )
+        ]
+    )
+    router = Router(registry)
+    projector = _StubProjector()
+    worker = Worker(
+        providers={"m1": FakeProvider(responses=[_resp("art-1", "m1")], name="m1")},
+        cost_meter=cm,
+    )
+    synthesizer = _StubSynthesizer()
+    agentic = _FakeAgentic()
+    runtime = Runtime(
+        supervisor,
+        router,
+        projector,
+        worker,
+        synthesizer,
+        registry,
+        cm,
+        agentic_worker=agentic,
+        sandbox_factory=lambda ws: ws,  # _FakeAgentic tak pakai sandbox
+    )
+
+    result = runtime.execute("goal")
+
+    assert result.status == "success"
+    assert agentic.seen == ["T1"]  # AgenticWorker DIPANGGIL (bukan degradasi)
+    assert result.partial_artifacts == {"T1": "done:T1"}
 
 
 def test_subscription_cap_counts_dispatch_even_when_call_fails(monkeypatch) -> None:

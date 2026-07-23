@@ -393,6 +393,31 @@ def test_plan_system_prompt_requests_difficulty() -> None:
         assert label in _PLAN_SYSTEM
 
 
+def test_plan_system_prompt_restricts_agentic_to_tool_use() -> None:
+    # Live failure: subscription-only setups have NO tool-capable model
+    # (claude -p / codex exec are supports_tools=False), so an "agentic" task
+    # always fails routing. The planner must default to one_shot and reserve
+    # agentic ONLY for tasks that genuinely need a tool loop (execute code,
+    # read local files, fetch a URL) -- research/analysis/writing/reasoning
+    # tasks, which don't need tools, should be one_shot.
+    from baton.supervisor import _PLAN_SYSTEM
+
+    assert "one_shot" in _PLAN_SYSTEM
+    assert "agentic" in _PLAN_SYSTEM
+    lowered = _PLAN_SYSTEM.lower()
+    assert "default" in lowered  # one_shot spelled out as the default mode
+    # agentic scoped to genuine tool-use triggers: execute code / read files / fetch URLs.
+    assert "execute" in lowered or "run" in lowered
+    assert "file" in lowered
+    assert "url" in lowered or "fetch" in lowered
+    # Research/analysis/writing tasks explicitly steered to one_shot (no tools needed).
+    assert "research" in lowered
+    assert "writ" in lowered  # "write"/"writing"
+    # Strict JSON-only contract must remain intact.
+    assert "ONLY a JSON array" in _PLAN_SYSTEM
+    assert "Do not include any prose or markdown outside the JSON array." in _PLAN_SYSTEM
+
+
 async def test_reentrant_call_is_not_billed() -> None:
     # PATCH: guard non-re-entrant raise SEBELUM complete() -> panggilan kedua
     # tidak menyentuh provider dan tidak menagih apa pun. Response kedua (999)
