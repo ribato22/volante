@@ -204,6 +204,12 @@ def main(argv: list[str] | None = None) -> int:
         )
     except KeyboardInterrupt:
         return _print_interrupted(collected)
+    except Exception as exc:  # noqa: BLE001 - user-facing entrypoint: no raw tracebacks.
+        # Supervisor.plan/Worker/Synthesizer can raise ProviderError (network/auth) or
+        # ValueError (planner returned an unparseable/invalid plan) uncaught by Runtime;
+        # print a clean one-liner instead of a traceback.
+        print(f"baton: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
     if args.json:
         print(_summary_json(result, registry))
     else:

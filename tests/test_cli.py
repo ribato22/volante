@@ -245,6 +245,27 @@ def test_main_keyboard_interrupt_prints_partial_and_returns_130(monkeypatch, cap
     assert "[interrupted]" in out
 
 
+class _RaisingRuntime:
+    """Simulates Supervisor.plan/Synthesizer.synthesize failures (bad API key,
+    network error, or a real card planner returning an unparseable plan) escaping
+    Runtime.aexecute unhandled -- main() must not let this raise a raw traceback."""
+
+    async def aexecute(self, goal, on_text=None, on_worker_text=None):
+        raise ProviderError("bad api key", retryable=False, status=401)
+
+
+def test_main_planner_provider_error_returns_nonzero_no_traceback(monkeypatch, capsys) -> None:
+    registry = Registry([])
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, _RaisingRuntime()))
+
+    code = cli.main(["do one", "--no-stream"])
+
+    assert code != 0
+    err = capsys.readouterr().err
+    assert "ProviderError" in err
+    assert "bad api key" in err
+
+
 def test_main_keyboard_interrupt_during_build_returns_130(monkeypatch, capsys) -> None:
     # _build (registry/provider wiring + the §7.1 planner-gate probe) can itself run
     # a live provider call; Ctrl-C there must also exit 130, never a traceback.
