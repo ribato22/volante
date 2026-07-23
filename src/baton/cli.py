@@ -5,7 +5,13 @@ import asyncio
 import json
 import sys
 
-from baton.bootstrap import build_providers_from_env, make_runtime_factory
+from baton.bootstrap import (
+    _planner_model_id,
+    build_providers_from_env,
+    make_runtime_factory,
+    verify_claude_plan_gate,
+)
+from baton.providers.base import LLMProvider
 from baton.registry import Registry
 from baton.runtime import Runtime
 from baton.types import RunResult
@@ -44,12 +50,40 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _ensure_planner_gate(
+    registry: Registry, providers: dict[str, LLMProvider], planner_id: str
+) -> None:
+    """§7.1 guard: `make_runtime_factory` picks `planner_id` via `_planner_model_id`,
+    which only falls back to a subscription (`plan_included`/`plan_credit`) model when
+    NO temperature-controllable card model is available (subscription-only setup). A
+    card planner (the normal case) is temperature-controllable and skips the gate
+    entirely — no probe call, zero cost/latency added to the common path.
+
+    When the fallback DOES happen, `claude -p`/`codex exec` ignore `temperature` and
+    cannot be trusted a priori to emit deterministic, parseable plans. Run ONE live
+    probe (`verify_claude_plan_gate`, reusing the real Supervisor parser) before
+    trusting it; raise a clear `RuntimeError` on failure instead of silently running
+    an ungated planner that can't guarantee valid plans."""
+    if registry.get(planner_id).billing == "card":
+        return
+    ok = asyncio.run(verify_claude_plan_gate(providers[planner_id], planner_id))
+    if not ok:
+        raise RuntimeError(
+            f"subscription planner {planner_id!r} failed the live parse-plan gate (§7.1): "
+            "it did not return a plan that survives the supervisor's own parser, so it "
+            "cannot be trusted to plan deterministically. Configure a card-billed planner "
+            "(e.g. ANTHROPIC_API_KEY, an OPENAI_COMPAT_* slot, or Ollama) and retry."
+        )
+
+
 def _build(args: argparse.Namespace) -> tuple[Registry, Runtime]:
     """Build (registry, fresh runtime) from env via bootstrap. The CLI opts into
     subscription providers (include_subscription=True); actual registration still
     requires CLAUDE_CODE_ENABLED / CODEX_ENABLED inside build_providers_from_env,
     which prints the honest "consumes interactive subscription quota" warning
-    (§7.2/§9). Not unit-tested (touches env/network); tests monkeypatch this seam."""
+    (§7.2/§9). Not unit-tested (touches env/network); tests monkeypatch this seam.
+    `_ensure_planner_gate` (unit-tested directly) is called here so a subscription-only
+    setup fails loudly instead of silently running an ungated `claude -p` planner."""
     registry, providers, model_id = build_providers_from_env(
         prefer=args.prefer, include_subscription=True
     )
@@ -69,6 +103,8 @@ def _build(args: argparse.Namespace) -> tuple[Registry, Runtime]:
         if args.model not in providers:
             raise RuntimeError(f"model {args.model!r} is not configured")
         model_id = args.model
+    planner_id = _planner_model_id(registry, providers, model_id)
+    _ensure_planner_gate(registry, providers, planner_id)
     make_runtime = make_runtime_factory(registry, providers, model_id, prefer=args.prefer)
     return registry, make_runtime()
 

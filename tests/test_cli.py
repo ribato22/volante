@@ -236,3 +236,28 @@ def test_main_keyboard_interrupt_prints_partial_and_returns_130(monkeypatch, cap
     out = capsys.readouterr().out
     assert "partial plan so far" in out  # streamed before the interrupt
     assert "[interrupted]" in out
+
+
+# ---- §7.1 guard: subscription planner must pass the live parse-plan gate ----
+def test_ensure_planner_gate_skips_probe_for_card_planner() -> None:
+    registry = Registry([_model("m1", billing="card")])
+    # A provider that raises if called at all -- the gate must not probe a card planner.
+    providers = {"m1": _Raiser("m1", ProviderError("must not be called", retryable=False))}
+
+    cli._ensure_planner_gate(registry, providers, "m1")  # no raise
+
+
+def test_ensure_planner_gate_passes_for_subscription_planner_with_valid_plan() -> None:
+    registry = Registry([_model("m1", billing="plan_included")])
+    valid = '[{"id":"t1","description":"d","type":"code","mode":"one_shot","depends_on":[]}]'
+    providers = {"m1": FakeProvider(responses=[_resp(valid, "m1")], name="m1")}
+
+    cli._ensure_planner_gate(registry, providers, "m1")  # no raise
+
+
+def test_ensure_planner_gate_raises_for_subscription_planner_that_fails_gate() -> None:
+    registry = Registry([_model("m1", billing="plan_included")])
+    providers = {"m1": FakeProvider(responses=[_resp("not json", "m1")], name="m1")}
+
+    with pytest.raises(RuntimeError, match="parse-plan gate"):
+        cli._ensure_planner_gate(registry, providers, "m1")
