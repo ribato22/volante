@@ -118,10 +118,19 @@ def test_stdin_is_prompt_text_system_then_user() -> None:
     assert CodexAdapter().stdin(req) == "be terse\nadd two numbers"
 
 
+def _item_completed(text: str, *, item_type: str = "agent_message") -> str:
+    # REAL wire shape (live-verified 2026-07-23): agent text lives inside
+    # item.completed's `item`, not a top-level `agent_message` event.
+    return json.dumps({
+        "type": "item.completed",
+        "item": {"id": "item_0", "type": item_type, "text": text},
+    })
+
+
 _JSONL = "\n".join([
     json.dumps({"type": "thread.started", "thread_id": "th_1"}),
     json.dumps({"type": "turn.started"}),
-    json.dumps({"type": "agent_message", "message": "Hello from Codex"}),
+    _item_completed("Hello from Codex"),
     json.dumps({"type": "turn.completed",
                 "usage": {"input_tokens": 120, "output_tokens": 34}}),
 ])
@@ -142,13 +151,13 @@ def test_parse_final_text_and_usage_from_turn_completed() -> None:
     assert resp.usage.completion_tokens == 34
     assert resp.usage.estimated is False
     assert resp.model == "codex"
-    assert resp.cost_usd is None  # this JSONL carried no total_cost_usd
+    assert resp.cost_usd is None  # real codex wire never carries total_cost_usd
 
 
 def test_parse_usage_estimated_when_turn_completed_lacks_usage() -> None:
     jsonl = "\n".join([
         json.dumps({"type": "thread.started", "thread_id": "th_2"}),
-        json.dumps({"type": "agent_message", "message": "abcdefgh"}),
+        _item_completed("abcdefgh"),
         json.dumps({"type": "turn.completed"}),  # no usage key
     ])
     resp = CodexAdapter().parse(_run_result(jsonl), _req("0123456789012345"))
@@ -158,26 +167,38 @@ def test_parse_usage_estimated_when_turn_completed_lacks_usage() -> None:
     assert resp.usage.completion_tokens == 2   # len("abcdefgh") // 4
 
 
-def test_parse_sets_cost_usd_when_total_cost_present() -> None:
+def test_parse_ignores_total_cost_usd_field_cost_stays_none() -> None:
+    # Real codex exec --json output NEVER carries total_cost_usd (live-verified
+    # 2026-07-23, subscription leg) -- if a stray/future field ever showed up on
+    # turn.completed, parse() must still ignore it. The registry-rate fallback
+    # (CODEX_COST_IN/CODEX_COST_OUT via build_codex_model) is applied downstream
+    # by CostMeter using token counts, not by trusting an unverified wire field here.
     jsonl = "\n".join([
-        json.dumps({"type": "agent_message", "message": "done"}),
-        json.dumps({"type": "turn.completed",
-                    "usage": {"input_tokens": 10, "output_tokens": 5},
-                    "total_cost_usd": 0.0123}),
+        _item_completed("done"),
+        json.dumps({
+            "type": "turn.completed",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+            "total_cost_usd": 0.0123,  # hypothetical stray field -- must be ignored
+        }),
     ])
     resp = CodexAdapter().parse(_run_result(jsonl), _req())
-    assert resp.cost_usd == 0.0123
+    assert resp.cost_usd is None
 
 
-def test_parse_delta_returns_text_for_agent_message() -> None:
-    line = json.dumps({"type": "agent_message", "message": "chunk-1"})
+def test_parse_delta_returns_text_for_item_completed_agent_message() -> None:
+    line = _item_completed("chunk-1")
     assert CodexAdapter().parse_delta(line) == "chunk-1"
 
 
-def test_parse_delta_none_for_lifecycle_and_garbage() -> None:
+def test_parse_delta_none_for_lifecycle_other_item_types_and_garbage() -> None:
     a = CodexAdapter()
+    assert a.parse_delta(json.dumps({"type": "thread.started", "thread_id": "th_x"})) is None
     assert a.parse_delta(json.dumps({"type": "turn.started"})) is None
     assert a.parse_delta(json.dumps({"type": "turn.completed", "usage": {}})) is None
+    # item.completed CAN carry non-text item types (reasoning/command/...) -- only
+    # item["type"] == "agent_message" is user-facing text.
+    assert a.parse_delta(_item_completed("thinking...", item_type="reasoning")) is None
+    assert a.parse_delta(_item_completed("ls -la", item_type="command")) is None
     assert a.parse_delta("not json at all") is None
     assert a.parse_delta("") is None
 
@@ -235,7 +256,7 @@ def test_is_error_true_for_explicit_error_event() -> None:
 
 def test_is_error_true_when_turn_completed_carries_error_field() -> None:
     jsonl = "\n".join([
-        json.dumps({"type": "agent_message", "message": "partial"}),
+        _item_completed("partial"),
         json.dumps({"type": "turn.completed", "error": {"message": "turn failed"}}),
     ])
     assert CodexAdapter().is_error(_run_result(jsonl)) is True
@@ -289,7 +310,7 @@ def test_parse_ignores_real_message_key_on_turn_completed() -> None:
     # parse()'s non-synthetic complete() path must NOT treat it as agent text --
     # only the Baton-internal `_baton_stream_message` sentinel is honored.
     jsonl = "\n".join([
-        json.dumps({"type": "agent_message", "message": "real answer"}),
+        _item_completed("real answer"),
         json.dumps({
             "type": "turn.completed",
             "message": "some unrelated real-CLI status string",
@@ -432,40 +453,70 @@ _FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_result_fixture_is_dated() -> None:
-    # §8.3: provisional CLI output fixture MUST be dated (billing/schema is volatile
-    # and NOT yet live-verified for Codex, §14).
+    # §8.3: CLI output fixture MUST be dated (billing/schema volatility) -- the
+    # live-verified 2026-07-23 fixture carries a `-live` suffix after the date, so
+    # the check tolerates any trailing text after the yyyy-mm-dd, not just a bare
+    # `.jsonl` right after it.
     files = list(_FIXTURES.glob("codex_result.*.jsonl"))
-    assert files, "dated provisional codex exec --json fixture wajib ada"
-    assert all(re.search(r"\.\d{4}-\d{2}-\d{2}\.jsonl$", f.name) for f in files)
+    assert files, "dated codex exec --json fixture wajib ada"
+    assert all(re.search(r"\.\d{4}-\d{2}-\d{2}.*\.jsonl$", f.name) for f in files)
 
 
 async def test_complete_through_provider_reads_dated_fixture() -> None:
+    # Fixture captured LIVE 2026-07-23 from a real `codex exec --json
+    # --skip-git-repo-check` run (prompt via stdin) -- the REAL wire shape, not a
+    # provisional guess: agent text lives in item.completed/agent_message, usage on
+    # turn.completed, and there is NO total_cost_usd.
     from baton.providers.cli_agent import CliAgentProvider
 
-    fixture = (_FIXTURES / "codex_result.2026-07-23.jsonl").read_text()
+    fixture = (_FIXTURES / "codex_result.2026-07-23-live.jsonl").read_text()
     runner = _CaptureRunner(fixture)
     provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner)
-    resp = await provider.complete(_req("capital of France?"))
-    assert resp.content[0].text == "The capital of France is Paris."
-    assert resp.usage == Usage(prompt_tokens=512, completion_tokens=21)
+    resp = await provider.complete(_req("2 + 2?"))
+    assert resp.content[0].text == "4"
+    assert resp.usage == Usage(prompt_tokens=17133, completion_tokens=5)
     assert resp.usage.estimated is False
-    assert resp.cost_usd == 0.0  # subscription leg: $0 cash (provisional, §8.3)
+    assert resp.cost_usd is None  # real wire carries no total_cost_usd (live-verified)
 
 
-async def test_stream_forwards_agent_message_delta() -> None:
+def test_parse_extracts_text_and_usage_from_real_live_fixture() -> None:
+    # Direct adapter-level proof (not routed through CliAgentProvider): parse()
+    # recovers "4" from the item.completed/agent_message event and usage
+    # input_tokens=17133 / output_tokens=5 from turn.completed -- the exact numbers
+    # captured live 2026-07-23.
+    fixture = (_FIXTURES / "codex_result.2026-07-23-live.jsonl").read_text()
+    resp = CodexAdapter().parse(_run_result(fixture), _req("2 + 2?"))
+    assert resp.content[0].text == "4"
+    assert resp.usage.prompt_tokens == 17133
+    assert resp.usage.completion_tokens == 5
+    assert resp.usage.estimated is False
+    assert resp.cost_usd is None
+
+
+def test_parse_delta_on_real_live_fixture_only_yields_item_completed_agent_message() -> None:
+    # parse_delta must yield text ONLY for the item.completed/agent_message line;
+    # thread.started / turn.started / turn.completed all yield None.
+    fixture = (_FIXTURES / "codex_result.2026-07-23-live.jsonl").read_text()
+    a = CodexAdapter()
+    deltas = [a.parse_delta(line) for line in fixture.splitlines() if line.strip()]
+    assert deltas == [None, None, "4", None]
+
+
+async def test_stream_forwards_item_completed_agent_message_delta() -> None:
     from baton.providers.cli_agent import CliAgentProvider
     runner = _CaptureRunner(_JSONL)
     provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner)
     chunks: list[str] = []
     resp = await provider.stream(_req(), chunks.append)
-    # only the agent_message line yields a delta; lifecycle lines yield None
+    # only the item.completed/agent_message line yields a delta; lifecycle lines
+    # (thread.started/turn.started/turn.completed) yield None
     assert chunks == ["Hello from Codex"]
     assert "Hello from Codex" in resp.content[0].text
 
 
 _JSONL_TERMINAL_ERROR = "\n".join([
     json.dumps({"type": "thread.started", "thread_id": "th_4"}),
-    json.dumps({"type": "agent_message", "message": "Working..."}),
+    _item_completed("Working..."),
     json.dumps({"type": "turn.completed", "error": {"message": "sandbox denied"}}),
 ])
 

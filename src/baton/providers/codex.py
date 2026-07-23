@@ -1,11 +1,24 @@
 # src/baton/providers/codex.py
 """Codex CLI adapter (`codex exec --json`) — subscription (ChatGPT sign-in) path.
 
-live-verify DEFERRED (mock-backed merge, spec §14): the JSONL event wire-strings
-used below (`thread.started` / `turn.started` / `agent_message` / `turn.completed`)
-are provisional dated fixtures; reconfirm them against the installed Codex CLI at
-the live gate (§13) before flipping this leg on. Unit tests mock the injected
-runner (§11) — no real `codex` spawn.
+SUCCESS-path wire shape is LIVE-VERIFIED (2026-07-23, captured from a real
+`codex exec --json --skip-git-repo-check` run, prompt via stdin; see the dated
+fixture `tests/providers/fixtures/codex_result.2026-07-23-live.jsonl`):
+    {"thread_id":"...","type":"thread.started"}
+    {"type":"turn.started"}
+    {"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"..."}}
+    {"type":"turn.completed","usage":{"input_tokens":N,"output_tokens":N,...}}
+Agent text lives INSIDE `item.completed`'s `item` (only when
+`item["type"] == "agent_message"` — item.completed can also carry
+reasoning/command/other item types with no user-facing text); usage lives on the
+terminal `turn.completed` event. There is NO `total_cost_usd` anywhere in real
+codex output (unlike claude) — `cost_usd` is always None from this adapter; the
+registry-rate fallback (`CODEX_COST_IN`/`CODEX_COST_OUT` via `build_codex_model`)
+is applied downstream by `CostMeter` from token counts, not here.
+
+Error-path detection (`is_error` / `classify_error`) remains PROVISIONAL: no real
+codex ERROR sample was captured (only a success run) — reconfirm at a live
+failure before trusting it in production (§14).
 
 Auth gotcha (openai/codex #2000): a ChatGPT sign-in can auto-provision an
 `OPENAI_API_KEY` into the environment. If present, `codex exec` would bill the
@@ -98,7 +111,6 @@ class CodexAdapter:
         texts: list[str] = []
         usage_in: int | None = None
         usage_out: int | None = None
-        cost_usd: float | None = None
         for raw in result.stdout.splitlines():
             line = raw.strip()
             if not line:
@@ -108,24 +120,35 @@ class CodexAdapter:
             except json.JSONDecodeError:
                 continue  # tolerate non-JSON banner/log lines
             etype = evt.get("type")
-            if etype == "agent_message":
-                msg = evt.get("message") or evt.get("text") or ""
-                if msg:
-                    texts.append(msg)
+            if etype == "item.completed":
+                # LIVE-VERIFIED (2026-07-23): agent text is NOT a top-level
+                # `agent_message` event -- it's nested inside item.completed's
+                # `item`, and only when item["type"] == "agent_message" (other
+                # item types -- reasoning/command/... -- carry no user-facing text).
+                item = evt.get("item") or {}
+                if item.get("type") == "agent_message":
+                    msg = item.get("text") or ""
+                    if msg:
+                        texts.append(msg)
             elif etype == "turn.completed":
                 usage = evt.get("usage") or {}
                 usage_in = usage.get("input_tokens")
                 usage_out = usage.get("output_tokens")
-                cost_usd = evt.get("total_cost_usd", cost_usd)
+                # Real codex exec --json carries NO total_cost_usd anywhere
+                # (live-verified 2026-07-23, unlike claude) -- cost_usd is
+                # deliberately NOT read from the wire here; it stays None and the
+                # registry-rate fallback (CODEX_COST_IN/CODEX_COST_OUT via
+                # build_codex_model) is applied downstream by CostMeter from
+                # token counts instead.
+                #
                 # `stream_result_line` synthesizes a self-contained terminal line
-                # (folds the accumulated agent_message text into the Baton-internal
-                # SENTINEL key below) so a single-line `parse()` on it -- as
-                # CliAgentProvider.stream does -- still recovers the final text.
+                # (folds the accumulated item.completed/agent_message text into the
+                # Baton-internal SENTINEL key below) so a single-line `parse()` on it
+                # -- as CliAgentProvider.stream does -- still recovers the final text.
                 # The sentinel is namespaced/Baton-internal: the real Codex CLI
                 # cannot emit it, so this branch is a guaranteed no-op on the
-                # `complete()` path regardless of what the live `turn.completed`
-                # wire shape turns out to carry (§14) -- in particular, a real
-                # (plausible) `message` field on `turn.completed` is IGNORED here.
+                # `complete()` path -- in particular, a real (plausible) `message`
+                # field on `turn.completed` is IGNORED here.
                 synth_msg = evt.get(_STREAM_MESSAGE_KEY)
                 if synth_msg:
                     texts.append(synth_msg)
@@ -144,7 +167,7 @@ class CodexAdapter:
             model="codex",  # provider tag; registry id (codex/<m>) is the accounting key
             stop_reason="end_turn",
             latency_ms=0,
-            cost_usd=cost_usd,  # provider-authoritative call cost → credit ledger (§5.3)
+            cost_usd=None,  # no total_cost_usd on the real wire (§5.3 fallback is downstream)
         )
 
     def parse_delta(self, line: str) -> str | None:
@@ -155,11 +178,21 @@ class CodexAdapter:
             evt = json.loads(line)
         except json.JSONDecodeError:
             return None
-        if evt.get("type") == "agent_message":
-            return evt.get("message") or evt.get("text") or None
-        return None
+        # LIVE-VERIFIED (2026-07-23): only item.completed/agent_message carries
+        # user-facing text; thread.started/turn.started/turn.completed and any
+        # OTHER item.completed item type (reasoning/command/...) yield None.
+        if evt.get("type") != "item.completed":
+            return None
+        item = evt.get("item") or {}
+        if item.get("type") != "agent_message":
+            return None
+        return item.get("text") or None
 
     def classify_error(self, result: CliRunResult) -> ProviderError:
+        # PROVISIONAL (§14): no real codex ERROR sample was captured live -- only a
+        # success run (2026-07-23). These string matches are a best-effort guess
+        # (stderr "not logged in" / usage-limit phrasing); reconfirm against a real
+        # failing `codex exec` before trusting this in production.
         if result.timed_out:
             # transient: backoff on the same candidate (killpg handled by base).
             return ProviderError("codex exec timed out", retryable=True, status=None)
@@ -181,10 +214,12 @@ class CodexAdapter:
         )
 
     def is_error(self, result: CliRunResult) -> bool:
-        # codex exec can exit 0 while a turn still failed mid-run (PROVISIONAL wire
-        # shape, live-verify deferred §14): either a standalone `{"type":"error"}`
+        # codex exec can exit 0 while a turn still failed mid-run -- but the ERROR
+        # wire shape itself is PROVISIONAL / NOT live-verified (§14: only a success
+        # run was captured 2026-07-23): either a standalone `{"type":"error"}`
         # event, or a truthy `error` field carried on `turn.completed`. Any other
         # shape / unparseable JSONL defaults to False (returncode already covers it).
+        # Reconfirm both against a real failing `codex exec` before trusting this.
         for raw in result.stdout.splitlines():
             line = raw.strip()
             if not line:
@@ -201,18 +236,18 @@ class CodexAdapter:
         return False
 
     def stream_result_line(self, lines: list[str]) -> str | None:
-        # codex exec --json ends a successful turn with a `turn.completed` JSONL
-        # line carrying `usage` (+ optional `total_cost_usd`) -- but UNLIKE
-        # Claude's self-contained terminal `result` envelope, it carries no final
-        # text (that lives on the earlier `agent_message` event(s)). CliAgentProvider
-        # .stream() feeds ONLY this ONE returned line into `parse()`, so we
-        # SYNTHESIZE a self-contained line here: fold the accumulated agent_message
-        # text into a Baton-internal SENTINEL key (`_STREAM_MESSAGE_KEY`, NOT the
-        # plausible-real-wire-key `message`) on a copy of the last `turn.completed`
-        # event. The sentinel is namespaced so the real Codex CLI can never emit
-        # it -- immune to whatever the live `turn.completed` shape turns out to be.
-        # PROVISIONAL (§14): a bridging shape, not the real Codex CLI terminal
-        # line -- reconfirm at the live gate.
+        # LIVE-VERIFIED (2026-07-23): codex exec --json ends a successful turn with
+        # a `turn.completed` JSONL line carrying `usage` (there is NO
+        # `total_cost_usd` anywhere in the real wire) -- but UNLIKE Claude's
+        # self-contained terminal `result` envelope, turn.completed carries no
+        # final text itself (that lives on the earlier item.completed/agent_message
+        # event(s)). CliAgentProvider.stream() feeds ONLY this ONE returned line
+        # into `parse()`, so we SYNTHESIZE a self-contained line here: fold the
+        # accumulated item.completed/agent_message text into a Baton-internal
+        # SENTINEL key (`_STREAM_MESSAGE_KEY`, NOT the plausible-real-wire-key
+        # `message`) on a copy of the last `turn.completed` event. The sentinel is
+        # namespaced so the real Codex CLI can never emit it -- immune to whatever
+        # else `turn.completed` carries.
         texts: list[str] = []
         terminal: dict | None = None
         for line in lines:
@@ -225,10 +260,12 @@ class CodexAdapter:
                 continue
             if not isinstance(evt, dict):
                 continue
-            if evt.get("type") == "agent_message":
-                msg = evt.get("message") or evt.get("text") or ""
-                if msg:
-                    texts.append(msg)
+            if evt.get("type") == "item.completed":
+                item = evt.get("item") or {}
+                if item.get("type") == "agent_message":
+                    msg = item.get("text") or ""
+                    if msg:
+                        texts.append(msg)
             elif evt.get("type") == "turn.completed":
                 terminal = evt  # keep walking -- want the LAST one (never trust wire order)
         if terminal is None:
