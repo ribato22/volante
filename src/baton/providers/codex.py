@@ -109,7 +109,14 @@ class CodexAdapter:
                 usage_in = usage.get("input_tokens")
                 usage_out = usage.get("output_tokens")
         final_text = "\n".join(texts)
-        usage = Usage(prompt_tokens=int(usage_in), completion_tokens=int(usage_out))
+        if usage_in is None or usage_out is None:
+            usage = Usage(
+                prompt_tokens=_est(_prompt_text(req)),
+                completion_tokens=_est(final_text),
+                estimated=True,
+            )
+        else:
+            usage = Usage(prompt_tokens=int(usage_in), completion_tokens=int(usage_out))
         return CanonicalResponse(
             content=[TextBlock(text=final_text)],
             usage=usage,

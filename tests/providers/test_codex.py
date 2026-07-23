@@ -90,3 +90,16 @@ def test_parse_final_text_and_usage_from_turn_completed() -> None:
     assert resp.usage.estimated is False
     assert resp.model == "codex"
     assert resp.cost_usd is None  # this JSONL carried no total_cost_usd
+
+
+def test_parse_usage_estimated_when_turn_completed_lacks_usage() -> None:
+    jsonl = "\n".join([
+        json.dumps({"type": "thread.started", "thread_id": "th_2"}),
+        json.dumps({"type": "agent_message", "message": "abcdefgh"}),
+        json.dumps({"type": "turn.completed"}),  # no usage key
+    ])
+    resp = CodexAdapter().parse(_run_result(jsonl), _req("0123456789012345"))
+    assert resp.content[0].text == "abcdefgh"
+    assert resp.usage.estimated is True
+    assert resp.usage.prompt_tokens == 4       # len("0123456789012345") // 4
+    assert resp.usage.completion_tokens == 2   # len("abcdefgh") // 4
