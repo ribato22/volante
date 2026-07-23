@@ -92,8 +92,13 @@ class ClaudeCodeAdapter:
         # `depth` is already the CHILD's intended depth (CliAgentProvider bumps it
         # before calling child_env) -- write through verbatim, don't double-bump.
         env[DEPTH_ENV] = str(depth)  # guard rekursi (§8.2)
-        # OAuth langganan DIPERTAHANKAN: TIDAK menyuntik/menghapus ANTHROPIC_API_KEY
-        # di sini (kontras Codex yang scrub OPENAI_API_KEY). Keputusan scrub = §13.
+        # §13 gate decision (verified 2026-07-23, CLI 2.1.161): SCRUB ANTHROPIC_API_KEY
+        # so `claude -p` always bills the OAuth SUBSCRIPTION (plan_included), never the
+        # metered API card, even when the user has the key exported. This provider IS the
+        # subscription path (billing="plan_included"); API-key billing is AnthropicProvider's
+        # job. Mirrors CodexAdapter scrubbing OPENAI_API_KEY/CODEX_API_KEY. Copy (dict(base))
+        # means the caller's env is never mutated.
+        env.pop("ANTHROPIC_API_KEY", None)
         return env
 
     def parse(self, result: CliRunResult, req: CanonicalRequest) -> CanonicalResponse:

@@ -64,9 +64,41 @@ per spec §8.1 "OAuth preserved; do NOT force API key").
       .stream`'s real usage/cost surface, §5.3). If the terminal line's shape or position
       changed, update `stream_result_line` + the dated stream fixture.
 
-## Outcome — record these when you run the live gate
-- Date / operator:
-- `claude --version`:
-- Confirmations 1–4: pass / fail (notes):
-- `ANTHROPIC_API_KEY` scrub decision:
-- **Gate decision:** PASS (Codex Phase 8 unblocked) / FAIL (fix adapter, re-run) / SKIP (reason):
+## Outcome — recorded from the live gate run
+
+- **Date / operator:** 2026-07-23 / Baton dev (subscription OAuth, `ANTHROPIC_API_KEY` unset).
+- **`claude --version`:** `2.1.161 (Claude Code)`.
+- **Confirmations 1–4:**
+  1. **JSON schema — PASS.** Real output carries `result`, `usage.input_tokens`,
+     `usage.output_tokens`, `total_cost_usd`, `is_error`, `subtype`, `duration_ms` — all keys
+     `ClaudeCodeAdapter.parse` reads. NOTE: `usage.input_tokens` (e.g. 3) EXCLUDES the cached
+     Claude Code system prompt (`cache_read_input_tokens`/`cache_creation_input_tokens` in the
+     thousands) — which is exactly why `total_cost_usd` is the authoritative credit figure
+     (§5.3), not token×rate. Existing dated fixture shape still valid; no `parse` change.
+  2. **Tools disabled — PASS (security) with a nuance.** A "read /etc/hosts" prompt produced
+     PURE TEXT and did NOT read the file (Read/Bash removed by `--tools ""`). BUT the model
+     attempted an `LSP` tool (`documentSymbol` on /etc/hosts) which appeared in
+     `permission_denials` — i.e. `--tools ""` did NOT remove LSP; it was permission-DENIED
+     (fail-closed in `-p`, no approver). Safe (no read, and the dangerous read-only Bash IS
+     gone), but the guarantee for LSP is denial, not availability-removal. Follow-up option:
+     add `--disallowedTools` belt-and-suspenders; `-p` fail-closed currently suffices.
+  3. **append vs replace — PASS.** `--append-system-prompt <sys>` layered the worker persona
+     on top (output honored the injected token); `--system-prompt <sys>` (the "replace" flag)
+     is accepted and produced persona-only behavior. `CLAUDE_CODE_SYSTEM_PROMPT_MODE`
+     append/replace map to the correct real flags.
+  4. **Quota — PASS.** ~$0.024 `total_cost_usd` on the FIRST call (system-prompt cache
+     creation), ~$0.003 on subsequent cached calls. Billed the subscription (OAuth). Honesty
+     invariant holds: cash `billed_usd == 0`, `credit_usd == total_cost_usd`.
+  - **stream-json — PASS.** Line types: `system`(hook_started/hook_response/init) → `assistant`
+    (content `text`) → `rate_limit_event` (NEW type, not in the mock; `parse_delta` → None,
+    fine) → terminal `result` (carries `usage` + `total_cost_usd`). `parse_delta` extracts the
+    assistant text; `stream_result_line` correctly picks the terminal `result`. Streaming
+    granularity is coarse (one assistant event, not per-token) — acceptable.
+- **`ANTHROPIC_API_KEY` scrub decision:** **SCRUB (applied).** The key was unset in the gate
+  env so the run used the subscription — but a user with the key exported would silently bill
+  the metered API card. `ClaudeCodeAdapter.child_env` now `env.pop("ANTHROPIC_API_KEY", None)`
+  (this provider IS the subscription path; API-key billing is `AnthropicProvider`'s job).
+  Regression test: `test_child_env_scrubs_api_key_forcing_subscription`.
+- **Gate decision:** **PASS** (Claude Code adapter verified against CLI 2.1.161; Codex Phase 8
+  unblocked). Residual follow-ups: (a) optional `--disallowedTools` for LSP belt-and-suspenders;
+  (b) add `rate_limit_event` to a refreshed dated stream fixture if regressions appear.

@@ -83,19 +83,22 @@ def test_stdin_is_user_text_only() -> None:
     assert a.stdin(_req(None, "just user")) == "just user"
 
 
-def test_child_env_sets_depth_and_preserves_oauth() -> None:
+def test_child_env_scrubs_api_key_forcing_subscription() -> None:
     from baton.providers.claude_code import DEPTH_ENV
 
     a = ClaudeCodeAdapter()
-    base = {"PATH": "/bin", "ANTHROPIC_API_KEY": "sk-should-survive", DEPTH_ENV: "0"}
+    base = {"PATH": "/bin", "ANTHROPIC_API_KEY": "sk-would-bill-card", DEPTH_ENV: "0"}
     # `depth` passed in is already the CHILD's intended depth (CliAgentProvider does
     # the +1 before calling child_env); the adapter writes it through unchanged
     # (§8.2, fix: no double-bump).
     env = a.child_env(base, depth=0)
     assert env[DEPTH_ENV] == "0"
     assert env["PATH"] == "/bin"                        # base diteruskan
-    # OAuth langganan dipertahankan: key TIDAK disuntik/dihapus di sini (kontras Codex).
-    assert env["ANTHROPIC_API_KEY"] == "sk-should-survive"
+    # §13 gate decision: SCRUB ANTHROPIC_API_KEY so `claude -p` always bills the
+    # OAuth subscription (plan_included), never the metered API card, even if the
+    # user has the key exported. Mirrors CodexAdapter's key scrub.
+    assert "ANTHROPIC_API_KEY" not in env
+    assert base["ANTHROPIC_API_KEY"] == "sk-would-bill-card"  # caller dict NOT mutated
     assert base[DEPTH_ENV] == "0"                       # tak mutasi input
 
 
