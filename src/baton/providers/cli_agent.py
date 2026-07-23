@@ -9,6 +9,12 @@ import tempfile
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
+# claude/codex --output-format stream-json emit one JSON object per line; a single
+# line (e.g. a tool_result) routinely exceeds asyncio's default 64KB StreamReader
+# limit, which would otherwise raise ValueError("chunk is longer than limit") and
+# orphan the child. 8 MB is a generous ceiling for that.
+_STREAM_LIMIT = 8 * 1024 * 1024
+
 
 @dataclass
 class CliRunResult:
@@ -51,6 +57,7 @@ async def subprocess_cli_runner(
         cwd=workdir,
         env=env,
         start_new_session=True,  # grup proses sendiri → killpg bunuh cucu juga
+        limit=_STREAM_LIMIT,  # allow large stream-json lines without erroring
     )
     try:
         if on_line is None:
@@ -84,7 +91,10 @@ async def _stream_lines(
 ) -> CliRunResult:
     """Feed stdin, then relay stdout lines to on_line (for --output-format stream-json).
     Truthy on_line -> cooperative early-stop: killpg the producer and return the
-    accumulated partial. killpg on BOTH TimeoutError AND CancelledError as well."""
+    accumulated partial. killpg on BOTH TimeoutError AND CancelledError as well.
+    Outer finally is a belt-and-suspenders net: ANY other exception from the pump
+    (e.g. on_line raising, or a line that still overruns _STREAM_LIMIT) must not
+    leave the child orphaned -- reap it before the exception propagates."""
     assert proc.stdin is not None and proc.stdout is not None
     proc.stdin.write(stdin.encode())
     await proc.stdin.drain()
@@ -101,27 +111,32 @@ async def _stream_lines(
                 return
 
     try:
-        await asyncio.wait_for(_pump(), timeout=timeout)
-    except TimeoutError:
-        _killpg(proc)
-        await proc.wait()
-        return CliRunResult("".join(parts), "", -9, timed_out=True)
-    except asyncio.CancelledError:
-        _killpg(proc)
-        await proc.wait()
-        raise
-    if stopped:
-        _killpg(proc)  # early-stop: kill the remaining producer
+        try:
+            await asyncio.wait_for(_pump(), timeout=timeout)
+        except TimeoutError:
+            _killpg(proc)
+            await proc.wait()
+            return CliRunResult("".join(parts), "", -9, timed_out=True)
+        except asyncio.CancelledError:
+            _killpg(proc)
+            await proc.wait()
+            raise
+        if stopped:
+            _killpg(proc)  # early-stop: kill the remaining producer
+            await proc.wait()
+            return CliRunResult(
+                "".join(parts), "", proc.returncode if proc.returncode is not None else -9
+            )
+        err = b""
+        if proc.stderr is not None:
+            err = await proc.stderr.read()
         await proc.wait()
         return CliRunResult(
-            "".join(parts), "", proc.returncode if proc.returncode is not None else -9
+            "".join(parts),
+            err.decode(errors="replace"),
+            proc.returncode if proc.returncode is not None else -1,
         )
-    err = b""
-    if proc.stderr is not None:
-        err = await proc.stderr.read()
-    await proc.wait()
-    return CliRunResult(
-        "".join(parts),
-        err.decode(errors="replace"),
-        proc.returncode if proc.returncode is not None else -1,
-    )
+    finally:
+        if proc.returncode is None:  # any other exception -> still reap, never orphan
+            _killpg(proc)
+            await proc.wait()
