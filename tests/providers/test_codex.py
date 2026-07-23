@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from baton.providers.base import ProviderError
 from baton.providers.codex import CodexAdapter, build_codex_model, codex_detected
-from baton.types import CanonicalRequest, text
+from baton.types import CanonicalRequest, Usage, text
 
 
 def _req(prompt: str = "hi") -> CanonicalRequest:
@@ -256,3 +258,78 @@ def test_build_codex_model_tools_absent_means_no_tools() -> None:
     assert mi.supports_tools is False
     assert mi.tier == 3
     assert mi.billing == "plan_included"
+
+
+class _CaptureRunner:
+    """Mock CliRunner: records argv/env/stdin, returns canned JSONL stdout."""
+
+    def __init__(self, stdout: str, returncode: int = 0) -> None:
+        self._stdout = stdout
+        self._returncode = returncode
+        self.argv: list[str] | None = None
+        self.env: dict[str, str] | None = None
+        self.stdin: str | None = None
+        self.lines: list[str] = []
+
+    async def __call__(self, argv, *, stdin, env, timeout, on_line=None):
+        from baton.providers.cli_agent import CliRunResult
+        self.argv = argv
+        self.env = env
+        self.stdin = stdin
+        if on_line is not None:
+            for line in self._stdout.splitlines():
+                on_line(line)
+                self.lines.append(line)
+        return CliRunResult(stdout=self._stdout, stderr="", returncode=self._returncode)
+
+
+def test_codex_adapter_conforms_to_protocol() -> None:
+    from baton.providers.base import LLMProvider
+    from baton.providers.cli_agent import CliAgentAdapter, CliAgentProvider
+    adapter = CodexAdapter()
+    assert isinstance(adapter, CliAgentAdapter)
+    provider = CliAgentProvider(adapter, "gpt-5-codex", runner=_CaptureRunner(_JSONL))
+    assert isinstance(provider, LLMProvider)
+
+
+async def test_complete_through_cli_agent_provider_scrubs_env(monkeypatch) -> None:
+    from baton.providers.cli_agent import CliAgentProvider
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-should-be-scrubbed")
+    monkeypatch.setenv("CODEX_API_KEY", "cdx-should-be-scrubbed")
+    runner = _CaptureRunner(_JSONL)
+    provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner, tier=3)
+    resp = await provider.complete(_req("write a function"))
+    # argv wired correctly
+    assert runner.argv[:4] == ["codex", "exec", "--json", "--skip-git-repo-check"]
+    assert "model=gpt-5-codex" in runner.argv
+    # child env scrubbed end-to-end (openai/codex #2000)
+    assert "OPENAI_API_KEY" not in runner.env
+    assert "CODEX_API_KEY" not in runner.env
+    # parse produced final text + authoritative usage
+    assert resp.content[0].text == "Hello from Codex"
+    assert resp.usage.prompt_tokens == 120
+    assert resp.usage.completion_tokens == 34
+
+
+_FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def test_result_fixture_is_dated() -> None:
+    # §8.3: provisional CLI output fixture MUST be dated (billing/schema is volatile
+    # and NOT yet live-verified for Codex, §14).
+    files = list(_FIXTURES.glob("codex_result.*.jsonl"))
+    assert files, "dated provisional codex exec --json fixture wajib ada"
+    assert all(re.search(r"\.\d{4}-\d{2}-\d{2}\.jsonl$", f.name) for f in files)
+
+
+async def test_complete_through_provider_reads_dated_fixture() -> None:
+    from baton.providers.cli_agent import CliAgentProvider
+
+    fixture = (_FIXTURES / "codex_result.2026-07-23.jsonl").read_text()
+    runner = _CaptureRunner(fixture)
+    provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner)
+    resp = await provider.complete(_req("capital of France?"))
+    assert resp.content[0].text == "The capital of France is Paris."
+    assert resp.usage == Usage(prompt_tokens=512, completion_tokens=21)
+    assert resp.usage.estimated is False
+    assert resp.cost_usd == 0.0  # subscription leg: $0 cash (provisional, §8.3)

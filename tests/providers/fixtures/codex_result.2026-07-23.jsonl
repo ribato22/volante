@@ -1,0 +1,4 @@
+{"type": "thread.started", "thread_id": "th_2026-07-23"}
+{"type": "turn.started"}
+{"type": "agent_message", "message": "The capital of France is Paris."}
+{"type": "turn.completed", "usage": {"input_tokens": 512, "output_tokens": 21}, "total_cost_usd": 0.0}
