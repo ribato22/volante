@@ -216,3 +216,30 @@ def codex_detected(
     except (OSError, subprocess.SubprocessError):
         return False
     return proc.returncode == 0
+
+
+def build_codex_model(env: dict[str, str]) -> ModelInfo:
+    """Registry seed for the Codex subscription leg (§5.1, §6.1, contract 2.2).
+
+    tier is REQUIRED-explicit via CODEX_TIER (never sniffed from a `-mini` name);
+    billing is `plan_included` (draws the shared ChatGPT subscription pool).
+    cost_per_1k_* are valuation-only (cash is $0 on the plan) — left 0.0 until a
+    real underlying rate is confirmed at live-verify (§8.3). CODEX_MODEL follows
+    the user's Codex config; default is a placeholder resolved at wiring."""
+    tier_raw = env.get("CODEX_TIER")
+    if not tier_raw:
+        raise ValueError("CODEX_TIER must be set explicitly (no -mini name sniffing)")
+    model = env.get("CODEX_MODEL", "gpt-5-codex")
+    return ModelInfo(
+        id=f"codex/{model}",
+        provider="codex",
+        strengths={"coding", "reasoning"},
+        context_window=int(env.get("CODEX_CONTEXT", "256000")),
+        max_output_tokens=int(env.get("CODEX_MAX_OUTPUT", "4096")),
+        supports_tools=bool(env.get("CODEX_TOOLS", "").strip()),
+        # valuation-only (subscription = $0 cash); real rate optional via env (§8.3)
+        cost_per_1k_in=float(env.get("CODEX_COST_IN", "0")),
+        cost_per_1k_out=float(env.get("CODEX_COST_OUT", "0")),
+        tier=int(tier_raw),
+        billing="plan_included",
+    )

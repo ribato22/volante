@@ -7,7 +7,7 @@ import subprocess
 import pytest
 
 from baton.providers.base import ProviderError
-from baton.providers.codex import CodexAdapter, codex_detected
+from baton.providers.codex import CodexAdapter, build_codex_model, codex_detected
 from baton.types import CanonicalRequest, text
 
 
@@ -226,3 +226,33 @@ def test_codex_detected_false_when_binary_missing() -> None:
     def fake_run(argv, **kwargs):
         raise FileNotFoundError("codex")
     assert codex_detected(run=fake_run) is False
+
+
+def test_build_codex_model_reads_env_tier_and_plan_included() -> None:
+    mi = build_codex_model({
+        "CODEX_MODEL": "gpt-5-codex",
+        "CODEX_TIER": "4",
+        "CODEX_CONTEXT": "400000",
+        "CODEX_MAX_OUTPUT": "8192",
+        "CODEX_TOOLS": "shell",
+    })
+    assert mi.id == "codex/gpt-5-codex"
+    assert mi.provider == "codex"
+    assert mi.tier == 4
+    assert mi.billing == "plan_included"
+    assert mi.context_window == 400000
+    assert mi.max_output_tokens == 8192
+    assert mi.supports_tools is True
+
+
+def test_build_codex_model_requires_explicit_tier_no_sniff() -> None:
+    # tier must be explicit — never sniffed from a "-mini" model name.
+    with pytest.raises(ValueError):
+        build_codex_model({"CODEX_MODEL": "gpt-5-codex-mini"})
+
+
+def test_build_codex_model_tools_absent_means_no_tools() -> None:
+    mi = build_codex_model({"CODEX_MODEL": "gpt-5-codex", "CODEX_TIER": "3"})
+    assert mi.supports_tools is False
+    assert mi.tier == 3
+    assert mi.billing == "plan_included"
