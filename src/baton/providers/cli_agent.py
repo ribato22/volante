@@ -8,6 +8,10 @@ import signal
 import tempfile
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
+
+from baton.providers.base import OnText, ProviderError
+from baton.types import CanonicalRequest, CanonicalResponse
 
 # claude/codex --output-format stream-json emit one JSON object per line; a single
 # line (e.g. a tool_result) routinely exceeds asyncio's default 64KB StreamReader
@@ -140,3 +144,85 @@ async def _stream_lines(
         if proc.returncode is None:  # any other exception -> still reap, never orphan
             _killpg(proc)
             await proc.wait()
+
+
+@runtime_checkable
+class CliAgentAdapter(Protocol):
+    """Claude Code vs Codex differences behind one interface."""
+
+    name: str  # "claude_code" | "codex"
+
+    def argv(
+        self,
+        req: CanonicalRequest,
+        *,
+        model: str,
+        max_output: int,
+        system_prompt_mode: str,
+        stream: bool,
+    ) -> list[str]: ...
+
+    def child_env(self, base: dict[str, str], *, depth: int) -> dict[str, str]: ...
+
+    def stdin(self, req: CanonicalRequest) -> str: ...
+
+    def parse(self, result: CliRunResult, req: CanonicalRequest) -> CanonicalResponse: ...
+
+    def parse_delta(self, line: str) -> str | None: ...
+
+    def classify_error(self, result: CliRunResult) -> ProviderError: ...
+
+
+class CliAgentProvider:
+    """LLMProvider over a subscription CLI agent (claude -p / codex exec) via an INJECTED
+    async subprocess runner. Ignores req.temperature & req.max_tokens (the CLI manages
+    sampling/length itself — §8.3); fills CanonicalResponse.cost_usd from the CLI JSON."""
+
+    def __init__(
+        self,
+        adapter: CliAgentAdapter,
+        model: str,
+        *,
+        runner: CliRunner,
+        tier: int = 4,
+        timeout: float = 120.0,
+        max_output: int = 4096,  # conservative; CLI ignores req.max_tokens
+        system_prompt_mode: str = "append",  # "append" | "replace"
+        concurrency: int = 1,  # per-provider cap, nested in fan-out sem
+        depth_env: str = "BATON_CLI_AGENT_DEPTH",
+        max_depth: int = 1,  # anti-recursion (Baton may run INSIDE Claude Code)
+    ) -> None:
+        self.name = adapter.name
+        self.adapter = adapter
+        self.model = model
+        self.tier = tier
+        self.timeout = timeout
+        self.max_output = max_output
+        self.system_prompt_mode = system_prompt_mode
+        self.depth_env = depth_env
+        self.max_depth = max_depth
+        self._runner = runner
+        self._sem = asyncio.Semaphore(concurrency)
+
+    def _child_env(self) -> dict[str, str]:
+        # Task 3 minimal: no depth guard / increment yet (added in Task 4).
+        return self.adapter.child_env(dict(os.environ), depth=0)
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        env = self._child_env()
+        argv = self.adapter.argv(
+            req,
+            model=self.model,
+            max_output=self.max_output,
+            system_prompt_mode=self.system_prompt_mode,
+            stream=False,
+        )
+        prompt = self.adapter.stdin(req)
+        async with self._sem:
+            result = await self._runner(argv, stdin=prompt, env=env, timeout=self.timeout)
+        return self.adapter.parse(result, req)
+
+    async def stream(self, req: CanonicalRequest, on_text: OnText) -> CanonicalResponse:
+        # Task 3 minimal: fall back to complete (matches FakeProvider). Real per-line
+        # streaming + early-stop kill added in Task 6.
+        return await self.complete(req)
