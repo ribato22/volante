@@ -144,9 +144,18 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     collected: list[str] = []
-    result = asyncio.run(
-        _aexecute(runtime, args.goal, stream=not args.no_stream, collected=collected)
-    )
+    try:
+        result = asyncio.run(
+            _aexecute(runtime, args.goal, stream=not args.no_stream, collected=collected)
+        )
+    except KeyboardInterrupt:
+        # Ctrl-C mid-run: aexecute was cancelled, so there is no RunResult. Print
+        # whatever partial text streamed, then exit 130 — never a traceback.
+        sys.stdout.write("\n\n[interrupted] partial output:\n")
+        sys.stdout.write("".join(collected))
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        return 130
     if args.json:
         print(_summary_json(result, registry))
     else:

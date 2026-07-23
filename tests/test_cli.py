@@ -215,3 +215,24 @@ def test_main_json_summary(monkeypatch, capsys) -> None:
     assert payload["credit_usd"] == pytest.approx(0.0)
     assert payload["subscription_calls"] == 0
     assert payload["final"] == "FINAL ANSWER"
+
+
+class _InterruptRuntime:
+    """Emits some streamed text, then a Ctrl-C mid-run (KeyboardInterrupt)."""
+
+    async def aexecute(self, goal, on_text=None, on_worker_text=None):
+        if on_text is not None:
+            on_text("partial plan so far")
+        raise KeyboardInterrupt
+
+
+def test_main_keyboard_interrupt_prints_partial_and_returns_130(monkeypatch, capsys) -> None:
+    registry = Registry([])
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, _InterruptRuntime()))
+
+    code = cli.main(["do one"])  # streaming ON so the partial is collected
+
+    assert code == 130  # 128 + SIGINT
+    out = capsys.readouterr().out
+    assert "partial plan so far" in out  # streamed before the interrupt
+    assert "[interrupted]" in out
