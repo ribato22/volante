@@ -4,9 +4,11 @@ import pytest
 
 from baton.cost import CostMeter
 from baton.providers.fake import FakeProvider
+from baton.registry import Registry
 from baton.types import (
     CanonicalRequest,
     CanonicalResponse,
+    ModelInfo,
     TextBlock,
     Usage,
     text,
@@ -153,6 +155,45 @@ async def test_run_one_shot_streams_when_on_text_given() -> None:
     assert out.content[0].text == "streamed-out"
     assert "".join(chunks) == "streamed-out"  # teks ter-stream ke callback
     assert meter.totals()["model-b"].completion_tokens == 2
+
+
+async def test_run_one_shot_forwards_cost_usd_to_credit_ledger() -> None:
+    # §5.3: a subscription CLI-agent provider's authoritative CanonicalResponse.cost_usd
+    # (e.g. Claude Code / Codex total_cost_usd) must reach CostMeter's credit ledger via
+    # add(model_id, usage, cost_usd=...) — the single sanctioned exception.
+    meter = CostMeter()
+    resp = CanonicalResponse(
+        content=[TextBlock(text="from-sub")],
+        usage=Usage(prompt_tokens=10, completion_tokens=5),
+        model="m",
+        stop_reason="end_turn",
+        latency_ms=1,
+        cost_usd=0.0123,
+    )
+    fake = FakeProvider(responses=[resp], name="sub")
+    worker = Worker(providers={"claude-code/opus": fake}, cost_meter=meter)
+
+    await worker.run_one_shot(_req(), "claude-code/opus")
+
+    registry = Registry(
+        [
+            ModelInfo(
+                id="claude-code/opus",
+                provider="claude_code",
+                strengths={"coding"},
+                context_window=200_000,
+                max_output_tokens=4096,
+                supports_tools=False,
+                cost_per_1k_in=0.015,
+                cost_per_1k_out=0.075,
+                tier=4,
+                billing="plan_included",
+            )
+        ]
+    )
+    billed, credit = meter.costs_usd(registry)
+    assert credit == pytest.approx(0.0123)
+    assert billed == 0.0
 
 
 async def test_run_one_shot_provider_error_records_nothing() -> None:

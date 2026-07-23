@@ -35,5 +35,8 @@ class Worker:
         # callback ber-label per-task (lihat _task_cb) sehingga worker paralel pun
         # bisa diurai per-task oleh konsumen.
         resp = await call_provider(provider, req, on_text)
-        self._cost_meter.add(model_id, resp.usage)
+        # §5.3 single sanctioned exception: forward the provider-authoritative
+        # cost_usd (e.g. Claude Code / Codex total_cost_usd) so it lands in the
+        # CostMeter's credit ledger instead of being re-derived from token*rate.
+        self._cost_meter.add(model_id, resp.usage, cost_usd=resp.cost_usd)
         return resp
