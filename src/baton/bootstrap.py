@@ -202,13 +202,14 @@ def build_providers_from_env(
 ) -> tuple[Registry, dict[str, LLMProvider], str]:
     """Bangun (registry, providers-by-model_id, baseline_model_id) dari env.
 
-    `prefer` = objektif routing (§6.2: cash_protect_quota|quality|local|cheap);
-    diterima di A1 tapi belum mengubah urutan baseline (wiring penuh: Phase A9,
-    default "quality" = perilaku sekarang). `include_subscription=False` (default) →
-    hanya provider API-key/base-url (perilaku sekarang; tes eval tetap hijau). `True`
-    → daftarkan provider langganan ClaudeCode/Codex + peringatan konsumsi kuota,
-    DITUNDA ke Phase A7/A8/A9 (provider tsb belum ada); no-op sadar di A1 agar
-    signature terkunci sudah bisa dipanggil CLI.
+    `prefer` = objektif routing (§6.2: cash_protect_quota|quality|local|cheap), diteruskan
+    ke `make_runtime_factory`/`Router(prefer=...)` oleh pemanggil. `include_subscription=False`
+    (default, §9 eval fence) → hanya provider API-key/base-url (tes eval tetap hijau, tak
+    pernah menyentuh kuota langganan). `True` → SETELAHNYA daftarkan provider langganan
+    ClaudeCode/Codex via `_register_subscription_providers` — tapi HANYA per provider bila
+    `*_ENABLED=1` DAN CLI-nya terdeteksi di PATH (§7.2); tiap registrasi mencetak peringatan
+    konsumsi kuota interaktif (§9). Provider langganan ditambahkan SETELAH baseline card
+    ditentukan sehingga tak pernah menggeser baseline.
 
     Membaca ANTHROPIC_API_KEY, satu ATAU lebih slot OpenAI-compatible generik
     (OPENAI_COMPAT_* lalu OPENAI_COMPAT_2_*/_3_*… untuk Gemini/Groq/OpenRouter/DeepSeek
