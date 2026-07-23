@@ -127,3 +127,37 @@ def test_parse_delta_none_for_lifecycle_and_garbage() -> None:
     assert a.parse_delta(json.dumps({"type": "turn.completed", "usage": {}})) is None
     assert a.parse_delta("not json at all") is None
     assert a.parse_delta("") is None
+
+
+def test_classify_not_logged_in_is_quota_exhausted_non_retryable() -> None:
+    err = CodexAdapter().classify_error(
+        _run_result("", stderr="Not logged in. Please run `codex login`.", returncode=1)
+    )
+    assert isinstance(err, ProviderError)
+    assert err.quota_exhausted is True
+    assert err.retryable is False
+
+
+def test_classify_usage_limit_is_quota_exhausted() -> None:
+    err = CodexAdapter().classify_error(
+        _run_result("", stderr="You've hit your usage limit. Try again in 3h 12m.",
+                    returncode=1)
+    )
+    assert err.quota_exhausted is True
+    assert err.retryable is False
+
+
+def test_classify_timeout_is_retryable_not_quota() -> None:
+    err = CodexAdapter().classify_error(
+        _run_result("", returncode=-9, timed_out=True)
+    )
+    assert err.retryable is True
+    assert err.quota_exhausted is False
+
+
+def test_classify_generic_failure_is_non_retryable_non_quota() -> None:
+    err = CodexAdapter().classify_error(
+        _run_result("", stderr="some unexpected internal error", returncode=2)
+    )
+    assert err.retryable is False
+    assert err.quota_exhausted is False

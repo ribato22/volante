@@ -139,3 +139,24 @@ class CodexAdapter:
         if evt.get("type") == "agent_message":
             return evt.get("message") or evt.get("text") or None
         return None
+
+    def classify_error(self, result: CliRunResult) -> ProviderError:
+        if result.timed_out:
+            # transient: backoff on the same candidate (killpg handled by base).
+            return ProviderError("codex exec timed out", retryable=True, status=None)
+        blob = f"{result.stderr}\n{result.stdout}".lower()
+        if "not logged in" in blob or "codex login" in blob:
+            return ProviderError(
+                "codex not logged in", retryable=False, status=None,
+                quota_exhausted=True,  # pragmatic: reroute to direct (§6.3)
+            )
+        if any(k in blob for k in ("usage limit", "try again in", "rate limit", "quota")):
+            # Codex hard-pause is hours-long → reroute, not seconds of backoff (§6.3).
+            return ProviderError(
+                "codex usage/quota limit reached", retryable=False, status=None,
+                quota_exhausted=True,
+            )
+        return ProviderError(
+            f"codex exec failed (exit {result.returncode})",
+            retryable=False, status=None,
+        )
