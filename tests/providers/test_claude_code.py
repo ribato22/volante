@@ -143,3 +143,31 @@ def test_parse_delta_ignores_control_and_non_text_lines() -> None:
         {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t"}]}}
     )
     assert a.parse_delta(tu) is None
+
+
+def test_classify_error_not_logged_in_is_quota_exhausted() -> None:
+    a = ClaudeCodeAdapter()
+    res = CliRunResult(stdout="", stderr="Not logged in. Please run /login", returncode=1)
+    err = a.classify_error(res)
+    assert err.quota_exhausted is True     # pragmatis: reroute tanpa backoff (Fase 5)
+    assert err.retryable is False          # quota_exhausted -> WAJIB non-retryable (Fase 4)
+
+
+def test_classify_error_usage_limit_is_quota_exhausted() -> None:
+    a = ClaudeCodeAdapter()
+    payload = {"type": "result", "is_error": True, "subtype": "error",
+               "result": "Claude usage limit reached. Try again later."}
+    res = CliRunResult(stdout=json.dumps(payload), stderr="", returncode=0)
+    err = a.classify_error(res)
+    assert err.quota_exhausted is True
+    assert err.retryable is False
+
+
+def test_classify_error_generic_failure_fails_task() -> None:
+    # Galat lain (max_turns/400/parse) -> GAGALKAN task, JANGAN reroute kandidat lain.
+    a = ClaudeCodeAdapter()
+    res = CliRunResult(stdout="", stderr="unexpected boom", returncode=2)
+    err = a.classify_error(res)
+    assert err.quota_exhausted is False
+    assert err.retryable is False
+    assert "boom" in str(err)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 
+from baton.providers.base import ProviderError
 from baton.providers.cli_agent import CliRunResult
 from baton.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage
 
@@ -146,3 +147,30 @@ class ClaudeCodeAdapter:
             if isinstance(b, dict) and b.get("type") == "text"
         )
         return text_out or None
+
+    def classify_error(self, result: CliRunResult) -> ProviderError:
+        data = _try_json(result.stdout)
+        subtype = str((data or {}).get("subtype", ""))
+        detail_text = str((data or {}).get("result", "")) if data else result.stdout
+        blob = f"{result.stderr}\n{detail_text}\n{subtype}".lower()
+        # Belum login / auth hilang -> pragmatis: reroute ke kandidat direct (Fase 5).
+        if "not logged in" in blob or "/login" in blob or "invalid api key" in blob:
+            return ProviderError(
+                "claude_code: not logged in (jalankan `claude` untuk autentikasi)",
+                retryable=False,
+                quota_exhausted=True,
+            )
+        # Batas pemakaian langganan (hard-pause 5-jam/weekly) -> habis kuota, reroute.
+        if any(k in blob for k in ("usage limit", "rate limit", "quota", "limit reached")):
+            return ProviderError(
+                "claude_code: batas pemakaian langganan tercapai",
+                retryable=False,
+                quota_exhausted=True,
+            )
+        # Galat lain -> GAGALKAN task (non-retryable, non-quota).
+        detail = result.stderr.strip() or detail_text.strip() or f"exit {result.returncode}"
+        return ProviderError(
+            f"claude_code error: {detail}",
+            retryable=False,
+            quota_exhausted=False,
+        )
