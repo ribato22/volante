@@ -48,8 +48,20 @@ All notable changes to this project are documented here. The format is based on
 - Supervisor bounded self-correcting plan retry (up to 3 attempts) that feeds the actual rejection
   error back to the planner, for CLI-agent planners that answer the goal instead of emitting the
   plan JSON.
+- Web UI redesign: a Plan -> Workers -> Synthesis -> Result **phase-progress stepper** with honest
+  per-phase `pending`/`active`/`done`/`failed` states (driven by new lightweight `stage` boundary
+  events from `webui/runner.py`), replacing the single "running" badge that used to sit on the
+  Result the whole run. The result now shows a two-ledger `cash` vs `plan credit` breakdown plus
+  duration (the runner forwards `billed_usd`/`credit_usd`). Refreshed to a professional dark theme
+  (system sans for chrome, mono for streamed code/output), accessible (aria-live log regions,
+  visible focus rings, `prefers-reduced-motion`) and responsive — still one self-contained HTML
+  document with no build step or external assets, and every dynamic value inserted via
+  `textContent`/DOM nodes only (XSS-safe).
 
 ### Fixed
+- Workers and the synthesizer now answer in the **same language as the goal** (an English goal no
+  longer comes back in another language): the projector's worker system prompt and the synthesizer
+  prompt both instruct the model to match the goal's language.
 - `Worker.run_one_shot` now forwards `resp.cost_usd` into `CostMeter.add(..., cost_usd=...)`, so a
   subscription CLI-agent provider's authoritative call cost reaches the credit ledger
   (`costs_usd()`'s `credit_usd`) instead of being silently dropped.

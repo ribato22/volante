@@ -101,6 +101,13 @@ src = ["src", "tests", "eval", "webui"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# webui/app.py is a single self-contained HTML/CSS/JS document embedded as one
+# string literal (no build step, no external assets). Inline SVG path data and
+# CSS declarations legitimately run past the line limit; wrapping them would hurt
+# readability without any code-quality gain. Line-length is not enforced here.
+"webui/app.py" = ["E501"]
+
 [tool.mypy]
 # Pragmatic lenient baseline (deliberately NOT --strict): enforces the shipped
 # py.typed promise (src/baton/py.typed) without a large upfront annotation
