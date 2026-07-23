@@ -1,7 +1,10 @@
 # src/baton/providers/claude_code.py
 from __future__ import annotations
 
-from baton.types import CanonicalRequest, TextBlock
+import json
+
+from baton.providers.cli_agent import CliRunResult
+from baton.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage
 
 DEPTH_ENV = "BATON_CLI_AGENT_DEPTH"  # kontrak env Fase 6: guard rekursi (Baton-in-Claude)
 
@@ -26,6 +29,19 @@ def _user_text(req: CanonicalRequest) -> str:
             if isinstance(b, TextBlock):
                 parts.append(b.text)
     return "\n".join(parts)
+
+
+def _est(s: str) -> int:
+    """Estimasi token murah; tak pernah 0 (kontrak: JANGAN Usage(0, 0))."""
+    return max(1, len(s) // 4)
+
+
+def _try_json(s: str) -> dict | None:
+    try:
+        obj = json.loads(s)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return obj if isinstance(obj, dict) else None
 
 
 class ClaudeCodeAdapter:
@@ -76,3 +92,43 @@ class ClaudeCodeAdapter:
         # OAuth langganan DIPERTAHANKAN: TIDAK menyuntik/menghapus ANTHROPIC_API_KEY
         # di sini (kontras Codex yang scrub OPENAI_API_KEY). Keputusan scrub = §13.
         return env
+
+    def parse(self, result: CliRunResult, req: CanonicalRequest) -> CanonicalResponse:
+        data = _try_json(result.stdout)
+        if data is None:
+            # JSON tak terparse -> fallback estimasi bertanda, tanpa cost otoritatif.
+            text_out = result.stdout.strip()
+            return CanonicalResponse(
+                content=[TextBlock(text=text_out)],
+                usage=Usage(
+                    prompt_tokens=_est(_user_text(req)),
+                    completion_tokens=_est(text_out),
+                    estimated=True,
+                ),
+                model=self.name,
+                stop_reason="end_turn",
+                latency_ms=0,
+                cost_usd=None,
+            )
+        result_text = str(data.get("result") or "")
+        usage_json = data.get("usage") or {}
+        in_tok = usage_json.get("input_tokens")
+        out_tok = usage_json.get("output_tokens")
+        if in_tok is None or out_tok is None:
+            usage = Usage(
+                prompt_tokens=_est(_user_text(req)),
+                completion_tokens=_est(result_text),
+                estimated=True,
+            )
+        else:
+            usage = Usage(prompt_tokens=int(in_tok), completion_tokens=int(out_tok))
+        cost = data.get("total_cost_usd")
+        subtype = data.get("subtype")
+        return CanonicalResponse(
+            content=[TextBlock(text=result_text)],
+            usage=usage,
+            model=str(data.get("model") or self.name),
+            stop_reason="end_turn" if subtype == "success" else str(subtype or "end_turn"),
+            latency_ms=int(data.get("duration_ms") or 0),
+            cost_usd=float(cost) if cost is not None else None,
+        )

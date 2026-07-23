@@ -1,8 +1,11 @@
 # tests/providers/test_claude_code.py
 from __future__ import annotations
 
+import json
+
 from baton.providers.claude_code import ClaudeCodeAdapter
-from baton.types import CanonicalRequest, text
+from baton.providers.cli_agent import CliRunResult
+from baton.types import CanonicalRequest, TextBlock, Usage, text
 
 
 def _req(sys_prompt: str | None, user: str) -> CanonicalRequest:
@@ -86,3 +89,37 @@ def test_child_env_bumps_depth_and_preserves_oauth() -> None:
     # OAuth langganan dipertahankan: key TIDAK disuntik/dihapus di sini (kontras Codex).
     assert env["ANTHROPIC_API_KEY"] == "sk-should-survive"
     assert base[DEPTH_ENV] == "0"                       # tak mutasi input
+
+
+def test_parse_json_result_sets_usage_cost_and_latency() -> None:
+    payload = {
+        "type": "result", "subtype": "success", "is_error": False,
+        "duration_ms": 4213, "result": "Paris.",
+        "total_cost_usd": 0.0123, "usage": {"input_tokens": 812, "output_tokens": 37},
+    }
+    res = CliRunResult(stdout=json.dumps(payload), stderr="", returncode=0)
+    resp = ClaudeCodeAdapter().parse(res, _req("SYS", "capital of France?"))
+    assert resp.content == [TextBlock(text="Paris.")]
+    assert resp.usage == Usage(prompt_tokens=812, completion_tokens=37)
+    assert resp.usage.estimated is False        # token nyata dari JSON
+    assert resp.cost_usd == 0.0123              # total_cost_usd → carrier kredit (§5.3)
+    assert resp.latency_ms == 4213             # duration_ms
+    assert resp.stop_reason == "end_turn"      # subtype "success" -> end_turn
+
+
+def test_parse_unparseable_json_falls_back_to_estimated_usage() -> None:
+    # JSON gagal parse -> estimasi bertanda, cost otoritatif tak tersedia (§5.3).
+    res = CliRunResult(stdout="not json at all", stderr="", returncode=0)
+    resp = ClaudeCodeAdapter().parse(res, _req(None, "0123456789012345"))
+    assert resp.content == [TextBlock(text="not json at all")]
+    assert resp.usage.estimated is True
+    assert resp.usage.prompt_tokens == 4       # _est("0123456789012345") == 16 // 4
+    assert resp.cost_usd is None
+
+
+def test_parse_json_without_usage_estimates_but_keeps_cost() -> None:
+    payload = {"type": "result", "subtype": "success", "result": "hi", "total_cost_usd": 0.5}
+    res = CliRunResult(stdout=json.dumps(payload), stderr="", returncode=0)
+    resp = ClaudeCodeAdapter().parse(res, _req(None, "q"))
+    assert resp.usage.estimated is True         # usage hilang -> estimasi
+    assert resp.cost_usd == 0.5                 # tapi cost otoritatif tetap dipakai
