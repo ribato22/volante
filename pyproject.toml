@@ -4,7 +4,7 @@ name = "baton-orchestrator"
 dynamic = ["version"]
 description = "Baton — a from-scratch, cross-provider multi-model AI orchestration engine (supervisor routing, agentic tools, forgery-resistant evaluation)."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "ribato" }]
@@ -24,6 +24,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     # Honest, not aspirational: the subprocess sandbox and CLI-agent providers use
@@ -102,7 +103,7 @@ filterwarnings = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py311"
 src = ["src", "tests", "eval", "webui", "baton_mcp"]
 
 [tool.ruff.lint]
@@ -120,6 +121,6 @@ select = ["E", "F", "I", "UP", "B"]
 # py.typed promise (src/baton/py.typed) without a large upfront annotation
 # project. mypy defaults + ignore_missing_imports, scoped to the library only
 # (not tests/eval/webui/examples).
-python_version = "3.12"
+python_version = "3.11"
 ignore_missing_imports = true
 files = ["src/baton"]

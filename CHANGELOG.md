@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- **Python 3.11 support**: lowered `requires-python` to `>=3.11` (verified — the full
+  test suite passes on 3.11), added the 3.11 trove classifier and a 3.11 CI matrix leg;
+  ruff/mypy targets lowered to `py311`/`3.11` accordingly.
+- Quickstart now has a zero-API-key one-liner (`uv run python examples/fake_provider.py`)
+  so a newcomer sees the engine orchestrate end-to-end before configuring any provider.
+
+### Changed
+- Bumped all GitHub Actions to their Node-24 releases (checkout v5, setup-uv v7,
+  upload-artifact v7, download-artifact v8) to clear the Node-20 deprecation warning —
+  still fully commit-SHA-pinned.
+- Parameterized the public `dict` annotations in `baton.types` (`ToolUseBlock.input`,
+  `ToolSpec.input_schema` -> `dict[str, Any]`) to better honor the shipped `py.typed`.
+
+### Security
+- Enabled GitHub secret scanning and push protection on the repository.
+
 ## [0.1.0] - 2026-07-23
 
 ### Added
