@@ -100,6 +100,30 @@ def test_include_subscription_false_excludes_even_when_enabled(monkeypatch):
     assert not any(mid.startswith("claude-code/") for mid in providers)
 
 
+def test_no_providers_message_mentions_subscription_when_included(monkeypatch):
+    # CLI path (include_subscription=True): actionable, mentions CLAUDE_CODE_ENABLED,
+    # and drops the stale "before running the eval" wording (this error also fires
+    # from the `baton` CLI, not just the eval suite).
+    _clear_all_provider_env(monkeypatch)
+    with pytest.raises(RuntimeError) as exc_info:
+        build_providers_from_env(include_subscription=True)
+    message = str(exc_info.value)
+    assert "CLAUDE_CODE_ENABLED" in message
+    assert "eval" not in message
+
+
+def test_no_providers_message_omits_subscription_when_excluded(monkeypatch):
+    # eval path (include_subscription=False, default): still actionable, but does not
+    # dangle subscription options that build_providers_from_env would never register here.
+    _clear_all_provider_env(monkeypatch)
+    with pytest.raises(RuntimeError) as exc_info:
+        build_providers_from_env()
+    message = str(exc_info.value)
+    assert "ANTHROPIC_API_KEY" in message
+    assert "CLAUDE_CODE_ENABLED" not in message
+    assert "eval" not in message
+
+
 def test_codex_requires_explicit_tier(monkeypatch):
     _clear_all_provider_env(monkeypatch)
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")

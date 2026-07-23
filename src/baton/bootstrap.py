@@ -194,6 +194,26 @@ def _register_subscription_providers(
     return baseline_model_id
 
 
+def _no_providers_configured_message(include_subscription: bool) -> str:
+    """Actionable "no providers" error for both callers of `build_providers_from_env`:
+    the `baton` CLI (include_subscription=True) and the eval suite
+    (include_subscription=False, §9 fence — never nudges users toward the eval's own
+    subscription-quota fence). Always lists the API/local options; the CLI path ALSO
+    lists the subscription CLI-agent opt-ins (§7.2) since those are only wired when
+    `include_subscription=True`."""
+    msg = (
+        "No providers configured. Set one of: ANTHROPIC_API_KEY, OPENAI_COMPAT_BASE_URL "
+        "(+ OPENAI_COMPAT_MODEL, optional OPENAI_COMPAT_KEY), MOONSHOT_API_KEY, or "
+        "OLLAMA_BASE_URL"
+    )
+    if include_subscription:
+        msg += (
+            ", or a subscription CLI agent: CLAUDE_CODE_ENABLED=1 (requires `claude` "
+            "logged in) or CODEX_ENABLED=1 CODEX_TIER=3 (requires `codex login`)"
+        )
+    return msg + ". See the README Usage section."
+
+
 def build_providers_from_env(
     prefer: str = "quality",
     include_subscription: bool = False,
@@ -271,11 +291,7 @@ def build_providers_from_env(
         )
 
     if not providers:
-        raise RuntimeError(
-            "No providers configured. Set ANTHROPIC_API_KEY, OPENAI_COMPAT_BASE_URL "
-            "(+ OPENAI_COMPAT_MODEL/_KEY), MOONSHOT_API_KEY, and/or OLLAMA_BASE_URL "
-            "before running the eval."
-        )
+        raise RuntimeError(_no_providers_configured_message(include_subscription))
     by_id: dict[str, ModelInfo] = {
         m.id: m for m in default_models() if m.id in providers
     }
