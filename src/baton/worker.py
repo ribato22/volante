@@ -38,5 +38,11 @@ class Worker:
         # §5.3 single sanctioned exception: forward the provider-authoritative
         # cost_usd (e.g. Claude Code / Codex total_cost_usd) so it lands in the
         # CostMeter's credit ledger instead of being re-derived from token*rate.
+        # NOTE: Worker is the ONLY sanctioned cost_usd forwarder (§5.3). Supervisor,
+        # Synthesizer, and AgenticWorker intentionally do NOT forward cost_usd (they
+        # call cost_meter.add(model_id, resp.usage) without it) -- so in a
+        # subscription-only planner/synth setup, the planner/synth cost is
+        # token x rate-approximated instead of provider-authoritative. This is
+        # acceptable per the locked contract; it's not an oversight.
         self._cost_meter.add(model_id, resp.usage, cost_usd=resp.cost_usd)
         return resp
