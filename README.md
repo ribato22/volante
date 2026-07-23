@@ -23,7 +23,7 @@ CrewAI / LiteLLM) as a study of how these systems actually work under the hood.
   Google AI Studio (Gemini), Groq, OpenRouter, DeepSeek, Moonshot (Kimi), local Ollama, and any
   other OpenAI-compatible endpoint — no code changes, just env vars.
 - **Hybrid one-shot / agentic.** Tasks run as a single call *or* as a model↔tool loop (`run_python`
-  in a subprocess sandbox — container-isolated under `AIORCH_SANDBOX=docker` — plus host-mediated
+  in a subprocess sandbox — container-isolated under `BATON_SANDBOX=docker` — plus host-mediated
   `fetch_url` / `read_file`).
 - **Shared context.** An append-only *blackboard* carries provenance; each task gets a scoped,
   budget-capped projection of only the dependency artifacts it needs.
@@ -196,12 +196,12 @@ a **source-checkout feature** — `webui/` is not shipped in the built wheel/PyP
 
 ```python
 import asyncio
-from baton.bootstrap import build_providers_from_env, make_runtime_factory
+import baton
 
 
 async def main() -> None:
-    registry, providers, model_id = build_providers_from_env()
-    runtime = make_runtime_factory(registry, providers, model_id)()
+    registry, providers, model_id = baton.build_providers_from_env()
+    runtime = baton.make_runtime_factory(registry, providers, model_id)()
     result = await runtime.aexecute("your goal")
     print(result.status, result.billed_usd, result.credit_usd)
 
@@ -209,7 +209,14 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-For a guided tour with hardcoded goals, see the demo script:
+The top-level `baton` package re-exports the common library API (`Runtime`, `Registry`,
+`Router`, `build_providers_from_env`, `make_runtime_factory`, `RunResult`, `ModelInfo`, `Task`,
+`LLMProvider`, `ProviderError` — see `baton.__all__`) so you don't need to reach into submodules
+for everyday use.
+
+See [`examples/`](examples/) for runnable scripts — including
+[`examples/fake_provider.py`](examples/fake_provider.py), which needs **no API key** at all. For a
+guided tour with hardcoded goals, see the demo script:
 `uv run python demo.py orchestrate|agentic|eval` (walked through in [Quickstart](#quickstart)).
 
 ### Using your Claude / ChatGPT subscription (no API key)
@@ -310,7 +317,7 @@ This is a study project; its isolation guarantees are deliberately scoped and do
 
 - **Agentic sandbox is for self-written goals.** The default subprocess `Sandbox` protects against
   *accidents*, not *adversaries*: on macOS the host network and disk remain reachable. For real
-  isolation use `AIORCH_SANDBOX=docker` (runs code in a container with `--network none`, read-only
+  isolation use `BATON_SANDBOX=docker` (runs code in a container with `--network none`, read-only
   root, cgroup limits) — this is the prerequisite for the network-isolation guarantee.
 - **External tools are host-mediated.** `fetch_url` (domain allowlist) and `read_file` (root-confined)
   run in the trusted orchestrator so sandboxed code stays network-isolated. Prompt-injection
@@ -328,9 +335,10 @@ src/baton/     # engine (importable package: `baton`)
   providers/          # Anthropic + OpenAI-compatible adapters, FakeProvider
   tools/              # Sandbox, DockerSandbox, run_python, fetch_url, read_file
 eval/                 # goals, 3-arm harness, forgery-resistant scorer, runner
+examples/             # small runnable library-API scripts (incl. a no-key FakeProvider demo)
 webui/                # optional FastAPI + SSE web UI (uv run python -m webui)
 tests/                # 560+ tests (unit + opt-in integration)
-docs/superpowers/     # design specs and implementation plans
+docs/                 # internal design/build records — see docs/README.md; not user docs
 demo.py               # end-to-end demo (orchestrate | agentic | eval)
 ```
 
