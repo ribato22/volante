@@ -8,7 +8,7 @@ before running untrusted goals or exposing it to hostile input.
 | Surface | Guarantee | Not covered |
 |---|---|---|
 | Agentic `run_python`, default subprocess `Sandbox` | Protects against *accidents* (own buggy code): process-group kill, `RLIMIT_CPU`, scrubbed env (no `*_API_KEY`) | Not an adversary sandbox — on macOS host network/disk remain reachable |
-| Agentic `run_python`, `AIORCH_SANDBOX=docker` | Real isolation: container, `--network none`, read-only root, `--cap-drop ALL`, `--pids-limit`, non-root user | Requires a trusted Docker daemon |
+| Agentic `run_python`, `BATON_SANDBOX=docker` | Real isolation: container, `--network none`, read-only root, `--cap-drop ALL`, `--pids-limit`, non-root user | Requires a trusted Docker daemon |
 | `fetch_url` / `read_file` tools | Host-mediated: domain allowlist / root-confined path, no redirects, size cap | Prompt-injection containment holds **only** under the Docker sandbox |
 | Eval scorer (`score_code`) | Forgery-resistant: process + filesystem separation + nonce-authenticated RPC — a solution cannot fake a passing score | Best-effort POSIX: a solution calling `setsid()` escapes the `killpg` group (wall-clock timeout still bounds it); not a sandbox for arbitrary hostile code |
 
@@ -16,7 +16,8 @@ before running untrusted goals or exposing it to hostile input.
 
 - The agentic loop is intended for **self-written goals**, not adversarial input.
 - **Never place secrets in model context.** Allowlists and the read-file root are the trust boundary.
-- Run adversarial or untrusted goals only under `AIORCH_SANDBOX=docker`.
+- Run adversarial or untrusted goals only under `BATON_SANDBOX=docker` (the deprecated
+  `AIORCH_SANDBOX` name is still read as a fallback).
 
 ## Supported versions
 

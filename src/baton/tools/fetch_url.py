@@ -14,7 +14,7 @@ class FetchUrlTool:
 
     PENTING soal ancaman: pengurungan prompt-injection (kode model tak bisa
     mengeksfiltrasi via jaringan) hanya utuh saat sandbox = DockerSandbox
-    (AIORCH_SANDBOX=docker, `--network none`). Di sandbox subprocess default,
+    (BATON_SANDBOX=docker, `--network none`). Di sandbox subprocess default,
     kode model punya jaringan+disk host, jadi allowlist tool ini bukan satu-satunya
     kanal keluar — ia membatasi eksfil LEWAT tool, bukan lewat sandbox."""
 

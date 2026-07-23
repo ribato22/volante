@@ -80,7 +80,7 @@ async def test_timeout_kills_container(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(ds, "_spawn", fake_spawn)
     res = await DockerSandbox(tmp_path, timeout_s=0.2).run("import time; time.sleep(9)")
     assert res.timed_out is True
-    assert killed.get("name", "").startswith("aiorch_")
+    assert killed.get("name", "").startswith("baton_")
     # A2: klien `docker run` (proc) juga dibunuh, bukan cuma container by-name.
     assert hang.killed is True
 

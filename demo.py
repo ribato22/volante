@@ -11,7 +11,8 @@ Env read: ANTHROPIC_API_KEY, MOONSHOT_API_KEY (+MOONSHOT_BASE_URL), OLLAMA_BASE_
 a generic OpenAI-compatible slot OPENAI_COMPAT_BASE_URL (+OPENAI_COMPAT_KEY,
 OPENAI_COMPAT_MODEL, optional OPENAI_COMPAT_NAME/_CONTEXT/_MAX_OUTPUT/_TOOLS/_COST_IN/
 _COST_OUT) for Gemini/Groq/OpenRouter/DeepSeek/etc.,
-AIORCH_SANDBOX=docker (real container isolation; needs Docker up; default subprocess),
+BATON_SANDBOX=docker (real container isolation; needs Docker up; default subprocess;
+legacy AIORCH_SANDBOX name still works),
 DEMO_FETCH_ALLOWLIST=example.com,docs.python.org (adds fetch_url tool to the agentic run).
 
   # e.g. free Google AI Studio Gemini Flash (top of the free tier by intelligence):
@@ -88,7 +89,7 @@ async def demo_agentic() -> None:
     if model_id is None:
         print("No provider configured. Set ANTHROPIC_API_KEY / MOONSHOT_API_KEY / OLLAMA_BASE_URL.")
         return
-    sandbox = os.environ.get("AIORCH_SANDBOX", "subprocess")
+    sandbox = os.environ.get("BATON_SANDBOX") or os.environ.get("AIORCH_SANDBOX", "subprocess")
     print(f"Agentic demo — model={model_id}  sandbox={sandbox}\n")
 
     ws = Path(".runs") / "demo" / uuid.uuid4().hex[:8]

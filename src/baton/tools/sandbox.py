@@ -85,9 +85,12 @@ class Sandbox:
 
 
 def sandbox_for(workspace):
-    """Pilih impl sandbox via env AIORCH_SANDBOX ("subprocess" default | "docker")."""
+    """Pilih impl sandbox via env BATON_SANDBOX ("subprocess" default | "docker").
+    `AIORCH_SANDBOX` (pre-rename name) is read as a DEPRECATED fallback when
+    `BATON_SANDBOX` is unset, so existing configs keep working."""
     import os
-    if os.environ.get("AIORCH_SANDBOX", "subprocess").lower() == "docker":
+    value = os.environ.get("BATON_SANDBOX") or os.environ.get("AIORCH_SANDBOX", "subprocess")
+    if value.lower() == "docker":
         from baton.tools.docker_sandbox import DockerSandbox
         return DockerSandbox(workspace)
     return Sandbox(workspace)

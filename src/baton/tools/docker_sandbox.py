@@ -73,7 +73,7 @@ class DockerSandbox:
 
     async def run(self, code: str) -> ExecResult:
         (self.workspace / "_snippet.py").write_text(code, encoding="utf-8")
-        name = "aiorch_" + uuid.uuid4().hex[:12]
+        name = "baton_" + uuid.uuid4().hex[:12]
         proc = await _spawn(
             *self._argv(name),
             stdout=asyncio.subprocess.PIPE,
