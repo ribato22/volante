@@ -72,14 +72,13 @@ class CodexAdapter:
     ) -> list[str]:
         # `codex exec --json` always emits JSONL; `stream` does not change argv.
         # max_output / system_prompt_mode have no codex exec flag (documented §8.3).
-        return [
-            "codex",
-            "exec",
-            "--json",
-            "--skip-git-repo-check",
-            "--config",
-            f"model={model}",
-        ]
+        out = ["codex", "exec", "--json", "--skip-git-repo-check"]
+        if model:
+            # Falsy/empty model (CODEX_MODEL unset) -> OMIT `--config model=...` entirely
+            # so codex exec falls back to the user's OWN configured default model, rather
+            # than passing an explicit-but-empty `model=` (which breaks a real spawn).
+            out += ["--config", f"model={model}"]
+        return out
 
     def child_env(self, base: dict[str, str], *, depth: int) -> dict[str, str]:
         env = dict(base)  # copy: never mutate the caller's environment
@@ -262,14 +261,17 @@ def build_codex_model(env: dict[str, str]) -> ModelInfo:
     tier is REQUIRED-explicit via CODEX_TIER (never sniffed from a `-mini` name);
     billing is `plan_included` (draws the shared ChatGPT subscription pool).
     cost_per_1k_* are valuation-only (cash is $0 on the plan) — left 0.0 until a
-    real underlying rate is confirmed at live-verify (§8.3). CODEX_MODEL follows
-    the user's Codex config; default is a placeholder resolved at wiring."""
+    real underlying rate is confirmed at live-verify (§8.3). CODEX_MODEL unset ->
+    empty string: `CodexAdapter.argv` then OMITS `--config model=...` entirely, so
+    `codex exec` follows the user's own Codex config; the id falls back to
+    "codex/default" (sensible + consistent with that omission) instead of a
+    hardcoded wire-model guess."""
     tier_raw = env.get("CODEX_TIER")
     if not tier_raw:
         raise ValueError("CODEX_TIER must be set explicitly (no -mini name sniffing)")
-    model = env.get("CODEX_MODEL", "gpt-5-codex")
+    model = env.get("CODEX_MODEL", "")
     return ModelInfo(
-        id=f"codex/{model}",
+        id=f"codex/{model or 'default'}",
         provider="codex",
         strengths={"coding", "reasoning"},
         context_window=int(env.get("CODEX_CONTEXT", "256000")),

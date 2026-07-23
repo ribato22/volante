@@ -39,6 +39,25 @@ def test_argv_identical_when_stream_true() -> None:
     )
 
 
+def test_argv_omits_config_model_pair_when_model_empty() -> None:
+    # Empty model (CODEX_MODEL unset) -> codex exec must fall back to the user's OWN
+    # configured default, not an explicit `--config model=` (empty value breaks a real spawn).
+    argv = CodexAdapter().argv(
+        _req(), model="", max_output=4096, system_prompt_mode="append", stream=False,
+    )
+    assert argv == ["codex", "exec", "--json", "--skip-git-repo-check"]
+    assert "--config" not in argv
+
+
+def test_argv_includes_config_model_pair_when_model_set() -> None:
+    argv = CodexAdapter().argv(
+        _req(), model="gpt-5-codex", max_output=4096,
+        system_prompt_mode="append", stream=False,
+    )
+    assert "--config" in argv
+    assert "model=gpt-5-codex" in argv
+
+
 def test_child_env_scrubs_openai_and_codex_keys() -> None:
     base = {
         "PATH": "/usr/bin",
@@ -325,6 +344,13 @@ def test_build_codex_model_requires_explicit_tier_no_sniff() -> None:
     # tier must be explicit — never sniffed from a "-mini" model name.
     with pytest.raises(ValueError):
         build_codex_model({"CODEX_MODEL": "gpt-5-codex-mini"})
+
+
+def test_build_codex_model_default_id_when_model_unset() -> None:
+    # No CODEX_MODEL -> a sensible "codex/default" id, consistent with argv omitting
+    # `--config model=` (empty) so codex exec falls back to the user's own config.
+    mi = build_codex_model({"CODEX_TIER": "3"})
+    assert mi.id == "codex/default"
 
 
 def test_build_codex_model_tools_absent_means_no_tools() -> None:
