@@ -344,3 +344,22 @@ async def test_depth_guard_refuses_recursion(monkeypatch):
     with pytest.raises(ProviderError) as ei:
         await provider.complete(_req())
     assert ei.value.retryable is False  # depth cap -> fail-fast, no reroute-backoff
+
+
+async def test_complete_maps_not_logged_in_to_quota_exhausted(monkeypatch):
+    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    runner = _RecordingRunner(CliRunResult(stdout="", stderr="Error: not logged in", returncode=1))
+    provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner)
+    with pytest.raises(ProviderError) as ei:
+        await provider.complete(_req())
+    assert ei.value.quota_exhausted is True
+    assert ei.value.retryable is False  # quota_exhausted => never backoff, reroute instead
+
+
+async def test_complete_timed_out_result_is_classified(monkeypatch):
+    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    runner = _RecordingRunner(CliRunResult("", "hard limit reached", -9, timed_out=True))
+    provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner)
+    with pytest.raises(ProviderError) as ei:
+        await provider.complete(_req())
+    assert ei.value.quota_exhausted is True

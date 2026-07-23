@@ -227,6 +227,8 @@ class CliAgentProvider:
         prompt = self.adapter.stdin(req)
         async with self._sem:
             result = await self._runner(argv, stdin=prompt, env=env, timeout=self.timeout)
+        if result.timed_out or result.returncode != 0:
+            raise self.adapter.classify_error(result)
         return self.adapter.parse(result, req)
 
     async def stream(self, req: CanonicalRequest, on_text: OnText) -> CanonicalResponse:
