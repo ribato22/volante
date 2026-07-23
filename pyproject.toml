@@ -42,6 +42,9 @@ ui = [
     "uvicorn>=0.29",
 ]
 
+[project.scripts]
+baton = "baton.cli:main"
+
 # Distribution name and importable package are both `baton`.
 [project.urls]
 Homepage = "https://github.com/ribato/baton"

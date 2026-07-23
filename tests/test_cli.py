@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import tomllib
+from pathlib import Path
 
 import pytest
 
@@ -261,3 +263,12 @@ def test_ensure_planner_gate_raises_for_subscription_planner_that_fails_gate() -
 
     with pytest.raises(RuntimeError, match="parse-plan gate"):
         cli._ensure_planner_gate(registry, providers, "m1")
+
+
+def test_console_script_declared() -> None:
+    root = Path(__file__).resolve().parents[1]  # repo root (tests/ -> ..)
+    data = tomllib.loads((root / "pyproject.toml").read_text())
+    assert data["project"]["scripts"]["baton"] == "baton.cli:main"
+    from baton.cli import main
+
+    assert callable(main)
