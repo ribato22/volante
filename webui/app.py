@@ -434,7 +434,11 @@ function workerPane(task) {
 }
 
 function setWorkerState(task, state) {
-  const card = document.querySelector('.task[data-task="' + task + '"]');
+  // Look up by id (getElementById is an exact-match, not a CSS selector) so an
+  // unusual planner-supplied task id (quotes / backslashes / newlines) can't build
+  // an invalid selector and throw. The card wraps <pre id="wp-<task>">.
+  const pre = document.getElementById("wp-" + task);
+  const card = pre && pre.closest(".task");
   if (card) card.dataset.state = state;
 }
 function allWorkers(state) {
@@ -527,8 +531,16 @@ $("f").addEventListener("submit", (e) => {
   es.onmessage = (m) => {
     let ev;
     try { ev = JSON.parse(m.data); } catch (_) { return; }
-    onEvent(ev);
-    if (ev.type === "result" || ev.type === "error") { es.close(); }
+    const terminal = ev.type === "result" || ev.type === "error";
+    try {
+      onEvent(ev);
+    } catch (err) {
+      // A render error must never swallow stream cleanup (else es.onerror would
+      // fire and show a misleading "Connection lost" over the real result).
+      console.error(err);
+    } finally {
+      if (terminal) { es.close(); setBusy(false); }
+    }
   };
   es.onerror = () => {
     es.close();
