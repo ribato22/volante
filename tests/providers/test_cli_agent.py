@@ -200,8 +200,9 @@ class _FakeAdapter:
 
     name = "fake_cli"
 
-    def __init__(self) -> None:
+    def __init__(self, *, is_error_result: bool = False) -> None:
         self.argv_calls: list[dict] = []
+        self._is_error_result = is_error_result
 
     def argv(self, req, *, model, max_output, system_prompt_mode, stream):
         self.argv_calls.append(
@@ -251,6 +252,9 @@ class _FakeAdapter:
                 "subscription quota exhausted", retryable=False, quota_exhausted=True
             )
         return ProviderError(f"fake-cli exited {result.returncode}", retryable=False)
+
+    def is_error(self, result):
+        return self._is_error_result
 
 
 class _RecordingRunner:
@@ -338,12 +342,12 @@ async def test_child_env_scrubs_openai_api_key(monkeypatch):
 
 async def test_depth_guard_refuses_recursion(monkeypatch):
     monkeypatch.setenv("BATON_CLI_AGENT_DEPTH", "1")
-    provider = CliAgentProvider(
-        _FakeAdapter(), "opus", runner=_RecordingRunner(_ok_result()), max_depth=1
-    )
+    runner = _RecordingRunner(_ok_result())
+    provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner, max_depth=1)
     with pytest.raises(ProviderError) as ei:
         await provider.complete(_req())
     assert ei.value.retryable is False  # depth cap -> fail-fast, no reroute-backoff
+    assert runner.argv is None  # guard fires BEFORE spawn -- runner never invoked
 
 
 async def test_complete_maps_not_logged_in_to_quota_exhausted(monkeypatch):
@@ -363,6 +367,18 @@ async def test_complete_timed_out_result_is_classified(monkeypatch):
     with pytest.raises(ProviderError) as ei:
         await provider.complete(_req())
     assert ei.value.quota_exhausted is True
+
+
+async def test_complete_is_error_payload_with_zero_exit_is_classified(monkeypatch):
+    # claude -p can exit 0 while the JSON envelope carries is_error=true (max-turns /
+    # mid-run execution error) -- the base provider can't parse JSON to detect this,
+    # so the adapter's is_error hook must be consulted even when returncode == 0.
+    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    adapter = _FakeAdapter(is_error_result=True)
+    runner = _RecordingRunner(_ok_result())  # returncode=0, well-formed JSON success shape
+    provider = CliAgentProvider(adapter, "opus", runner=runner)
+    with pytest.raises(ProviderError):
+        await provider.complete(_req())
 
 
 async def test_stream_relays_deltas_and_early_stop(monkeypatch):
@@ -409,4 +425,32 @@ async def test_concurrency_cap_serializes_spawns(monkeypatch):
 
     provider = CliAgentProvider(_FakeAdapter(), "opus", runner=_runner, concurrency=1)
     await asyncio.gather(*(provider.complete(_req()) for _ in range(4)))
+    assert max_seen == 1  # per-provider cap nested in fan-out semaphore (§8.2)
+
+
+async def test_stream_depth_guard_refuses_recursion(monkeypatch):
+    monkeypatch.setenv("BATON_CLI_AGENT_DEPTH", "1")
+    runner = _RecordingRunner(CliRunResult("", "", 0))
+    provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner, max_depth=1)
+    with pytest.raises(ProviderError) as ei:
+        await provider.stream(_req(), lambda _d: False)
+    assert ei.value.retryable is False  # depth cap -> fail-fast, no reroute-backoff
+    assert runner.argv is None  # guard fires BEFORE spawn -- runner never invoked
+
+
+async def test_stream_concurrency_cap_serializes_spawns(monkeypatch):
+    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    inflight = 0
+    max_seen = 0
+
+    async def _runner(argv, *, stdin, env, timeout, on_line=None):
+        nonlocal inflight, max_seen
+        inflight += 1
+        max_seen = max(max_seen, inflight)
+        await asyncio.sleep(0.03)
+        inflight -= 1
+        return CliRunResult("", "", 0)
+
+    provider = CliAgentProvider(_FakeAdapter(), "opus", runner=_runner, concurrency=1)
+    await asyncio.gather(*(provider.stream(_req(), lambda _d: False) for _ in range(4)))
     assert max_seen == 1  # per-provider cap nested in fan-out semaphore (§8.2)

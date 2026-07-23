@@ -172,6 +172,8 @@ class CliAgentAdapter(Protocol):
 
     def classify_error(self, result: CliRunResult) -> ProviderError: ...
 
+    def is_error(self, result: CliRunResult) -> bool: ...
+
 
 class CliAgentProvider:
     """LLMProvider over a subscription CLI agent (claude -p / codex exec) via an INJECTED
@@ -227,7 +229,7 @@ class CliAgentProvider:
         prompt = self.adapter.stdin(req)
         async with self._sem:
             result = await self._runner(argv, stdin=prompt, env=env, timeout=self.timeout)
-        if result.timed_out or result.returncode != 0:
+        if result.timed_out or result.returncode != 0 or self.adapter.is_error(result):
             raise self.adapter.classify_error(result)
         return self.adapter.parse(result, req)
 
@@ -259,7 +261,9 @@ class CliAgentProvider:
             result = await self._runner(
                 argv, stdin=prompt, env=env, timeout=self.timeout, on_line=_on_line
             )
-        if not stopped and (result.timed_out or result.returncode != 0):
+        if not stopped and (
+            result.timed_out or result.returncode != 0 or self.adapter.is_error(result)
+        ):
             raise self.adapter.classify_error(result)
         return CanonicalResponse(
             content=[TextBlock(text="".join(parts))],
