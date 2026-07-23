@@ -308,3 +308,22 @@ async def test_stream_through_provider_surfaces_usage_and_cost() -> None:
     assert resp.usage.estimated is False
     assert resp.cost_usd == 0.004
     assert resp.latency_ms == 900
+
+
+def test_claude_code_model_info_seed() -> None:
+    from baton.providers.claude_code import claude_code_model_info
+
+    mi = claude_code_model_info("opus")
+    assert mi.id == "claude-code/opus"
+    assert mi.provider == "claude_code"
+    assert mi.billing == "plan_included"     # cash $0, valuasi kredit (§5.1)
+    assert mi.tier == 4
+    assert mi.supports_tools is False        # jalur --tools "" (§8.1)
+    # tarif opus underlying, HANYA untuk valuasi konsumsi (bukan uang keluar) (§5.1).
+    assert (mi.cost_per_1k_in, mi.cost_per_1k_out) == (0.015, 0.075)
+
+
+def test_claude_code_model_info_tier_override() -> None:
+    from baton.providers.claude_code import claude_code_model_info
+
+    assert claude_code_model_info("opus", tier=3).tier == 3

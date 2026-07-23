@@ -5,7 +5,7 @@ import json
 
 from baton.providers.base import ProviderError
 from baton.providers.cli_agent import CliRunResult
-from baton.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage
+from baton.types import CanonicalRequest, CanonicalResponse, ModelInfo, TextBlock, Usage
 
 DEPTH_ENV = "BATON_CLI_AGENT_DEPTH"  # kontrak env Fase 6: guard rekursi (Baton-in-Claude)
 
@@ -193,3 +193,31 @@ class ClaudeCodeAdapter:
             if data is not None and data.get("type") == "result":
                 return line
         return None
+
+
+def claude_code_model_info(
+    model: str = "opus",
+    *,
+    tier: int = 4,
+    context_window: int = 200_000,
+    max_output_tokens: int = 4_096,  # konservatif: CLI abaikan cap, over-reserve (§8.3)
+) -> ModelInfo:
+    """Seed ModelInfo untuk provider langganan Claude Code (§5.1 / kontrak 2.2).
+
+    billing="plan_included": numpang pool langganan interaktif (cash $0; nilai
+    dicatat sebagai credit_usd). cost_per_1k_* = tarif API opus underlying HANYA
+    untuk valuasi konsumsi (bukan cash). supports_tools=False (jalur --tools "").
+    Registrasi ke Registry + gating CLAUDE_CODE_ENABLED = Fase 9 (bootstrap).
+    """
+    return ModelInfo(
+        id=f"claude-code/{model}",
+        provider="claude_code",
+        strengths={"coding", "reasoning", "long_context"},
+        context_window=context_window,
+        max_output_tokens=max_output_tokens,
+        supports_tools=False,
+        cost_per_1k_in=0.015,
+        cost_per_1k_out=0.075,
+        tier=tier,
+        billing="plan_included",
+    )
