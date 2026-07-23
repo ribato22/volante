@@ -163,3 +163,16 @@ def test_main_failed_status_returns_1(monkeypatch, capsys) -> None:
     out = capsys.readouterr().out
     assert "status: failed" in out
     assert "failed_task: T1" in out
+
+
+def test_main_streams_plan_worker_and_synth(monkeypatch, capsys) -> None:
+    registry, runtime = _one_task_runtime()
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
+
+    code = cli.main(["do one"])  # streaming ON by default (no --no-stream)
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "[plan]" in out  # supervisor.plan streamed via on_text
+    assert "[T1] art-1" in out  # worker delta labeled by task_id
+    assert "[synth]" in out  # synthesizer streamed via on_text

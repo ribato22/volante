@@ -86,8 +86,21 @@ def _summary_lines(result: RunResult, registry: Registry) -> list[str]:
 async def _aexecute(
     runtime: Runtime, goal: str, *, stream: bool, collected: list[str]
 ) -> RunResult:
-    # Streaming wired in a later step; for now just run to completion.
-    return await runtime.aexecute(goal)
+    if not stream:
+        return await runtime.aexecute(goal)
+
+    def on_text(delta: str) -> None:  # planning + synthesis (sequential phases)
+        collected.append(delta)
+        sys.stdout.write(delta)
+        sys.stdout.flush()
+
+    def on_worker(task_id: str, delta: str) -> None:  # parallel workers, labeled
+        chunk = f"[{task_id}] {delta}"
+        collected.append(chunk)
+        sys.stdout.write(chunk)
+        sys.stdout.flush()
+
+    return await runtime.aexecute(goal, on_text=on_text, on_worker_text=on_worker)
 
 
 def main(argv: list[str] | None = None) -> int:
