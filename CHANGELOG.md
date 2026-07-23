@@ -21,22 +21,38 @@ All notable changes to this project are documented here. The format is based on
 - Opt-in subscription CLI-agent providers wired into
   `build_providers_from_env(include_subscription=True)`: Claude Code (`claude -p`) and Codex
   (`codex exec`) register only when `CLAUDE_CODE_ENABLED=1` / `CODEX_ENABLED=1` **and** the CLI is
-  detected on PATH. They are `billing="plan_included"` (they draw your interactive subscription
-  quota) and print an honesty warning on registration.
+  confirmed available — Claude Code via a PATH check, Codex via `codex_detected()` (a real
+  `codex login status` probe, so a `codex` binary on PATH but not logged in is correctly NOT
+  registered). They are `billing="plan_included"` (they draw your interactive subscription
+  quota) and print an honesty warning on registration. The registered `ModelInfo` for both legs
+  comes from the existing seed helpers (`claude_code_model_info()` / `build_codex_model()`), so
+  the id follows the configured wire model (e.g. `CLAUDE_CODE_MODEL=sonnet` → `claude-code/sonnet`;
+  unset `CODEX_MODEL` → `codex/default`) instead of a hardcoded id.
 - Local-first wiring: Supervisor/Synthesizer default to a temperature-controllable (card-billed
   API/Ollama/free-tier) model even when routing prefers subscription, so planning stays
   deterministic (`claude -p` ignores temperature); `verify_claude_plan_gate` promotes `claude -p`
   to planner only when it emits a plan that passes the supervisor's own parser.
 - Eval fence: `build_providers_from_env()` defaults to `include_subscription=False`, so the eval
   never consumes interactive subscription quota.
-- `make_runtime_factory` gains a keyword-only `prefer` (default `"quality"`, back-compat) and now
-  forwards it to `Router(registry, prefer=prefer)` instead of always defaulting the router's
-  objective.
+- `make_runtime_factory` gains a keyword-only `prefer` (default `"cash_protect_quota"`, matching
+  `Router`'s own default — genuine back-compat) and now forwards it to
+  `Router(registry, prefer=prefer)` instead of always defaulting the router's objective.
 
 ### Fixed
 - `Worker.run_one_shot` now forwards `resp.cost_usd` into `CostMeter.add(..., cost_usd=...)`, so a
   subscription CLI-agent provider's authoritative call cost reaches the credit ledger
   (`costs_usd()`'s `credit_usd`) instead of being silently dropped.
+- Codex gating now calls `codex_detected()` (`codex login status` exit 0) instead of a bare PATH
+  lookup; a `codex` binary present-but-not-logged-in no longer registers a live-looking, ~$0-cash
+  provider that the router would otherwise rank first for every `hard` task before failing over.
+- `CodexAdapter.argv` no longer emits `--config model=` with an empty value when `CODEX_MODEL` is
+  unset (which broke a real `codex exec` spawn); the pair is omitted entirely so codex falls back
+  to the user's own configured default model, matching the README's documented behavior.
+- Bootstrap no longer inlines duplicate `ModelInfo` definitions for the Claude Code / Codex
+  subscription seeds (they had already drifted from `claude_code_model_info()` /
+  `build_codex_model()` — e.g. missing the `long_context` strength, a different default
+  `context_window`); both legs now build their registered `ModelInfo` from those single-source
+  helpers.
 
 ### Changed
 - **Routing may cost more for multi-provider setups.** The new difficulty→tier filter means a default
