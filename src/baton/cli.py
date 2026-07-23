@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import importlib.metadata
 import json
 import os
 import sys
 
+from baton import __version__
 from baton.bootstrap import (
     _planner_model_id,
     build_providers_from_env,
@@ -30,7 +30,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--version",
         action="version",
-        version=importlib.metadata.version("baton"),
+        # Use the in-package single source of truth (hatch derives the built
+        # distribution version from this), so it is independent of the PyPI
+        # distribution name (`baton-orchestrator`).
+        version=__version__,
     )
     parser.add_argument("goal", help="the objective to orchestrate")
     parser.add_argument(
