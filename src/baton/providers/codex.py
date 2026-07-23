@@ -74,3 +74,10 @@ class CodexAdapter:
             "--config",
             f"model={model}",
         ]
+
+    def child_env(self, base: dict[str, str], *, depth: int) -> dict[str, str]:
+        env = dict(base)  # copy: never mutate the caller's environment
+        for key in _SCRUB_KEYS:
+            env.pop(key, None)
+        env[_DEPTH_ENV] = str(depth + 1)  # anti-recursion guard (§8.2)
+        return env

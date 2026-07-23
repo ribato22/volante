@@ -35,3 +35,23 @@ def test_argv_identical_when_stream_true() -> None:
     assert CodexAdapter().argv(_req(), stream=False, **common) == CodexAdapter().argv(
         _req(), stream=True, **common
     )
+
+
+def test_child_env_scrubs_openai_and_codex_keys() -> None:
+    base = {
+        "PATH": "/usr/bin",
+        "HOME": "/home/u",
+        "OPENAI_API_KEY": "sk-leak",
+        "CODEX_API_KEY": "cdx-leak",
+    }
+    env = CodexAdapter().child_env(base, depth=0)
+    assert "OPENAI_API_KEY" not in env
+    assert "CODEX_API_KEY" not in env
+    assert env["PATH"] == "/usr/bin"           # unrelated keys preserved
+    assert env["HOME"] == "/home/u"            # needed to reach ~/.codex/auth.json
+    assert base["OPENAI_API_KEY"] == "sk-leak"  # caller dict NOT mutated
+
+
+def test_child_env_sets_depth_plus_one() -> None:
+    assert CodexAdapter().child_env({}, depth=0)["BATON_CLI_AGENT_DEPTH"] == "1"
+    assert CodexAdapter().child_env({}, depth=1)["BATON_CLI_AGENT_DEPTH"] == "2"
