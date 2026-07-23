@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 from baton.agent import AgenticWorker
 from baton.cost import CostMeter
 from baton.projector import Projector
-from baton.providers.base import LLMProvider
+from baton.providers.base import LLMProvider, ProviderError
 from baton.registry import Registry, default_models
 from baton.router import Router
 from baton.runtime import Runtime
@@ -308,6 +308,29 @@ def _planner_model_id(
     if card:
         return sorted(card, key=lambda m: (-m.tier, m.cost_per_1k_out, m.id))[0].id
     return baseline_model_id
+
+
+async def verify_claude_plan_gate(
+    provider: LLMProvider,
+    model_id: str,
+    *,
+    goal: str = "Plan a single trivial task: print the word hello.",
+) -> bool:
+    """§7.1 live gate. Run ONE planning probe through `provider` and return True iff the output
+    survives the supervisor's OWN parser (`_parse_plan_json` + `_validate`, exercised via
+    `Supervisor.plan`). Only then may a subscription CLI agent (`claude -p`, which ignores
+    temperature) be trusted to plan; otherwise the caller keeps the API/Ollama planner. Reusing
+    the real planner path guarantees the gate's notion of 'valid' matches production. Any
+    ProviderError/ValueError => the gate fails closed (returns False)."""
+    from baton.cost import CostMeter
+    from baton.supervisor import Supervisor
+
+    probe = Supervisor(provider, model_id, CostMeter())  # fresh, single-use; meter discarded
+    try:
+        await probe.plan(goal)
+    except (ProviderError, ValueError):
+        return False
+    return True
 
 
 def make_runtime_factory(

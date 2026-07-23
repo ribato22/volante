@@ -3,10 +3,15 @@ from __future__ import annotations
 import pytest
 
 import baton.bootstrap as bootstrap
-from baton.bootstrap import _planner_model_id, build_providers_from_env, make_runtime_factory
+from baton.bootstrap import (
+    _planner_model_id,
+    build_providers_from_env,
+    make_runtime_factory,
+    verify_claude_plan_gate,
+)
 from baton.providers.fake import FakeProvider
 from baton.registry import Registry
-from baton.types import ModelInfo
+from baton.types import CanonicalResponse, ModelInfo, TextBlock, Usage
 
 
 def _model(mid: str, *, billing: str = "card", tier: int = 2) -> ModelInfo:
@@ -166,3 +171,30 @@ def test_make_runtime_factory_default_prefer_is_quality_back_compat():
     providers = {"api/y": FakeProvider()}
     runtime = make_runtime_factory(registry, providers, "api/y")()
     assert runtime.router._prefer == "quality"
+
+
+def _plan_resp(payload: str) -> CanonicalResponse:
+    return CanonicalResponse(
+        content=[TextBlock(text=payload)],
+        usage=Usage(prompt_tokens=0, completion_tokens=0),
+        model="claude-code/opus",
+        stop_reason="end_turn",
+        latency_ms=0,
+    )
+
+
+async def test_verify_claude_plan_gate_true_on_valid_plan():
+    valid = '[{"id":"t1","description":"d","type":"code","mode":"one_shot","depends_on":[]}]'
+    provider = FakeProvider([_plan_resp(valid)])
+    assert await verify_claude_plan_gate(provider, "claude-code/opus") is True
+
+
+async def test_verify_claude_plan_gate_false_on_garbage():
+    provider = FakeProvider([_plan_resp("sorry, I can't emit JSON")])
+    assert await verify_claude_plan_gate(provider, "claude-code/opus") is False
+
+
+async def test_verify_claude_plan_gate_false_on_empty_plan():
+    # An empty array parses as JSON but fails supervisor _validate ("plan is empty").
+    provider = FakeProvider([_plan_resp("[]")])
+    assert await verify_claude_plan_gate(provider, "claude-code/opus") is False
