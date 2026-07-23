@@ -199,9 +199,20 @@ def test_is_error_false_when_unparseable() -> None:
     assert CodexAdapter().is_error(res) is False
 
 
-def test_stream_result_line_returns_last_turn_completed_line() -> None:
+def test_stream_result_line_returns_synthesized_turn_completed_line() -> None:
+    # Codex's real `turn.completed` carries usage but NOT the final text (that
+    # lives on the earlier `agent_message` event) -- unlike Claude's self-contained
+    # terminal `result` envelope. Because CliAgentProvider.stream() feeds ONLY this
+    # ONE returned line into `parse()`, stream_result_line folds the accumulated
+    # agent_message text into a `message` key so parse() still recovers it
+    # (PROVISIONAL bridging shape, §14).
     lines = _JSONL.splitlines()
-    assert CodexAdapter().stream_result_line(lines) == lines[-1]
+    result_line = CodexAdapter().stream_result_line(lines)
+    assert result_line is not None
+    parsed = json.loads(result_line)
+    assert parsed["type"] == "turn.completed"
+    assert parsed["usage"] == {"input_tokens": 120, "output_tokens": 34}
+    assert parsed["message"] == "Hello from Codex"
 
 
 def test_stream_result_line_none_when_no_turn_completed() -> None:
@@ -333,3 +344,51 @@ async def test_complete_through_provider_reads_dated_fixture() -> None:
     assert resp.usage == Usage(prompt_tokens=512, completion_tokens=21)
     assert resp.usage.estimated is False
     assert resp.cost_usd == 0.0  # subscription leg: $0 cash (provisional, §8.3)
+
+
+async def test_stream_forwards_agent_message_delta() -> None:
+    from baton.providers.cli_agent import CliAgentProvider
+    runner = _CaptureRunner(_JSONL)
+    provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner)
+    chunks: list[str] = []
+    resp = await provider.stream(_req(), chunks.append)
+    # only the agent_message line yields a delta; lifecycle lines yield None
+    assert chunks == ["Hello from Codex"]
+    assert "Hello from Codex" in resp.content[0].text
+
+
+_JSONL_TERMINAL_ERROR = "\n".join([
+    json.dumps({"type": "thread.started", "thread_id": "th_4"}),
+    json.dumps({"type": "agent_message", "message": "Working..."}),
+    json.dumps({"type": "turn.completed", "error": {"message": "sandbox denied"}}),
+])
+
+
+async def test_stream_through_provider_surfaces_usage_and_cost() -> None:
+    # §5.3: cost_usd is the primary credit source -- a STREAMED subscription call
+    # must surface REAL usage from the synthesized terminal turn.completed line,
+    # not a blind Usage(0, 0).
+    from baton.providers.cli_agent import CliAgentProvider
+
+    runner = _CaptureRunner(_JSONL)
+    provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner)
+    resp = await provider.stream(_req(), lambda _d: False)
+    assert resp.content[0].text == "Hello from Codex"
+    assert resp.usage == Usage(prompt_tokens=120, completion_tokens=34)
+    assert resp.usage.estimated is False
+
+
+async def test_stream_terminal_is_error_reroutes() -> None:
+    # Mirror ClaudeCodeAdapter's terminal-is_error regression test: on a REAL spawn
+    # result.stdout is concatenated JSONL (multi-line), so is_error(aggregate) can't
+    # see a mid-stream failure -- CliAgentProvider checks is_error on the TERMINAL
+    # line itself (§ Protocol addendum). A codex turn that completes with an `error`
+    # field must reroute (quota_exhausted=True), not return a bogus success.
+    from baton.providers.cli_agent import CliAgentProvider
+
+    runner = _CaptureRunner(_JSONL_TERMINAL_ERROR)
+    provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner)
+    with pytest.raises(ProviderError) as ei:
+        await provider.stream(_req(), lambda _d: False)
+    assert ei.value.quota_exhausted is False
+    assert ei.value.retryable is False

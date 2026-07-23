@@ -110,6 +110,14 @@ class CodexAdapter:
                 usage_in = usage.get("input_tokens")
                 usage_out = usage.get("output_tokens")
                 cost_usd = evt.get("total_cost_usd", cost_usd)
+                # `stream_result_line` synthesizes a self-contained terminal line
+                # (folds the accumulated agent_message text in here) so a
+                # single-line `parse()` on it -- as CliAgentProvider.stream does --
+                # still recovers the final text; real `turn.completed` events don't
+                # carry this key, so this is a no-op on the `complete()` path.
+                synth_msg = evt.get("message")
+                if synth_msg:
+                    texts.append(synth_msg)
         final_text = "\n".join(texts)
         if usage_in is None or usage_out is None:
             usage = Usage(
@@ -182,11 +190,18 @@ class CodexAdapter:
         return False
 
     def stream_result_line(self, lines: list[str]) -> str | None:
-        # codex exec --json ends a successful turn with a terminal `turn.completed`
-        # JSONL line carrying `usage` (+ optional `total_cost_usd`) -- the same
-        # envelope shape `parse` already consumes. Walk backwards for the LAST one
-        # (defensive; never trust wire order).
-        for line in reversed(lines):
+        # codex exec --json ends a successful turn with a `turn.completed` JSONL
+        # line carrying `usage` (+ optional `total_cost_usd`) -- but UNLIKE
+        # Claude's self-contained terminal `result` envelope, it carries no final
+        # text (that lives on the earlier `agent_message` event(s)). CliAgentProvider
+        # .stream() feeds ONLY this ONE returned line into `parse()`, so we
+        # SYNTHESIZE a self-contained line here: fold the accumulated agent_message
+        # text into a `message` key on a copy of the last `turn.completed` event.
+        # PROVISIONAL (§14): a bridging shape, not the real Codex CLI terminal
+        # line -- reconfirm at the live gate.
+        texts: list[str] = []
+        terminal: dict | None = None
+        for line in lines:
             stripped = line.strip()
             if not stripped:
                 continue
@@ -194,9 +209,19 @@ class CodexAdapter:
                 evt = json.loads(stripped)
             except json.JSONDecodeError:
                 continue
-            if isinstance(evt, dict) and evt.get("type") == "turn.completed":
-                return line
-        return None
+            if not isinstance(evt, dict):
+                continue
+            if evt.get("type") == "agent_message":
+                msg = evt.get("message") or evt.get("text") or ""
+                if msg:
+                    texts.append(msg)
+            elif evt.get("type") == "turn.completed":
+                terminal = evt  # keep walking -- want the LAST one (never trust wire order)
+        if terminal is None:
+            return None
+        merged = dict(terminal)
+        merged.setdefault("message", "\n".join(texts))
+        return json.dumps(merged)
 
 
 def codex_detected(
