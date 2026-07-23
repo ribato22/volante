@@ -35,11 +35,19 @@ _DIFFICULTIES: set[str] = {"trivial", "easy", "medium", "hard"}
 # follow-up before giving up.
 _MAX_PLAN_ATTEMPTS = 3
 
-_PLAN_CORRECTION = (
-    "Your previous reply was NOT a valid JSON task array — do not answer or "
-    "explain the goal. Reply with ONLY the JSON array of task objects (keys: "
-    "id, description, type, mode, difficulty, depends_on), nothing else."
-)
+
+def _plan_correction(exc: Exception) -> str:
+    # Feed the ACTUAL rejection reason back to the model: a parse error
+    # ("planner did not return valid JSON: ...") and a validate error ("plan
+    # is empty", "contains a dependency cycle", ...) need different fixes, so
+    # a static "send JSON only" nudge gives zero signal when the reply was
+    # already valid JSON that merely failed structural validation.
+    return (
+        f"Your previous reply was rejected: {exc}. Reply with ONLY a valid "
+        "JSON array of task objects (keys: id, description, type, mode, "
+        "difficulty, depends_on) — do not answer or explain the goal, output "
+        "nothing but the JSON array."
+    )
 
 
 class Supervisor:
@@ -63,6 +71,7 @@ class Supervisor:
             )
         self._used = True
         req = self._build_request(goal)
+        first_exc: ValueError | None = None
         for attempt in range(1, _MAX_PLAN_ATTEMPTS + 1):
             # on_text -> streaming (progres planning live); else complete (nol
             # regresi). NOTE: on retry, a partial re-stream of the corrected
@@ -79,19 +88,35 @@ class Supervisor:
                 tasks = _build_tasks(data)
                 _validate(tasks)
                 return tasks
-            except ValueError:
+            except ValueError as exc:
+                # Re-raise the FIRST rejection, not the last: later attempts
+                # can fail for an unrelated reason (e.g. the corrective
+                # follow-up itself gets no better a reply), but the caller
+                # should see the ORIGINAL cause.
+                if first_exc is None:
+                    first_exc = exc
                 if attempt == _MAX_PLAN_ATTEMPTS:
-                    raise
-                # Corrective follow-up: append the model's bad reply + a firm
-                # correction, then retry within the same plan() call.
+                    # `from None`: suppress implicit chaining to this LATER
+                    # attempt's exc (unrelated noise) -- the traceback should
+                    # tell the story of the ORIGINAL failure, not the last one.
+                    raise first_exc from None
+                # Corrective follow-up: append the model's bad reply + a
+                # correction that carries the ACTUAL rejection reason (parse
+                # or validate), then retry within the same plan() call.
                 req = CanonicalRequest(
                     messages=[
                         *req.messages,
                         text("assistant", raw),
-                        text("user", _PLAN_CORRECTION),
+                        text("user", _plan_correction(exc)),
                     ],
                     max_tokens=req.max_tokens,
                     temperature=req.temperature,
+                    # Carry over defensively so a future planner request that
+                    # sets these doesn't silently lose them on retry.
+                    tools=req.tools,
+                    run_id=req.run_id,
+                    task_id=req.task_id,
+                    attempt=req.attempt,
                 )
         raise AssertionError("unreachable: loop always returns or raises")
 

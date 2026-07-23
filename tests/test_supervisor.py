@@ -186,10 +186,14 @@ async def test_plan_rejects_cycle() -> None:
             },
         ]
     )
+    # Single response is enough: even though retry fires (validate errors are
+    # retried too), re-raising the FIRST exception guarantees the cycle
+    # message survives to the final raise regardless of what later attempts
+    # produce (fallback echo, etc).
     provider = FakeProvider(responses=[_resp(plan_json)])
     sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="cycle"):
         await sup.plan("a cyclic goal")
 
 
@@ -215,7 +219,7 @@ async def test_plan_rejects_duplicate_ids() -> None:
     provider = FakeProvider(responses=[_resp(plan_json)])
     sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="duplicate"):
         await sup.plan("a duplicate-id goal")
 
 
@@ -234,7 +238,7 @@ async def test_plan_rejects_unknown_dependency() -> None:
     provider = FakeProvider(responses=[_resp(plan_json)])
     sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="unknown task"):
         await sup.plan("a dangling-dependency goal")
 
 
@@ -445,8 +449,39 @@ async def test_plan_retries_and_succeeds_after_bad_json() -> None:
     assert second_req.messages[0].content[0].text == first_system
     assert second_req.messages[2].content[0].text == bad_reply
     correction = second_req.messages[3].content[0].text
-    assert "JSON" in correction
-    assert "not" in correction.lower() or "do not" in correction.lower()
+    # Koreksi harus menyertakan TEKS ERROR aktual dari _parse_plan_json (bukan
+    # nudge generik) -- sinyal yang benar-benar actionable buat planner.
+    assert "did not return valid JSON" in correction
+    assert "JSON array" in correction
+
+
+async def test_plan_retries_with_validator_feedback_after_empty_plan() -> None:
+    # VALIDATE error (bukan parse): attempt 1 adalah JSON well-formed TAPI
+    # array kosong -- ditolak oleh _validate, bukan _parse_plan_json. Koreksi
+    # yang dikirim balik di attempt 2 HARUS menyertakan pesan VALIDATOR
+    # ("empty"), bukan nudge "kirim JSON" generik yang nol-sinyal buat plan
+    # yang sudah berupa JSON valid.
+    provider = _CountingProvider(
+        responses=[
+            _resp("[]", prompt=30, completion=5),
+            _resp(_one_task_plan(), prompt=20, completion=8),
+        ]
+    )
+    cost_meter = CostMeter()
+    sup = Supervisor(provider, _PLANNER_MODEL, cost_meter)
+
+    tasks = await sup.plan("a goal the planner initially refuses to decompose")
+
+    assert [t.id for t in tasks] == ["t1"]
+    assert provider.calls == 2
+
+    totals = cost_meter.totals()
+    assert totals[_PLANNER_MODEL].prompt_tokens == 50
+    assert totals[_PLANNER_MODEL].completion_tokens == 13
+
+    second_req = provider.requests[1]
+    correction = second_req.messages[-1].content[0].text
+    assert "empty" in correction
 
 
 async def test_plan_raises_after_max_attempts() -> None:
