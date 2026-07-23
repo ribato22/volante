@@ -73,6 +73,10 @@ class ClaudeCodeAdapter:
             "--tools", "",              # WAJIB: buang semua built-in tool (§8.1)
             "--strict-mcp-config",      # nol MCP; JANGAN --bare (mematikan OAuth)
         ]
+        if stream:
+            # CLI mewajibkan --verbose untuk `--print --output-format stream-json`
+            # (terverifikasi live 2026-07-23, CLI 2.1.161: tanpa ini `claude -p` menolak).
+            out.append("--verbose")
         sys_text = _system_text(req)
         if sys_text:
             flag = (

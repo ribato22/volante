@@ -55,6 +55,14 @@ def test_argv_stream_switches_output_format() -> None:
     )
     assert "--output-format" in argv
     assert argv[argv.index("--output-format") + 1] == "stream-json"
+    # CLI requires --verbose for `--print --output-format stream-json` (live-verified);
+    # its absence broke a real run. json (non-stream) mode must NOT carry --verbose.
+    assert "--verbose" in argv
+    json_argv = ClaudeCodeAdapter().argv(
+        _req("SYS", "hi"), model="opus", max_output=4096,
+        system_prompt_mode="append", stream=False,
+    )
+    assert "--verbose" not in json_argv
 
 
 def test_argv_replace_mode_uses_system_prompt_flag() -> None:
