@@ -240,6 +240,20 @@ def test_main_keyboard_interrupt_prints_partial_and_returns_130(monkeypatch, cap
     assert "[interrupted]" in out
 
 
+def test_main_keyboard_interrupt_during_build_returns_130(monkeypatch, capsys) -> None:
+    # _build (registry/provider wiring + the §7.1 planner-gate probe) can itself run
+    # a live provider call; Ctrl-C there must also exit 130, never a traceback.
+    def _raise_build(args):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "_build", _raise_build)
+
+    code = cli.main(["do one"])
+
+    assert code == 130
+    assert "[interrupted]" in capsys.readouterr().out
+
+
 # ---- §7.1 guard: subscription planner must pass the live parse-plan gate ----
 def test_ensure_planner_gate_skips_probe_for_card_planner() -> None:
     registry = Registry([_model("m1", billing="card")])

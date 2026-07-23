@@ -172,26 +172,35 @@ async def _aexecute(
     return await runtime.aexecute(goal, on_text=on_text, on_worker_text=on_worker)
 
 
+def _print_interrupted(collected: list[str]) -> int:
+    # Ctrl-C mid-run: there is no RunResult. Print whatever partial text streamed
+    # (empty if interrupted before any streaming started, e.g. during _build's
+    # planner-gate probe), then exit 130 — never a traceback.
+    sys.stdout.write("\n\n[interrupted] partial output:\n")
+    sys.stdout.write("".join(collected))
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+    return 130
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    collected: list[str] = []
     try:
         registry, runtime = _build(args)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    collected: list[str] = []
+    except KeyboardInterrupt:
+        # _build can itself make a live provider call (the §7.1 planner-gate probe
+        # for a subscription-only setup); Ctrl-C there must also exit cleanly.
+        return _print_interrupted(collected)
     try:
         result = asyncio.run(
             _aexecute(runtime, args.goal, stream=not args.no_stream, collected=collected)
         )
     except KeyboardInterrupt:
-        # Ctrl-C mid-run: aexecute was cancelled, so there is no RunResult. Print
-        # whatever partial text streamed, then exit 130 — never a traceback.
-        sys.stdout.write("\n\n[interrupted] partial output:\n")
-        sys.stdout.write("".join(collected))
-        sys.stdout.write("\n")
-        sys.stdout.flush()
-        return 130
+        return _print_interrupted(collected)
     if args.json:
         print(_summary_json(result, registry))
     else:
