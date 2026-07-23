@@ -252,6 +252,48 @@ def test_non_hard_falls_back_to_subscription_when_no_direct(caplog):
     assert "using quota" in caplog.text
 
 
+def test_cash_tied_subscription_prefers_lower_adequate_tier_cross_provider():
+    # Regression guard: two DIFFERENT subscription providers (e.g. codex + claude-code)
+    # both draw $0 cash (plan_included) so they tie on _cash(). The tier tiebreak must
+    # right-size: prefer the LOWEST adequate tier so a medium task uses the weaker
+    # sufficient model (codex, tier 3) rather than always reserving the stronger one
+    # (claude-code, tier 4) -- which previously starved codex of any work at all.
+    models = [
+        ModelInfo(
+            id="codex/x",
+            provider="codex",
+            strengths={"coding", "reasoning"},
+            context_window=128_000,
+            max_output_tokens=4_096,
+            supports_tools=True,
+            cost_per_1k_in=0.0,
+            cost_per_1k_out=0.0,
+            tier=3,
+            billing="plan_included",
+        ),
+        ModelInfo(
+            id="claude-code/x",
+            provider="claude_code",
+            strengths={"coding", "reasoning"},
+            context_window=200_000,
+            max_output_tokens=4_096,
+            supports_tools=True,
+            cost_per_1k_in=0.0,
+            cost_per_1k_out=0.0,
+            tier=4,
+            billing="plan_included",
+        ),
+    ]
+    router = Router(Registry(models), prefer="cash_protect_quota")
+    # hard -> desired tier 4: codex (tier 3) is filtered out as inadequate; only
+    # claude-code (tier 4) remains.
+    assert router.route_ranked(_task("code", difficulty="hard")) == ["claude-code/x"]
+    # medium -> desired tier 3: both are tier-adequate and cash-tied ($0 subscription
+    # each) -> right-size to the LOWEST adequate tier -> codex (tier 3) ranks first,
+    # distributing work across providers instead of always picking the highest tier.
+    assert router.route_ranked(_task("code", difficulty="medium"))[0] == "codex/x"
+
+
 def test_no_tier_adequate_falls_back_to_best_effort():
     # Regression guard (post-A3.2-review): an Ollama-only registry (tier 1) with a
     # "medium" task (desired tier 3) has NO tier-adequate candidate at all. The

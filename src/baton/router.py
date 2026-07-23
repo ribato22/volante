@@ -28,8 +28,11 @@ def _cash(m: ModelInfo) -> float:
 
 
 def _rank_key(m: ModelInfo) -> tuple[float, int, str]:
-    # Cheapest cash first; tiebreak higher tier, then id (deterministic, stable).
-    return (_cash(m), -m.tier, m.id)
+    # Cheapest cash first; then RIGHT-SIZE: prefer the lowest (adequate) tier so a task
+    # uses the weakest sufficient model and reserves stronger/pricier ones for harder
+    # tasks. This also distributes work across same-cash subscription providers (e.g. a
+    # tier-3 codex handles medium tasks while tier-4 claude-code is reserved for hard).
+    return (_cash(m), m.tier, m.id)
 
 
 class Router:
