@@ -326,8 +326,8 @@ Set environment variables for any subset; baseline priority is
 > subscription pool vs. a metered API-rate credit bucket has flipped several times in months
 > (announced 2026-06-15, then paused; still paused as of 2026-07-22). When Anthropic next announces a
 > billing change, repeat the live gate in
-> [the design spec §13](https://github.com/ribato22/baton/blob/main/docs/superpowers/specs/2026-07-22-baton-subscription-providers-and-vibe-cli-design.md)
-> and re-check the Help Center banner, then update the "verified" date in §A of that spec.
+> [`docs/claude-code-live-gate.md`](https://github.com/ribato22/baton/blob/main/docs/claude-code-live-gate.md)
+> and re-check the Help Center banner, then update the "verified" date recorded there.
 
 **Free, high-intelligence option** — Google AI Studio (Gemini Flash), via the generic slot:
 
@@ -356,8 +356,7 @@ model, one shot), **orchestration** (the full engine), and **agentic-single** (o
 The scorer runs the model's generated `solution.py` in a subprocess under **process + filesystem
 separation**: a trusted runner drives the untrusted solution in a *separate* process that never sees
 the expected outputs (nonce-authenticated RPC), so a solution must actually compute correct answers —
-it cannot fake a passing score. See
-[`docs/superpowers/specs/2026-07-21-eval-process-separation-design.md`](https://github.com/ribato22/baton/blob/main/docs/superpowers/specs/2026-07-21-eval-process-separation-design.md).
+it cannot fake a passing score.
 
 Read the verdict together with the warnings the harness emits:
 
