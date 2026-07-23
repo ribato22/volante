@@ -207,6 +207,33 @@ def test_score_code_timeout_calls_killpg_on_process_group(monkeypatch):
     assert len(killed) >= 1
 
 
+def _is_running(pid: int) -> bool:
+    """True only if ``pid`` is a live, *running* process. A killed-but-unreaped
+    child lingers as a zombie until init reaps it (asynchronous on Linux); a zombie
+    is dead, so it counts as not-running."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False  # gone (already reaped)
+    except PermissionError:
+        return True  # exists and not ours (shouldn't happen here)
+    # PID still present. On Linux, tell a running process apart from a zombie via
+    # /proc; elsewhere (no /proc, e.g. macOS) fall back to "exists == running".
+    try:
+        with open(f"/proc/{pid}/stat", encoding="ascii") as fh:
+            state = fh.read().rpartition(")")[2].split()[0]
+    except OSError:
+        return True
+    return state not in {"Z", "X", "x"}  # zombie/dead states
+
+
+def _assert_not_running(pid: int, timeout_s: float) -> None:
+    deadline = time.perf_counter() + timeout_s
+    while _is_running(pid) and time.perf_counter() < deadline:
+        time.sleep(0.05)
+    assert not _is_running(pid), f"child pid {pid} should have been killed, still running"
+
+
 def test_score_code_kills_forked_child_that_holds_pipe(tmp_path, monkeypatch):
     # Skenario fork-bomb inti: solusi mem-fork anak yang menahan pipe stdout terbuka
     # lalu spin. Tanpa killpg-grup, communicate menggantung tak-terhingga (anak
@@ -233,8 +260,12 @@ def test_score_code_kills_forked_child_that_holds_pipe(tmp_path, monkeypatch):
     # Anak (yang menulis pid-nya) sudah mati setelah score_code kembali.
     assert pidfile.exists(), "child seharusnya sempat menulis PID sebelum di-kill"
     child_pid = int(pidfile.read_text())
-    with pytest.raises(ProcessLookupError):
-        os.kill(child_pid, 0)  # ProcessLookupError = proses sudah tiada
+    # killpg mematikan anak, tapi begitu induk (`python -c`) ikut mati, cucu jadi
+    # orphan yang di-reparent ke init dan baru di-reap secara ASINKRON. Di Linux ada
+    # jendela di mana PID masih ada sebagai zombie (mati, belum di-reap), jadi
+    # `os.kill(pid, 0)` belum melempar ProcessLookupError. Yang dijamin: anak tak lagi
+    # BERJALAN — poll sampai hilang/zombie (mac me-reap cepat; Linux lewat status /proc).
+    _assert_not_running(child_pid, timeout_s=5.0)
 
 
 def test_score_code_still_scores_good_and_bad_after_hardening():
