@@ -9,11 +9,5 @@
   "repository": "https://github.com/ribato22/baton",
   "license": "MIT",
   "keywords": ["mcp", "ai-orchestration", "llm", "multi-agent", "llm-router"],
-  "mcpServers": {
-    "baton": {
-      "command": "uvx",
-      "args": ["--from", "baton-orchestrator[mcp]", "baton-mcp"],
-      "env": {}
-    }
-  }
+  "mcpServers": "./.mcp.json"
 }

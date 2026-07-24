@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "baton": {
+      "command": "uvx",
+      "args": ["--from", "baton-orchestrator[mcp]", "baton-mcp"],
+      "env": {}
+    }
+  }
+}
