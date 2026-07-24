@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import re
 
 
 def test_runtime_sdks_importable() -> None:
@@ -13,7 +14,8 @@ def test_runtime_sdks_importable() -> None:
 
 def test_baton_version() -> None:
     mod = importlib.import_module("baton")
-    assert mod.__version__ == "0.1.0"
+    # Valid semver string; not pinned to a specific value so bumps don't churn this.
+    assert re.fullmatch(r"\d+\.\d+\.\d+([.\-+].*)?", mod.__version__)
 
 
 async def test_asyncio_auto_mode_runs_coroutine_tests() -> None:

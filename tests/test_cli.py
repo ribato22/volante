@@ -65,7 +65,7 @@ def test_main_version_flag_exits_zero(capsys: pytest.CaptureFixture) -> None:
     with pytest.raises(SystemExit) as exc_info:
         cli.main(["--version"])
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.strip() == "0.1.0"
+    assert capsys.readouterr().out.strip() == __version__
 
 
 # ---- FakeProvider-backed real Runtime (stubs mirror tests/test_runtime.py) ----

@@ -41,6 +41,31 @@ orchestration framework (no LangChain / CrewAI / LiteLLM).
 
 ## Architecture
 
+```mermaid
+flowchart TD
+    goal(["goal"]) --> S["Supervisor<br/>plan → validated task DAG<br/>(acyclic · typed · one_shot | agentic)"]
+    S --> R["Router<br/>strongest capable model per task<br/>(by strengths + tool support)"]
+    R --> P
+    subgraph wave["wave execution · asyncio fan-out · fail-fast"]
+        direction TB
+        P["Projector<br/>scoped, budget-capped request<br/>(system + task + deps)"]
+        P --> W["Worker<br/>one-shot"]
+        P --> AW["AgenticWorker<br/>model ↔ tool loop<br/>(run_python · fetch_url · read_file)"]
+    end
+    W --> BB[("Blackboard<br/>append-only · provenance · latest-wins")]
+    AW --> BB
+    BB --> SY["Synthesizer<br/>combine artifacts → final answer"]
+    SY --> result(["result<br/>+ CostMeter totals · usage · duration"])
+
+    classDef io stroke:#8b5cf6,stroke-width:2px;
+    classDef store stroke:#f59e0b,stroke-width:2px;
+    class goal,result io;
+    class BB store;
+```
+
+<details>
+<summary>Text version (renders anywhere, e.g. PyPI or a terminal)</summary>
+
 ```text
                     ┌──────────────┐
    goal ──────────► │  Supervisor  │  plan → validated task DAG (acyclic, typed, one_shot|agentic)
@@ -71,6 +96,8 @@ orchestration framework (no LangChain / CrewAI / LiteLLM).
                            ▼
                         result  (+ CostMeter totals, usage, duration)
 ```
+
+</details>
 
 | Component | File | Responsibility |
 |---|---|---|
@@ -271,15 +298,24 @@ Baton is a CLI first, so it already works in **any** editor's integrated termina
 plus an honest cash/plan-credit footer. Any MCP-capable assistant (Claude Code, Cursor, VS Code
 Copilot *agent mode*, Windsurf) can then delegate whole goals to Baton.
 
+Install it clone-free (recommended), or from a source checkout:
+
 ```bash
-uv sync --extra mcp                 # install the `mcp` dependency
-uv run --extra mcp python -m baton_mcp   # speaks MCP over stdio (what clients launch)
+# clone-free — uv fetches the published package + the `mcp` extra on demand:
+uvx --from "baton-orchestrator[mcp]" baton-mcp
+
+# or install it and run the console script:
+pip install "baton-orchestrator[mcp]"   # then:
+baton-mcp
+
+# or from a source checkout:
+uv sync --extra mcp && uv run --extra mcp python -m baton_mcp
 ```
 
 Register it with your client. **Claude Code** — one command:
 
 ```bash
-claude mcp add baton -- uv run --extra mcp python -m baton_mcp
+claude mcp add baton -- uvx --from "baton-orchestrator[mcp]" baton-mcp
 ```
 
 **Cursor / VS Code / Windsurf** — add to the client's MCP config (e.g. `.cursor/mcp.json`, or
@@ -289,9 +325,8 @@ VS Code's `.vscode/mcp.json` under a `"servers"` key):
 {
   "mcpServers": {
     "baton": {
-      "command": "uv",
-      "args": ["run", "--extra", "mcp", "python", "-m", "baton_mcp"],
-      "cwd": "/absolute/path/to/baton"
+      "command": "uvx",
+      "args": ["--from", "baton-orchestrator[mcp]", "baton-mcp"]
     }
   }
 }
@@ -299,8 +334,14 @@ VS Code's `.vscode/mcp.json` under a `"servers"` key):
 
 The server reads providers from the environment exactly like the CLI (including
 `CLAUDE_CODE_ENABLED` / `CODEX_ENABLED`), so configure at least one provider first — it does **not**
-fall back to a demo. A full branded VSCode *extension* is intentionally **not** shipped; the CLI +
-tasks + MCP cover the same ground without a marketplace artifact to maintain.
+fall back to a demo. A full branded VSCode *extension* is intentionally **not** shipped; the CLI,
+tasks, and the MCP server cover the same ground.
+
+**Listing in an MCP registry.** A starting-point [`server.json`](server.json) manifest is included
+for the [official MCP registry](https://github.com/modelcontextprotocol/registry); the same `uvx`
+command also works for directories like [Smithery](https://smithery.ai), [mcp.so](https://mcp.so),
+and [PulseMCP](https://www.pulsemcp.com). Validate the manifest against each registry's current
+schema before submitting.
 
 ## Providers
 

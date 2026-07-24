@@ -2,14 +2,7 @@
 
 from __future__ import annotations
 
-
-def main() -> None:
-    from baton_mcp.server import build_server
-
-    # FastMCP.run() defaults to the stdio transport, which is what IDE MCP clients
-    # (Claude Code, Cursor, VS Code, Windsurf) launch and speak to.
-    build_server().run()
-
+from baton_mcp import main
 
 if __name__ == "__main__":
     main()

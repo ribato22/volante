@@ -6,7 +6,15 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-24
+
 ### Added
+- **Installable MCP server.** `baton_mcp` now ships in the wheel with a `baton-mcp` console
+  script, so an IDE AI agent can run it clone-free via
+  `uvx --from "baton-orchestrator[mcp]" baton-mcp` (or `pip install "baton-orchestrator[mcp]"`
+  then `baton-mcp`); `python -m baton_mcp` still works. Previously it ran only from a source
+  checkout. Invoked without the `mcp` extra, `baton-mcp` now exits with an install hint instead
+  of a traceback.
 - **`quality` routing objective (now the default).** The router picks the strongest model
   capable of each task (highest tier that matches the required strengths + tool support; ties
   broken toward the cash-free subscription option, then id), so the best available model answers
@@ -155,5 +163,6 @@ All notable changes to this project are documented here. The format is based on
 - The Code of Conduct now routes reports to a **private** channel (maintainer email / private GitHub
   Security Advisory) instead of the public issue tracker, and is linked from CONTRIBUTING and the README.
 
-[Unreleased]: https://github.com/ribato22/baton/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ribato22/baton/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ribato22/baton/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ribato22/baton/releases/tag/v0.1.0
