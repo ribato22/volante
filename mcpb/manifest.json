@@ -1,0 +1,79 @@
+{
+  "manifest_version": "0.2",
+  "name": "baton",
+  "display_name": "Baton",
+  "version": "0.2.1",
+  "description": "Multi-model AI orchestration: plan a task DAG, route each task to the best capable model.",
+  "author": { "name": "ribato22", "url": "https://github.com/ribato22/baton" },
+  "homepage": "https://github.com/ribato22/baton",
+  "documentation": "https://github.com/ribato22/baton#readme",
+  "repository": { "type": "git", "url": "https://github.com/ribato22/baton" },
+  "license": "MIT",
+  "keywords": ["mcp", "ai-orchestration", "llm", "multi-agent"],
+  "server": {
+    "type": "binary",
+    "entry_point": "",
+    "mcp_config": {
+      "command": "uvx",
+      "args": ["--from", "baton-orchestrator[mcp]", "baton-mcp"],
+      "env": {
+        "CLAUDE_CODE_ENABLED": "${user_config.claude_code_enabled}",
+        "CODEX_ENABLED": "${user_config.codex_enabled}",
+        "CODEX_TIER": "${user_config.codex_tier}",
+        "ANTHROPIC_API_KEY": "${user_config.anthropic_api_key}",
+        "OPENAI_COMPAT_BASE_URL": "${user_config.openai_compat_base_url}",
+        "OPENAI_COMPAT_API_KEY": "${user_config.openai_compat_api_key}",
+        "OPENAI_COMPAT_MODEL": "${user_config.openai_compat_model}"
+      }
+    }
+  },
+  "user_config": {
+    "claude_code_enabled": {
+      "type": "string",
+      "title": "Claude Code subscription",
+      "description": "Set to 1 to use your Claude Code subscription CLI (needs `claude` installed + logged in). Leave blank to disable.",
+      "default": "1",
+      "required": false
+    },
+    "codex_enabled": {
+      "type": "string",
+      "title": "Codex subscription",
+      "description": "Set to 1 to use your Codex CLI (needs `codex login`). Requires the Codex tier below.",
+      "default": "",
+      "required": false
+    },
+    "codex_tier": {
+      "type": "string",
+      "title": "Codex tier",
+      "description": "Model tier for Codex (e.g. 3), used only when Codex is enabled.",
+      "default": "3",
+      "required": false
+    },
+    "anthropic_api_key": {
+      "type": "string",
+      "title": "Anthropic API key",
+      "description": "Card-billed Anthropic API key (optional).",
+      "sensitive": true,
+      "required": false
+    },
+    "openai_compat_base_url": {
+      "type": "string",
+      "title": "OpenAI-compatible base URL",
+      "description": "e.g. Gemini/Groq/OpenRouter/DeepSeek/Ollama endpoint (optional).",
+      "required": false
+    },
+    "openai_compat_api_key": {
+      "type": "string",
+      "title": "OpenAI-compatible API key",
+      "description": "API key for the endpoint above (optional).",
+      "sensitive": true,
+      "required": false
+    },
+    "openai_compat_model": {
+      "type": "string",
+      "title": "OpenAI-compatible model id",
+      "description": "Model id for the endpoint above (optional).",
+      "required": false
+    }
+  }
+}
