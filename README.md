@@ -354,6 +354,32 @@ MCP server and a `/baton:run` slash command into Claude Code:
 Requires [`uv`](https://docs.astral.sh/uv/) on your PATH (the plugin launches the server with
 `uvx`). See [`plugins/baton/`](plugins/baton/).
 
+**Other MCP clients (Codex, Cursor, Windsurf, Gemini CLI, Cline).** These don't have a plugin
+marketplace — they consume MCP servers via config. Point them at the same launch command:
+
+- **OpenAI Codex CLI** — `codex mcp add baton -- uvx --from "baton-orchestrator[mcp]" baton-mcp`
+  (writes an `[mcp_servers.baton]` block to `~/.codex/config.toml`; add providers with repeated
+  `--env KEY=VALUE`).
+- **Gemini CLI** — `gemini mcp add baton uvx -- --from "baton-orchestrator[mcp]" baton-mcp`
+  (the `--` is required because Baton's first arg is `--from`).
+- **Cursor / Windsurf / Cline / Roo** — add the standard `mcpServers` entry to the client's MCP
+  config (`~/.cursor/mcp.json`, `~/.codeium/windsurf/mcp_config.json`, or the Cline settings):
+
+  ```json
+  { "mcpServers": { "baton": {
+      "command": "uvx",
+      "args": ["--from", "baton-orchestrator[mcp]", "baton-mcp"],
+      "env": { "CLAUDE_CODE_ENABLED": "1", "ANTHROPIC_API_KEY": "sk-ant-..." }
+  } } }
+  ```
+
+Set your providers in each client's `env` block (`CLAUDE_CODE_ENABLED`, `CODEX_ENABLED`,
+`ANTHROPIC_API_KEY`, `OPENAI_COMPAT_*`).
+
+**Smithery.** A [`smithery.yaml`](smithery.yaml) is included; to list Baton on
+[smithery.ai](https://smithery.ai), sign in there with GitHub and connect/deploy the repo from the
+dashboard (a manual step on your own Smithery account — it can't be automated on your behalf).
+
 ## Providers
 
 Set environment variables for any subset; baseline priority is

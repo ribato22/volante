@@ -1,0 +1,49 @@
+# Smithery configuration for the Baton MCP server (https://smithery.ai/docs).
+# Baton is a local stdio MCP server launched with uvx; Smithery collects the provider
+# config from the user and passes it into the server's environment.
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      claudeCodeEnabled:
+        type: boolean
+        default: true
+        description: Enable the Claude Code subscription provider (sets CLAUDE_CODE_ENABLED).
+      codexEnabled:
+        type: boolean
+        default: false
+        description: Enable the Codex subscription provider (sets CODEX_ENABLED).
+      anthropicApiKey:
+        type: string
+        description: Card-billed Anthropic API key, optional (sets ANTHROPIC_API_KEY).
+      openaiCompatBaseUrl:
+        type: string
+        description: OpenAI-compatible endpoint, e.g. Gemini/Groq/OpenRouter/DeepSeek/Ollama (sets OPENAI_COMPAT_BASE_URL).
+      openaiCompatApiKey:
+        type: string
+        description: API key for the OpenAI-compatible endpoint (sets OPENAI_COMPAT_API_KEY).
+      openaiCompatModel:
+        type: string
+        description: Model id for the OpenAI-compatible endpoint (sets OPENAI_COMPAT_MODEL).
+    additionalProperties: false
+  commandFunction: |-
+    (config) => ({
+      command: 'uvx',
+      args: ['--from', 'baton-orchestrator[mcp]', 'baton-mcp'],
+      env: {
+        CLAUDE_CODE_ENABLED: String(config.claudeCodeEnabled ?? true),
+        CODEX_ENABLED: String(config.codexEnabled ?? false),
+        ANTHROPIC_API_KEY: config.anthropicApiKey ?? '',
+        OPENAI_COMPAT_BASE_URL: config.openaiCompatBaseUrl ?? '',
+        OPENAI_COMPAT_API_KEY: config.openaiCompatApiKey ?? '',
+        OPENAI_COMPAT_MODEL: config.openaiCompatModel ?? ''
+      }
+    })
+  exampleConfig:
+    claudeCodeEnabled: true
+    codexEnabled: false
+    anthropicApiKey: sk-ant-xxxxxxxx
+    openaiCompatBaseUrl: https://api.example.com/v1
+    openaiCompatApiKey: sk-xxxxxxxx
+    openaiCompatModel: gpt-4o-mini

@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Multi-client MCP docs + Smithery manifest.** A [`smithery.yaml`](smithery.yaml) (stdio +
+  provider config schema) for listing on [smithery.ai](https://smithery.ai), plus a README section
+  with exact config for OpenAI Codex CLI (`codex mcp add …`), Gemini CLI, Cursor, Windsurf, and
+  Cline/Roo. (These clients integrate MCP servers via config, not a plugin marketplace.)
 - **Claude Code plugin.** The repo doubles as a plugin marketplace
   (`.claude-plugin/marketplace.json` + [`plugins/baton/`](plugins/baton/)): one command
   (`/plugin marketplace add ribato22/baton` then `/plugin install baton@baton`) wires the Baton
