@@ -468,3 +468,6 @@ fork, and learn from.
 ## License
 
 [MIT](https://github.com/ribato22/baton/blob/main/LICENSE) © 2026 ribato.
+
+<!-- MCP registry ownership marker (proves this PyPI package maps to the server name). -->
+<!-- mcp-name: io.github.ribato22/baton -->
