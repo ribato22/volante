@@ -1,0 +1,14 @@
+{
+  "name": "baton",
+  "description": "Baton — a cross-provider multi-model AI orchestration engine for Claude Code (MCP server + /baton:run command).",
+  "owner": {
+    "name": "ribato22"
+  },
+  "plugins": [
+    {
+      "name": "baton",
+      "source": "./plugins/baton",
+      "description": "Multi-model AI orchestration: plan a task DAG, route each task to the best capable model. Bundles the Baton MCP server (baton_run) plus a /baton:run command."
+    }
+  ]
+}

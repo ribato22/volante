@@ -337,11 +337,22 @@ The server reads providers from the environment exactly like the CLI (including
 fall back to a demo. A full branded VSCode *extension* is intentionally **not** shipped; the CLI,
 tasks, and the MCP server cover the same ground.
 
-**Listing in an MCP registry.** A starting-point [`server.json`](server.json) manifest is included
-for the [official MCP registry](https://github.com/modelcontextprotocol/registry); the same `uvx`
-command also works for directories like [Smithery](https://smithery.ai), [mcp.so](https://mcp.so),
-and [PulseMCP](https://www.pulsemcp.com). Validate the manifest against each registry's current
-schema before submitting.
+**In the official MCP registry.** Baton is published to the
+[official MCP registry](https://registry.modelcontextprotocol.io) as `io.github.ribato22/baton`
+(a validated [`server.json`](server.json) manifest plus a `publish-mcp.yml` GitHub Actions workflow
+that re-publishes it via OIDC on each release). Directories such as [mcp.so](https://mcp.so),
+[PulseMCP](https://www.pulsemcp.com), and [Glama](https://glama.ai) index from it.
+
+**As a Claude Code plugin.** This repo also doubles as a plugin marketplace — one command wires the
+MCP server and a `/baton:run` slash command into Claude Code:
+
+```text
+/plugin marketplace add ribato22/baton
+/plugin install baton@baton
+```
+
+Requires [`uv`](https://docs.astral.sh/uv/) on your PATH (the plugin launches the server with
+`uvx`). See [`plugins/baton/`](plugins/baton/).
 
 ## Providers
 
