@@ -16,6 +16,10 @@ All notable changes to this project are documented here. The format is based on
   provider config schema) for listing on [smithery.ai](https://smithery.ai), plus a README section
   with exact config for OpenAI Codex CLI (`codex mcp add …`), Gemini CLI, Cursor, Windsurf, and
   Cline/Roo. (These clients integrate MCP servers via config, not a plugin marketplace.)
+- **Published to Smithery + a narrow orchestrate skill.** Baton is published to
+  [Smithery](https://smithery.ai/server/ribato/baton) (`ribato/baton`, via the MCPB bundle). The
+  Claude Code plugin also gains a tightly-scoped `orchestrate` skill that auto-delegates to
+  `baton_run` **only** for large, multi-part goals (not simple tasks), to avoid over-invocation.
 - **Claude Code plugin.** The repo doubles as a plugin marketplace
   (`.claude-plugin/marketplace.json` + [`plugins/baton/`](plugins/baton/)): one command
   (`/plugin marketplace add ribato22/baton` then `/plugin install baton@baton`) wires the Baton
