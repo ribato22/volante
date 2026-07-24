@@ -56,6 +56,8 @@ mcp = [
 
 [project.scripts]
 baton = "baton.cli:main"
+# MCP server for IDE AI agents; needs the `mcp` extra at runtime.
+baton-mcp = "baton_mcp:main"
 
 # PyPI distribution name is `baton-orchestrator` (plain `baton` is taken); the
 # importable package and the CLI command are both still `baton`.
@@ -86,7 +88,9 @@ build-backend = "hatchling.build"
 path = "src/baton/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/baton"]
+# `baton` is the engine/CLI; `baton_mcp` is the installable MCP server (its `mcp`
+# dependency is opt-in via the `mcp` extra). The Web UI (webui/) stays source-only.
+packages = ["src/baton", "baton_mcp"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

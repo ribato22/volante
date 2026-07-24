@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import importlib
+import re
 
 
 def test_import_baton_package() -> None:
     mod = importlib.import_module("baton")
-    assert mod.__version__ == "0.1.0"
+    # A valid, PEP 440-ish semver string (not a specific pinned value, so version
+    # bumps don't churn this smoke test).
+    assert re.fullmatch(r"\d+\.\d+\.\d+([.\-+].*)?", mod.__version__)
 
 
 def test_import_providers_subpackage() -> None:

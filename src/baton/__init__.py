@@ -17,7 +17,7 @@ from baton.router import Router
 from baton.runtime import Runtime
 from baton.types import ModelInfo, RunResult, Task
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "LLMProvider",
