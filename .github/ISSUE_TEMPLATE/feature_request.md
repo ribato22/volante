@@ -27,6 +27,6 @@ Anything else — related issues, links, sketches of the API/CLI surface.
 
 ---
 
-Note: Baton is a from-scratch **study engine**, not a production framework (see the README's
+Note: Baton is a **study engine**, not a production framework (see the README's
 [Non-goals](https://github.com/ribato22/baton/blob/main/README.md#non-goals) section) — it
 deliberately avoids adopting orchestration frameworks (LangChain/LiteLLM/CrewAI) internally.

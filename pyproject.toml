@@ -2,7 +2,7 @@
 [project]
 name = "baton-orchestrator"
 dynamic = ["version"]
-description = "Baton — a from-scratch, cross-provider multi-model AI orchestration engine (supervisor routing, agentic tools, forgery-resistant evaluation)."
+description = "Baton — a cross-provider multi-model AI orchestration engine (supervisor task-DAG routing, agentic tools, forgery-resistant evaluation)."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
