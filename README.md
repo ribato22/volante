@@ -378,11 +378,17 @@ Set your providers in each client's `env` block (`CLAUDE_CODE_ENABLED`, `CODEX_E
 
 **Claude Desktop & Smithery — MCPB bundle.** A one-file [MCPB bundle](mcpb/) is attached to each
 [release](https://github.com/ribato22/baton/releases) as `baton-<version>.mcpb`. **Open it in Claude
-Desktop** for a one-click install (it shows a provider-config UI), or **upload it as a *local* server
-at [smithery.ai/new](https://smithery.ai/new)**. The bundle just wraps `uvx --from
-"baton-orchestrator[mcp]" baton-mcp`, so it runs locally and your subscription CLIs + API keys work as
-usual (needs `uv` on PATH). The included [`smithery.yaml`](smithery.yaml) targets Smithery's
-alternative GitHub-hosted deploy path.
+Desktop** for a one-click install (it shows a provider-config UI). Or publish it to
+[Smithery](https://smithery.ai) as a *local* server — because Baton is stdio (not a hosted HTTPS
+endpoint), that's the CLI bundle path, not the "publish a URL" web form:
+
+```bash
+# download baton-<version>.mcpb from the release, then (needs a Smithery API key):
+npx -y @smithery/cli mcp publish ./baton-<version>.mcpb -n <your-namespace>/baton
+```
+
+The bundle just wraps `uvx --from "baton-orchestrator[mcp]" baton-mcp`, so it runs locally and your
+subscription CLIs + API keys work as usual (needs `uv` on PATH).
 
 ## Providers
 
