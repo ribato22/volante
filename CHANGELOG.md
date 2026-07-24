@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **`quality` routing objective (now the default).** The router picks the strongest model
+  capable of each task (highest tier that matches the required strengths + tool support; ties
+  broken toward the cash-free subscription option, then id), so the best available model answers
+  each task. It is the objective wired into the CLI, Web UI, MCP server, and `make_runtime_factory`
+  by default. `Router`/`route_ranked` now genuinely branch on `prefer` (previously only
+  `cash_protect_quota` was implemented).
 - **Python 3.11 support**: lowered `requires-python` to `>=3.11` (verified — the full
   test suite passes on 3.11), added the 3.11 trove classifier and a 3.11 CI matrix leg;
   ruff/mypy targets lowered to `py311`/`3.11` accordingly.
@@ -14,6 +20,12 @@ All notable changes to this project are documented here. The format is based on
   so a newcomer sees the engine orchestrate end-to-end before configuring any provider.
 
 ### Changed
+- **Default routing objective is now `quality`** (was `cash_protect_quota`). By default Baton now
+  favors the strongest capable model per task rather than right-sizing to the cheapest adequate one,
+  so it may use stronger/subscription-billed models more often (and consume more interactive quota).
+  Pass `--prefer cash_protect_quota` (CLI) or `prefer="cash_protect_quota"` to restore the previous
+  quota-protecting behavior. Docs reframed accordingly (routing headline, diagram, tables, MCP tool,
+  subscription note).
 - Bumped all GitHub Actions to their Node-24 releases (checkout v5, setup-uv v7,
   upload-artifact v7, download-artifact v8) to clear the Node-20 deprecation warning —
   still fully commit-SHA-pinned.

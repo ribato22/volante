@@ -39,11 +39,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--prefer",
         choices=_PREFER_CHOICES,
-        default="cash_protect_quota",
+        default="quality",
         help=(
-            "routing objective (default: cash_protect_quota); only "
-            "cash_protect_quota is currently active, the other choices are "
-            "accepted but reserved for future use"
+            "routing objective (default: quality — the strongest model capable of "
+            "each task). Pass cash_protect_quota to right-size and protect "
+            "subscription quota; local/cheap are accepted but currently behave as "
+            "quality"
         ),
     )
     parser.add_argument(

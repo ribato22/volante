@@ -353,17 +353,15 @@ def make_runtime_factory(
     providers: dict[str, LLMProvider],
     model_id: str,
     *,
-    prefer: str = "cash_protect_quota",
+    prefer: str = "quality",
 ) -> Callable[[], Runtime]:
     """Factory Runtime segar per pemanggilan (Supervisor non-re-entrant, CostMeter
     per-run) berbagi registry + providers. Supervisor/Synthesizer memakai planner
     temperature-controllable (card) yang dipilih `_planner_model_id` (§7.1), bukan
     langsung `model_id` — Worker/AgenticWorker tetap memakai peta providers penuh
-    dan Router memakai `prefer`. Default `prefer="cash_protect_quota"` MATCHES
-    `Router.__init__`'s own default — genuine back-compat: pre-branch `Router(registry)`
-    (no `prefer` kwarg existed yet) already behaved as `cash_protect_quota`; defaulting
-    to `"quality"` here would have silently flipped every existing caller (demo.py,
-    webui/server.py, tests/eval) without them asking for it."""
+    dan Router memakai `prefer`. Default `prefer="quality"` MATCHES `Router.__init__`'s
+    own default: route each task to the strongest capable model (best answer). Pass
+    `prefer="cash_protect_quota"` to right-size instead and protect subscription quota."""
     planner_id = _planner_model_id(registry, providers, model_id)
 
     def make_runtime() -> Runtime:
