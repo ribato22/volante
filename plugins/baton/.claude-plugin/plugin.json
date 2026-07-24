@@ -1,0 +1,19 @@
+{
+  "name": "baton",
+  "description": "Multi-model AI orchestration engine. Bundles the Baton MCP server (the baton_run tool) and a /baton:run slash command so an agent can delegate a whole goal to Baton.",
+  "version": "0.1.0",
+  "author": {
+    "name": "ribato22"
+  },
+  "homepage": "https://github.com/ribato22/baton",
+  "repository": "https://github.com/ribato22/baton",
+  "license": "MIT",
+  "keywords": ["mcp", "ai-orchestration", "llm", "multi-agent", "llm-router"],
+  "mcpServers": {
+    "baton": {
+      "command": "uvx",
+      "args": ["--from", "baton-orchestrator[mcp]", "baton-mcp"],
+      "env": {}
+    }
+  }
+}

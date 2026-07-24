@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- **Claude Code plugin.** The repo doubles as a plugin marketplace
+  (`.claude-plugin/marketplace.json` + [`plugins/baton/`](plugins/baton/)): one command
+  (`/plugin marketplace add ribato22/baton` then `/plugin install baton@baton`) wires the Baton
+  MCP server and a `/baton:run <goal>` slash command into Claude Code. Validated with
+  `claude plugin validate`.
+
 ## [0.2.1] - 2026-07-24
 
 ### Added
