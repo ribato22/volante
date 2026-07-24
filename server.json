@@ -1,20 +1,23 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.ribato22/baton",
-  "description": "Cross-provider multi-model AI orchestration engine: a supervisor plans a task DAG and routes each sub-task to the best-quality model capable of it, then synthesizes a final answer.",
+  "title": "Baton",
+  "description": "Multi-model AI orchestration: plan a task DAG, route each task to the best capable model.",
   "repository": {
     "url": "https://github.com/ribato22/baton",
     "source": "github"
   },
-  "version": "0.2.0",
+  "version": "0.2.1",
   "packages": [
     {
       "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
       "identifier": "baton-orchestrator",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "runtimeHint": "uvx",
       "runtimeArguments": [
-        { "type": "named", "name": "--from", "value": "baton-orchestrator[mcp]" }
+        { "type": "named", "name": "--from", "value": "baton-orchestrator[mcp]" },
+        { "type": "positional", "value": "baton-mcp" }
       ],
       "transport": { "type": "stdio" },
       "environmentVariables": [
@@ -32,13 +35,13 @@
         },
         {
           "name": "ANTHROPIC_API_KEY",
-          "description": "Card-billed Anthropic API key (optional; an alternative/addition to the subscription CLIs).",
+          "description": "Card-billed Anthropic API key (optional; alternative/addition to the subscription CLIs).",
           "isRequired": false,
           "isSecret": true
         },
         {
           "name": "OPENAI_COMPAT_BASE_URL",
-          "description": "Any OpenAI-compatible endpoint (Gemini / Groq / OpenRouter / DeepSeek / Ollama). Pair with OPENAI_COMPAT_MODEL and, if needed, an API key.",
+          "description": "Any OpenAI-compatible endpoint (Gemini / Groq / OpenRouter / DeepSeek / Ollama).",
           "isRequired": false,
           "isSecret": false
         }

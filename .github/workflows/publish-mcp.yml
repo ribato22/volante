@@ -1,0 +1,51 @@
+name: Publish to MCP Registry
+
+# Publishes server.json to the official MCP Registry (registry.modelcontextprotocol.io)
+# via GitHub OIDC — no token stored. The `io.github.ribato22/*` namespace is authorized
+# because this workflow runs in ribato22's repo. Runs after a v* tag (once the PyPI
+# release carrying the ownership marker is live) and can be re-run manually.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  id-token: write # OIDC token for MCP Registry auth
+  contents: read
+
+jobs:
+  publish-mcp:
+    name: Publish server.json to the MCP Registry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Wait for the PyPI release to carry the ownership marker
+        # The registry verifies ownership by finding `mcp-name: <name>` in the PyPI
+        # package description (our README). Ensure the matching version is live first,
+        # so a tag that also triggers the PyPI release doesn't race ahead of it.
+        run: |
+          ver="$(python3 -c "import json;print(json.load(open('server.json'))['version'])")"
+          name="$(python3 -c "import json;print(json.load(open('server.json'))['name'])")"
+          echo "waiting for PyPI baton-orchestrator $ver with marker 'mcp-name: $name'"
+          for i in $(seq 1 40); do
+            desc="$(curl -sf "https://pypi.org/pypi/baton-orchestrator/$ver/json" \
+              | python3 -c "import sys,json;print(json.load(sys.stdin)['info']['description'])" 2>/dev/null || true)"
+            if printf '%s' "$desc" | grep -q "mcp-name: $name"; then
+              echo "marker present on PyPI $ver"; exit 0
+            fi
+            echo "attempt $i/40: not yet; sleeping 20s"; sleep 20
+          done
+          echo "::error::PyPI $ver with the ownership marker was not found in time"; exit 1
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to the MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Validate and publish server.json
+        run: |
+          ./mcp-publisher validate server.json
+          ./mcp-publisher publish

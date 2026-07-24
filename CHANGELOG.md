@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-24
+
+### Added
+- **Listed in the official MCP Registry.** Adds a validated [`server.json`](server.json) and a
+  GitHub Actions workflow (`publish-mcp.yml`) that publishes it to
+  `registry.modelcontextprotocol.io` via OIDC on each release, plus the required PyPI
+  ownership marker (`mcp-name: io.github.ribato22/baton`) in the README. Clients can install
+  Baton clone-free with `uvx --from "baton-orchestrator[mcp]" baton-mcp`.
+
 ## [0.2.0] - 2026-07-24
 
 ### Added
@@ -163,6 +172,7 @@ All notable changes to this project are documented here. The format is based on
 - The Code of Conduct now routes reports to a **private** channel (maintainer email / private GitHub
   Security Advisory) instead of the public issue tracker, and is linked from CONTRIBUTING and the README.
 
-[Unreleased]: https://github.com/ribato22/baton/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ribato22/baton/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/ribato22/baton/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ribato22/baton/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ribato22/baton/releases/tag/v0.1.0
