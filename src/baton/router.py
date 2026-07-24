@@ -35,14 +35,23 @@ def _rank_key(m: ModelInfo) -> tuple[float, int, str]:
     return (_cash(m), m.tier, m.id)
 
 
+def _quality_key(m: ModelInfo) -> tuple[int, float, str]:
+    # QUALITY objective (the default): the STRONGEST model capable of the task first
+    # (tier descending) so the best available model answers each task; among equally
+    # strong models, prefer the one that costs no cash (subscription $0 before card),
+    # then id for determinism.
+    return (-m.tier, _cash(m), m.id)
+
+
 class Router:
-    def __init__(self, registry: Registry, *, prefer: str = "cash_protect_quota") -> None:
+    def __init__(self, registry: Registry, *, prefer: str = "quality") -> None:
         self._registry = registry
-        # prefer is one of "cash_protect_quota" | "quality" | "local" | "cheap".
-        # `route_ranked` below currently implements ONLY the cash_protect_quota
-        # objective (the default) and never reads `self._prefer`; the other three
-        # values are accepted (validated by the CLI) but not yet honored -- they
-        # are reserved for a future routing objective implementation.
+        # prefer is one of "quality" (default) | "cash_protect_quota" | "local" | "cheap".
+        # `route_ranked` implements two objectives: "quality" picks the STRONGEST model
+        # capable of each task (best answer), and "cash_protect_quota" right-sizes among
+        # tier-adequate models to protect subscription quota. "local"/"cheap" are accepted
+        # (validated by the CLI) but currently behave as "quality"; they are reserved for
+        # future dedicated objectives.
         self._prefer = prefer
 
     def route_ranked(self, task: Task) -> list[str]:
@@ -56,6 +65,14 @@ class Router:
                 f"no model matches strengths={strengths} "
                 f"needs_tools={needs_tools} for task {task.id!r}"
             )
+        if self._prefer != "cash_protect_quota":
+            # "quality" (default) + reserved objectives: the strongest capable model
+            # first (no right-sizing), with the rest as a strongest-to-weakest reroute
+            # order. Difficulty is not used to filter here — quality always answers with
+            # the best available model, even for an easy task.
+            return [m.id for m in sorted(candidates, key=_quality_key)]
+        # cash_protect_quota: right-size among tier-adequate models to protect
+        # subscription quota; use stronger/subscription models only where unavoidable.
         desired = _DESIRED_TIER.get(task.difficulty, 3)  # unknown -> medium (3)
         adequate = [m for m in candidates if m.tier >= desired]
         if not adequate:

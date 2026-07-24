@@ -24,7 +24,7 @@ def _default_runtime_factory(prefer: str | None) -> Callable[[], Any]:
 
     registry, providers, model_id = build_providers_from_env(include_subscription=True)
     return make_runtime_factory(
-        registry, providers, model_id, prefer=prefer or "cash_protect_quota"
+        registry, providers, model_id, prefer=prefer or "quality"
     )
 
 
@@ -89,10 +89,10 @@ def build_server(runtime_factory: Callable[[], Any] | None = None) -> Any:
     @server.tool()
     async def baton_run(goal: str, prefer: str | None = None) -> str:
         """Orchestrate GOAL across the configured models. Baton plans a task DAG,
-        routes each sub-task to the model best suited to it (by strengths and
-        difficulty), runs it one-shot or in an agentic tool loop, then synthesizes one
+        routes each sub-task to the best-quality model capable of it (by strengths and
+        tool support), runs it one-shot or in an agentic tool loop, then synthesizes one
         final answer. Returns that answer plus a status/cost footer. `prefer` optionally
-        sets the routing objective."""
+        sets the routing objective (default "quality")."""
         result = await run_goal(goal, prefer=prefer, runtime_factory=runtime_factory)
         return format_result(result)
 

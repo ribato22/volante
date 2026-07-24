@@ -6,9 +6,9 @@
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 
 **A cross-provider multi-model AI orchestration engine.** A *supervisor* model decomposes a goal
-into a task DAG, *routes* each sub-task to the model best suited to it — by required strengths and
-difficulty — across providers (Anthropic, any OpenAI-compatible endpoint, Ollama), runs them
-one-shot or in an agentic tool loop, and *synthesizes* a final answer. Built without an
+into a task DAG, *routes* each sub-task to the best-quality model capable of it — by required
+strengths and tool support — across providers (Anthropic, any OpenAI-compatible endpoint, Ollama),
+runs them one-shot or in an agentic tool loop, and *synthesizes* a final answer. Built without an
 orchestration framework (no LangChain / CrewAI / LiteLLM).
 
 > One conductor, many players — pass the *baton* from the leader model to the workers and back.
@@ -18,7 +18,8 @@ orchestration framework (no LangChain / CrewAI / LiteLLM).
 ## Highlights
 
 - **Supervisor + routing.** An LLM plans a validated, acyclic task DAG; a router sends each task
-  to a model matched to it — by required strengths, tool support, and difficulty tier.
+  to the strongest model capable of it (by required strengths + tool support). `--prefer
+  cash_protect_quota` right-sizes instead, to protect subscription quota.
 - **Cross-provider.** `AnthropicProvider` and a generic `OpenAICompatProvider` speak to Anthropic,
   Google AI Studio (Gemini), Groq, OpenRouter, DeepSeek, Moonshot (Kimi), local Ollama, and any
   other OpenAI-compatible endpoint — no code changes, just env vars.
@@ -45,8 +46,8 @@ orchestration framework (no LangChain / CrewAI / LiteLLM).
    goal ──────────► │  Supervisor  │  plan → validated task DAG (acyclic, typed, one_shot|agentic)
                     └──────┬───────┘
                            ▼
-                    ┌──────────────┐   per task: pick the model whose strengths + tool support
-                    │    Router    │   fit the task, sized to its difficulty
+                    ┌──────────────┐   per task: pick the strongest model whose strengths +
+                    │    Router    │   tool support fit the task (quality-first)
                     └──────┬───────┘
                            ▼
         ┌───────────── wave execution (asyncio, fan-out cap, fail-fast) ─────────────┐
@@ -74,7 +75,7 @@ orchestration framework (no LangChain / CrewAI / LiteLLM).
 | Component | File | Responsibility |
 |---|---|---|
 | Supervisor | `src/baton/supervisor.py` | Decompose goal → validated task DAG |
-| Router | `src/baton/router.py` | Task → model by strengths, tool support, and difficulty tier |
+| Router | `src/baton/router.py` | Task → strongest capable model (by strengths + tool support) |
 | Projector | `src/baton/projector.py` | Scoped, budget-capped request from blackboard artifacts |
 | Worker | `src/baton/worker.py` | One-shot model call |
 | AgenticWorker | `src/baton/agent.py` | Model↔tool loop with per-turn records |
@@ -165,7 +166,7 @@ then prints a summary. Flags (`baton --help`):
 
 | Flag | Description |
 |---|---|
-| `--prefer {cash_protect_quota,quality,local,cheap}` | routing objective (default `cash_protect_quota`); **only `cash_protect_quota` is currently active** — the other choices are accepted but reserved for future use |
+| `--prefer {quality,cash_protect_quota,local,cheap}` | routing objective (default `quality` — the strongest model capable of each task). `cash_protect_quota` right-sizes to protect subscription quota; `local`/`cheap` are accepted but currently behave as `quality` |
 | `--provider NAME` / `-P NAME` | restrict the planner/synth baseline to this provider |
 | `--model ID` | override the planner/synth `model_id` |
 | `--json` | print the run summary as one parseable JSON line; disables streaming |
@@ -237,8 +238,10 @@ uv run baton "your goal"
 
 > ⚠️ **Subscription runs are cash-free but consume your interactive Claude Code / Codex quota** —
 > the same pool your interactive coding sessions draw from. A heavy orchestration run can trip a
-> rate-limit pause. The default `cash_protect_quota` objective mitigates this by sending bulk/easy
-> work to cheaper local/free-tier models and reserving subscription models for hard tasks only.
+> rate-limit pause. The default `quality` objective favors the strongest capable model per task,
+> which can lean on subscription models. Pass `--prefer cash_protect_quota` to mitigate this — it
+> sends bulk/easy work to cheaper local/free-tier models and reserves subscription models for hard
+> tasks only.
 > A card-billed, free-tier, or local model as **planner** is recommended: subscription CLIs ignore
 > `temperature`, so Baton retries planning with self-correction and can gate `claude -p` as planner
 > behind a live parse-plan check (it only plans if it demonstrably emits valid plan JSON).

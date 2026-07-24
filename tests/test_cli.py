@@ -28,7 +28,7 @@ from baton.worker import Worker
 def test_parse_args_defaults() -> None:
     args = cli._parse_args(["build a thing"])
     assert args.goal == "build a thing"
-    assert args.prefer == "cash_protect_quota"  # §7.2 CLI default objective
+    assert args.prefer == "quality"  # CLI default objective: strongest capable model
     assert args.provider is None
     assert args.model is None
     assert args.json is False

@@ -278,15 +278,14 @@ def test_make_runtime_factory_threads_prefer_into_router():
     assert runtime.router._prefer == "cash_protect_quota"
 
 
-def test_make_runtime_factory_default_prefer_is_cash_protect_quota_back_compat():
-    # Genuine back-compat: pre-branch `Router(registry)` defaulted to
-    # "cash_protect_quota" (Router's own default). Existing callers (demo.py,
-    # webui/server.py, tests/eval) call make_runtime_factory(registry, providers,
-    # model_id) with no `prefer` -> must still land on that same default, not "quality".
+def test_make_runtime_factory_default_prefer_is_quality():
+    # The default objective is "quality" (strongest capable model per task), matching
+    # Router's own default. Callers that pass no `prefer` (demo.py, webui/server.py,
+    # tests/eval) land on quality; cash_protect_quota is opt-in.
     registry = Registry([_model("api/y", billing="card", tier=3)])
     providers = {"api/y": FakeProvider()}
     runtime = make_runtime_factory(registry, providers, "api/y")()
-    assert runtime.router._prefer == "cash_protect_quota"
+    assert runtime.router._prefer == "quality"
 
 
 def _plan_resp(payload: str) -> CanonicalResponse:

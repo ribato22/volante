@@ -317,3 +317,46 @@ def test_no_tier_adequate_falls_back_to_best_effort():
     router = Router(Registry(ollama_only), prefer="cash_protect_quota")
     ranked = router.route_ranked(_task("code", difficulty="medium"))
     assert ranked == ["ollama/llama3.2"]
+
+
+# --- quality objective (the default) -------------------------------------------------
+
+
+def test_quality_is_the_default_objective():
+    assert Router(Registry(_models()))._prefer == "quality"
+
+
+def test_quality_picks_strongest_capable_model_not_the_cheapest():
+    # Default = quality: pick the STRONGEST model that can do the task. For a medium
+    # code task, cash_protect_quota would right-size to kimi (tier 3, cheap direct);
+    # quality instead uses a tier-4 opus. Among the two tier-4 opus, the one that costs
+    # no cash (claude-code, plan_included) wins the tiebreak over the card opus.
+    router = Router(Registry(_tiered_models()))  # default objective
+    assert router.route(_task("code", difficulty="medium")) == "claude-code/opus"
+
+
+def test_quality_ranks_strongest_to_weakest_for_reroute():
+    router = Router(Registry(_tiered_models()), prefer="quality")
+    ranked = router.route_ranked(_task("code", difficulty="medium"))
+    # tier desc; tier-4 opus pair ordered by cash ($0 subscription before card),
+    # then kimi (tier 3), then ollama (tier 1) as the last-resort reroute step.
+    assert ranked == [
+        "claude-code/opus",
+        "anthropic/opus",
+        "kimi/kimi-k2",
+        "ollama/llama3.2",
+    ]
+
+
+def test_quality_does_not_right_size_even_for_a_trivial_task():
+    router = Router(Registry(_tiered_models()), prefer="quality")
+    # cash_protect_quota picks free ollama for a trivial task; quality still answers
+    # with the strongest capable model.
+    assert router.route(_task("code", difficulty="trivial")) == "claude-code/opus"
+
+
+def test_quality_reserved_objectives_behave_as_quality():
+    # "local"/"cheap" are accepted but not yet dedicated objectives -> behave as quality.
+    for prefer in ("local", "cheap"):
+        router = Router(Registry(_tiered_models()), prefer=prefer)
+        assert router.route(_task("code", difficulty="medium")) == "claude-code/opus"
