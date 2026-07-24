@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **MCPB bundle (Claude Desktop + Smithery).** A one-file [`mcpb/`](mcpb/) manifest packs into a
+  `baton-<version>.mcpb` (attached to each release) — open it in Claude Desktop for a one-click
+  install with a provider-config UI, or upload it as a local server at smithery.ai/new. It wraps
+  `uvx --from "baton-orchestrator[mcp]" baton-mcp`, so it runs locally (subscription CLIs + API keys
+  work). Built/validated with `@anthropic-ai/mcpb`.
 - **Multi-client MCP docs + Smithery manifest.** A [`smithery.yaml`](smithery.yaml) (stdio +
   provider config schema) for listing on [smithery.ai](https://smithery.ai), plus a README section
   with exact config for OpenAI Codex CLI (`codex mcp add …`), Gemini CLI, Cursor, Windsurf, and

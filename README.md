@@ -376,9 +376,13 @@ marketplace — they consume MCP servers via config. Point them at the same laun
 Set your providers in each client's `env` block (`CLAUDE_CODE_ENABLED`, `CODEX_ENABLED`,
 `ANTHROPIC_API_KEY`, `OPENAI_COMPAT_*`).
 
-**Smithery.** A [`smithery.yaml`](smithery.yaml) is included; to list Baton on
-[smithery.ai](https://smithery.ai), sign in there with GitHub and connect/deploy the repo from the
-dashboard (a manual step on your own Smithery account — it can't be automated on your behalf).
+**Claude Desktop & Smithery — MCPB bundle.** A one-file [MCPB bundle](mcpb/) is attached to each
+[release](https://github.com/ribato22/baton/releases) as `baton-<version>.mcpb`. **Open it in Claude
+Desktop** for a one-click install (it shows a provider-config UI), or **upload it as a *local* server
+at [smithery.ai/new](https://smithery.ai/new)**. The bundle just wraps `uvx --from
+"baton-orchestrator[mcp]" baton-mcp`, so it runs locally and your subscription CLIs + API keys work as
+usual (needs `uv` on PATH). The included [`smithery.yaml`](smithery.yaml) targets Smithery's
+alternative GitHub-hosted deploy path.
 
 ## Providers
 
