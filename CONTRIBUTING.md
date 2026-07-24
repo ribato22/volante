@@ -1,6 +1,6 @@
 # Contributing to Baton
 
-Thanks for your interest! Baton is a from-scratch study of multi-model orchestration, so clarity and
+Thanks for your interest! Baton is a study of multi-model orchestration, so clarity and
 correctness matter more than feature count.
 
 ## Development setup
@@ -24,8 +24,9 @@ uv run pytest -m integration     # opt in (needs provider keys / a Docker daemon
 - **Test-driven.** Add or update tests with every behavior change; keep the suite green and
   zero-network by default (use `FakeProvider` and local subprocesses).
 - **Small, focused changes.** Match the surrounding code's naming, comment density, and idioms.
-- **No orchestration frameworks.** The engine is intentionally built from scratch; provider adapters
-  may use the official `anthropic` / `openai` SDKs behind the `LLMProvider` interface.
+- **No orchestration frameworks.** The engine is intentionally built without one (no LangChain /
+  CrewAI / LiteLLM); provider adapters may use the official `anthropic` / `openai` SDKs behind the
+  `LLMProvider` interface.
 - **Be honest about security.** If a change touches isolation or the eval scorer, state the exact
   guarantee and its limits (see [SECURITY.md](SECURITY.md)); don't overclaim.
 

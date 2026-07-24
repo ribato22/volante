@@ -46,3 +46,6 @@ Thumbs.db
 
 # Playwright MCP scratch (screenshots/snapshots)
 .playwright-mcp/
+
+# Internal AI-workflow design/plan docs are intentionally not part of the repo.
+docs/superpowers/

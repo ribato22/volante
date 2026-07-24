@@ -5,11 +5,11 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](pyproject.toml)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 
-**A from-scratch, cross-provider multi-model AI orchestration engine.** A *supervisor* model
-decomposes a goal into a task DAG, *routes* each sub-task to the best model — across providers
-(Anthropic, any OpenAI-compatible endpoint, Ollama) — runs them one-shot or in an agentic tool
-loop, and *synthesizes* a final answer. Built without an orchestration framework (no LangChain /
-CrewAI / LiteLLM) as a study of how these systems actually work under the hood.
+**A cross-provider multi-model AI orchestration engine.** A *supervisor* model decomposes a goal
+into a task DAG, *routes* each sub-task to the model best suited to it — by required strengths and
+difficulty — across providers (Anthropic, any OpenAI-compatible endpoint, Ollama), runs them
+one-shot or in an agentic tool loop, and *synthesizes* a final answer. Built without an
+orchestration framework (no LangChain / CrewAI / LiteLLM).
 
 > One conductor, many players — pass the *baton* from the leader model to the workers and back.
 
@@ -18,7 +18,7 @@ CrewAI / LiteLLM) as a study of how these systems actually work under the hood.
 ## Highlights
 
 - **Supervisor + routing.** An LLM plans a validated, acyclic task DAG; a router sends each task
-  to the cheapest model whose strengths (and tool support) match.
+  to a model matched to it — by required strengths, tool support, and difficulty tier.
 - **Cross-provider.** `AnthropicProvider` and a generic `OpenAICompatProvider` speak to Anthropic,
   Google AI Studio (Gemini), Groq, OpenRouter, DeepSeek, Moonshot (Kimi), local Ollama, and any
   other OpenAI-compatible endpoint — no code changes, just env vars.
@@ -45,8 +45,8 @@ CrewAI / LiteLLM) as a study of how these systems actually work under the hood.
    goal ──────────► │  Supervisor  │  plan → validated task DAG (acyclic, typed, one_shot|agentic)
                     └──────┬───────┘
                            ▼
-                    ┌──────────────┐   per task: pick cheapest model whose strengths + tool
-                    │    Router    │   support match the task type
+                    ┌──────────────┐   per task: pick the model whose strengths + tool support
+                    │    Router    │   fit the task, sized to its difficulty
                     └──────┬───────┘
                            ▼
         ┌───────────── wave execution (asyncio, fan-out cap, fail-fast) ─────────────┐
@@ -74,7 +74,7 @@ CrewAI / LiteLLM) as a study of how these systems actually work under the hood.
 | Component | File | Responsibility |
 |---|---|---|
 | Supervisor | `src/baton/supervisor.py` | Decompose goal → validated task DAG |
-| Router | `src/baton/router.py` | Task → model by strengths + tool support (cheapest match) |
+| Router | `src/baton/router.py` | Task → model by strengths, tool support, and difficulty tier |
 | Projector | `src/baton/projector.py` | Scoped, budget-capped request from blackboard artifacts |
 | Worker | `src/baton/worker.py` | One-shot model call |
 | AgenticWorker | `src/baton/agent.py` | Model↔tool loop with per-turn records |
@@ -409,7 +409,7 @@ demo.py               # end-to-end demo (orchestrate | agentic | eval)
 
 ## Non-goals
 
-Baton is a from-scratch **study engine** for multi-model orchestration, not a production framework.
+Baton is a **study engine** for multi-model orchestration, not a production framework.
 It deliberately avoids LangChain, LiteLLM, and CrewAI — the point is to see how a supervisor, router,
 projector, and blackboard actually work under the hood, not to hide them behind an abstraction. Don't
 adopt it as a drop-in production agent framework; treat it as a reference implementation to read,

@@ -89,9 +89,10 @@ def build_server(runtime_factory: Callable[[], Any] | None = None) -> Any:
     @server.tool()
     async def baton_run(goal: str, prefer: str | None = None) -> str:
         """Orchestrate GOAL across the configured models. Baton plans a task DAG,
-        routes each sub-task to the cheapest capable model, runs it one-shot or in an
-        agentic tool loop, then synthesizes one final answer. Returns that answer plus
-        a status/cost footer. `prefer` optionally sets the routing objective."""
+        routes each sub-task to the model best suited to it (by strengths and
+        difficulty), runs it one-shot or in an agentic tool loop, then synthesizes one
+        final answer. Returns that answer plus a status/cost footer. `prefer` optionally
+        sets the routing objective."""
         result = await run_goal(goal, prefer=prefer, runtime_factory=runtime_factory)
         return format_result(result)
 
