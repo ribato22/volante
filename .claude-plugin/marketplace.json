@@ -1,6 +1,6 @@
 {
   "name": "volante",
-  "description": "Volante — a cross-provider multi-model AI orchestration engine for Claude Code (MCP server + /volante:run command).",
+  "description": "Volante \u2014 a transparent, user-owned model router and orchestration control plane for Claude Code (MCP server + /volante:run command).",
   "owner": {
     "name": "ribato22"
   },
@@ -8,7 +8,7 @@
     {
       "name": "volante",
       "source": "./plugins/volante",
-      "description": "Multi-model AI orchestration: plan a task DAG, route each task to the best capable model. Bundles the Volante MCP server (volante_run) plus a /volante:run command."
+      "description": "Multi-model orchestration: plan a task DAG, then route each task to the best predicted fit from configured metadata/evidence after hard-capability filtering. Bundles the Volante MCP server (volante_run) plus a /volante:run command."
     }
   ]
 }

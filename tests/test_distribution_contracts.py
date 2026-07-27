@@ -250,6 +250,9 @@ def test_distribution_surfaces_describe_evidence_based_routing_without_overclaim
     paths = (
         "server.json",
         "mcpb/manifest.json",
+        # The marketplace entry is a distribution surface too: it was carrying the
+        # forbidden "best capable model" wording precisely because it was not listed.
+        ".claude-plugin/marketplace.json",
         "plugins/volante/commands/run.md",
         "plugins/volante/skills/orchestrate/SKILL.md",
     )
