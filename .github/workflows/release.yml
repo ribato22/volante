@@ -130,9 +130,16 @@ jobs:
               entry["filename"]: entry["digests"]["sha256"]
               for entry in json.load(open("pypi.json"))["urls"]
           }
-          built = sorted(pathlib.Path("dist").iterdir())
+          # ONLY the distribution files. The publish action drops sidecars into dist/
+          # (`*.publish.attestation`, and uv leaves a `.gitignore`); those are not PyPI
+          # "files", so treating them as such fails a publish that actually succeeded.
+          built = sorted(
+              path
+              for path in pathlib.Path("dist").iterdir()
+              if path.name.endswith((".whl", ".tar.gz"))
+          )
           if not built:
-              sys.exit("::error::no built artifacts to verify")
+              sys.exit("::error::no built distributions to verify")
           failures = []
           for path in built:
               local = hashlib.sha256(path.read_bytes()).hexdigest()

@@ -296,3 +296,6 @@ def test_release_verifies_pypi_serves_the_built_artifacts() -> None:
     assert "Verify PyPI actually serves THESE artifacts" in workflow
     assert "pypi.org/pypi/volante/${version}/json" in workflow
     assert 'digests"]["sha256' in workflow
+    # Only real distributions are compared: the publish action writes
+    # `*.publish.attestation` sidecars into dist/, which are not PyPI files.
+    assert '.whl", ".tar.gz"' in workflow
