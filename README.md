@@ -3,6 +3,8 @@
 [![CI](https://github.com/ribato22/volante/actions/workflows/ci.yml/badge.svg)](https://github.com/ribato22/volante/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/ribato22/volante/blob/main/LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+[![PyPI](https://img.shields.io/pypi/v/volante.svg)](https://pypi.org/project/volante/)
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-listed-8b5cf6.svg)](https://registry.modelcontextprotocol.io)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 
 **A transparent, user-owned model router and orchestration control plane (alpha).** A *supervisor*
