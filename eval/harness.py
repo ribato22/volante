@@ -14,22 +14,27 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from baton.agent import AgenticWorker
-from baton.cost import CostMeter
-from baton.providers.base import ProviderError
-from baton.tools.run_python import RunPythonTool
-from baton.tools.sandbox import sandbox_for
-from baton.types import CanonicalRequest, TextBlock, text
+from volante.agent import AgenticWorker
+from volante.cost import CostMeter
+from volante.providers.base import ProviderError
+from volante.tools.run_python import RunPythonTool
+from volante.tools.sandbox import sandbox_for
+from volante.types import (
+    CanonicalRequest,
+    CapabilityUnavailableError,
+    TextBlock,
+    text,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from eval.tasks import EvalTask
 
-    from baton.providers.base import LLMProvider
-    from baton.registry import Registry
-    from baton.runtime import Runtime
-    from baton.types import CanonicalResponse, RunResult, Usage
+    from volante.providers.base import LLMProvider
+    from volante.registry import Registry
+    from volante.runtime import Runtime
+    from volante.types import CanonicalResponse, RunResult, Usage
 
 EVAL_TEMPERATURE: float = 0.0
 EVAL_K: int = 2
@@ -406,7 +411,7 @@ async def run_agentic_single(
             res = await worker.run(req, model_id, tools)
             final_text = res.final_text
             usage_total = res.usage_total
-        except ProviderError as exc:
+        except (ProviderError, CapabilityUnavailableError) as exc:
             # Jangan telan diam-diam: catat sebab. Solusi di disk (bila model sempat
             # menulisnya sebelum gagal) tetap dinilai; kalau tak ada, error yang
             # disurface membedakan kegagalan arm dari solusi 0.0 sungguhan.
@@ -576,20 +581,23 @@ async def run_suite(
         o_scores: list[dict[str, float]] = []
         a_scores: list[dict[str, float]] = []
         a_errors: list[str] = []
-        b_last: BaselineResult | None = None
-        o_last: RunResult | None = None
-        a_last: AgenticArmResult | None = None
+        b_runs: list[BaselineResult] = []
+        o_runs: list[RunResult] = []
+        a_runs: list[AgenticArmResult] = []
         for _ in range(k):
-            b_last = await run_baseline(t.goal, baseline_provider, model_id, registry)
-            o_last = await run_orchestration(t.goal, make_runtime())
-            a_last = await run_agentic_single(
+            b_run = await run_baseline(t.goal, baseline_provider, model_id, registry)
+            o_run = await run_orchestration(t.goal, make_runtime())
+            a_run = await run_agentic_single(
                 t.goal, baseline_provider, model_id, registry
             )
-            b_scores.append(score_task(b_last.output, t.reference_test))
-            o_scores.append(score_task(o_last.final or "", t.reference_test))
-            a_scores.append(score_agentic(a_last, t.reference_test))
-            if a_last.error is not None:
-                a_errors.append(a_last.error)
+            b_runs.append(b_run)
+            o_runs.append(o_run)
+            a_runs.append(a_run)
+            b_scores.append(score_task(b_run.output, t.reference_test))
+            o_scores.append(score_task(o_run.final or "", t.reference_test))
+            a_scores.append(score_agentic(a_run, t.reference_test))
+            if a_run.error is not None:
+                a_errors.append(a_run.error)
         b_mean = mean_scores(b_scores)
         o_mean = mean_scores(o_scores)
         a_mean = mean_scores(a_scores)
@@ -601,23 +609,37 @@ async def run_suite(
         arms = {
             "baseline": {
                 "composite": b_mean["composite"],
-                "cost": b_last.cost_usd,
-                "ms": b_last.duration_ms,
-                "estimated": any(u.estimated for u in b_last.usage_total.values()),
+                # Cost is the actual total spent across all k repetitions; latency is
+                # the mean observed duration so reports remain comparable across k.
+                "cost": sum(run.cost_usd for run in b_runs),
+                "ms": round(sum(run.duration_ms for run in b_runs) / len(b_runs)),
+                "estimated": any(
+                    usage.estimated
+                    for run in b_runs
+                    for usage in run.usage_total.values()
+                ),
                 "measured": b_measured,
             },
             "orchestration": {
                 "composite": o_mean["composite"],
-                "cost": o_last.cost_usd,
-                "ms": o_last.duration_ms,
-                "estimated": any(u.estimated for u in o_last.usage_total.values()),
+                "cost": sum(run.cost_usd for run in o_runs),
+                "ms": round(sum(run.duration_ms for run in o_runs) / len(o_runs)),
+                "estimated": any(
+                    usage.estimated
+                    for run in o_runs
+                    for usage in run.usage_total.values()
+                ),
                 "measured": o_measured,
             },
             "agentic": {
                 "composite": a_mean["composite"],
-                "cost": a_last.cost_usd,
-                "ms": a_last.duration_ms,
-                "estimated": any(u.estimated for u in a_last.usage_total.values()),
+                "cost": sum(run.cost_usd for run in a_runs),
+                "ms": round(sum(run.duration_ms for run in a_runs) / len(a_runs)),
+                "estimated": any(
+                    usage.estimated
+                    for run in a_runs
+                    for usage in run.usage_total.values()
+                ),
                 "measured": a_measured,
                 # Jumlah iterasi (dari k) yang gagal terminal + sampel sebab.
                 # composite-nya bisa 0.0 karena INFRA, bukan kapabilitas.

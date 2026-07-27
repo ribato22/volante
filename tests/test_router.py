@@ -4,9 +4,9 @@ import logging
 
 import pytest
 
-from baton.registry import Registry
-from baton.router import Router
-from baton.types import ModelInfo, Task
+from volante.registry import Registry
+from volante.router import Router
+from volante.types import ModelInfo, Task
 
 
 def _models() -> list[ModelInfo]:
@@ -60,22 +60,23 @@ def _task(type_: str, mode: str = "one_shot", difficulty: str = "medium") -> Tas
     )
 
 
-def test_route_code_picks_cheapest_coding_model():
+def test_route_code_picks_best_metadata_fit_then_cost_tiebreak():
     router = Router(Registry(_models()))
-    # coding candidates: opus (out=75), haiku (out=4), local-coder (out=0.2)
-    assert router.route(_task("code")) == "openai_compat/local-coder"
+    # All three coding models have the same coarse tier. Haiku and Opus have more
+    # context/output headroom than local-coder; price only breaks their quality tie.
+    assert router.route(_task("code")) == "anthropic/claude-haiku"
 
 
-def test_route_research_picks_cheapest_reasoning_model():
+def test_route_research_rewards_relevant_long_context_capability():
     router = Router(Registry(_models()))
-    # reasoning candidates: opus (out=75), reasoner (out=6)
-    assert router.route(_task("research")) == "openai_compat/reasoner"
+    assert router.route(_task("research")) == "anthropic/claude-opus-4-8"
 
 
 def test_route_write_and_analyze_use_reasoning_strength():
     router = Router(Registry(_models()))
     assert router.route(_task("write")) == "openai_compat/reasoner"
-    assert router.route(_task("analyze")) == "openai_compat/reasoner"
+    # Analyze additionally benefits from the declared long_context strength.
+    assert router.route(_task("analyze")) == "anthropic/claude-opus-4-8"
 
 
 def test_route_agentic_requires_tool_capable_model():
@@ -107,7 +108,7 @@ def test_single_default_seed_routes_every_one_shot_task_type() -> None:
     # Regresi (audit-important): dengan HANYA satu provider default (mis. Ollama/Kimi
     # gratis), router harus bisa mengarahkan setiap jenis task one-shot -> orkestrasi
     # penuh (demo.py orchestrate) tak gagal routing untuk konfigurasi tunggal.
-    from baton.registry import default_models
+    from volante.registry import default_models
 
     for seed in default_models():
         router = Router(Registry([seed]))
@@ -189,14 +190,17 @@ def test_hard_task_allows_subscription_ranked_by_cash():
     assert router.route_ranked(_task("code", difficulty="hard")) == [
         "claude-code/opus",
         "anthropic/opus",
+        "ollama/llama3.2",
+        "kimi/kimi-k2",
     ]
 
 
-def test_difficulty_filters_out_low_tier_models():
+def test_difficulty_right_sizes_but_keeps_low_tier_fallbacks():
     router = Router(Registry(_tiered_models()), prefer="cash_protect_quota")
     ranked = router.route_ranked(_task("code", difficulty="hard"))
-    assert "kimi/kimi-k2" not in ranked  # tier 3 < desired 4
-    assert "ollama/llama3.2" not in ranked  # tier 1 < desired 4
+    assert ranked[:2] == ["claude-code/opus", "anthropic/opus"]
+    assert "kimi/kimi-k2" in ranked
+    assert "ollama/llama3.2" in ranked
 
 
 def test_non_hard_uses_direct_only_protecting_quota():
@@ -204,8 +208,8 @@ def test_non_hard_uses_direct_only_protecting_quota():
     # medium -> desired 3: adequate = claude-code(4,sub), anthropic(4,card), kimi(3,card).
     # non-hard -> DIRECT only (subscription excluded); cash: kimi 0.0012 < anthropic 0.075.
     ranked = router.route_ranked(_task("code", difficulty="medium"))
-    assert "claude-code/opus" not in ranked
-    assert ranked == ["kimi/kimi-k2", "anthropic/opus"]
+    assert ranked[:2] == ["kimi/kimi-k2", "anthropic/opus"]
+    assert ranked[-1] == "claude-code/opus"
 
 
 def test_trivial_task_picks_free_local_direct():
@@ -213,7 +217,7 @@ def test_trivial_task_picks_free_local_direct():
     # trivial -> desired 1: all card qualify; free ollama (cash $0) wins, sub excluded.
     ranked = router.route_ranked(_task("code", difficulty="trivial"))
     assert ranked[0] == "ollama/llama3.2"
-    assert "claude-code/opus" not in ranked
+    assert ranked.index("claude-code/opus") > ranked.index("anthropic/opus")
 
 
 def test_non_hard_falls_back_to_subscription_when_no_direct(caplog):
@@ -244,11 +248,11 @@ def test_non_hard_falls_back_to_subscription_when_no_direct(caplog):
         ),
     ]
     router = Router(Registry(sub_only), prefer="cash_protect_quota")
-    with caplog.at_level(logging.INFO, logger="baton.router"):
+    with caplog.at_level(logging.INFO, logger="volante.router"):
         ranked = router.route_ranked(_task("code", difficulty="medium"))
     # medium desired 3: ollama(1) too low -> only subscription is adequate ->
     # best-effort fallback + honest log that quota is being used.
-    assert ranked == ["claude-code/opus"]
+    assert ranked == ["claude-code/opus", "ollama/llama3.2"]
     assert "using quota" in caplog.text
 
 
@@ -287,7 +291,10 @@ def test_cash_tied_subscription_prefers_lower_adequate_tier_cross_provider():
     router = Router(Registry(models), prefer="cash_protect_quota")
     # hard -> desired tier 4: codex (tier 3) is filtered out as inadequate; only
     # claude-code (tier 4) remains.
-    assert router.route_ranked(_task("code", difficulty="hard")) == ["claude-code/x"]
+    assert router.route_ranked(_task("code", difficulty="hard")) == [
+        "claude-code/x",
+        "codex/x",
+    ]
     # medium -> desired tier 3: both are tier-adequate and cash-tied ($0 subscription
     # each) -> right-size to the LOWEST adequate tier -> codex (tier 3) ranks first,
     # distributing work across providers instead of always picking the highest tier.
@@ -355,8 +362,8 @@ def test_quality_does_not_right_size_even_for_a_trivial_task():
     assert router.route(_task("code", difficulty="trivial")) == "claude-code/opus"
 
 
-def test_quality_reserved_objectives_behave_as_quality():
-    # "local"/"cheap" are accepted but not yet dedicated objectives -> behave as quality.
+def test_local_and_cheap_are_real_objectives():
+    # Both objectives select the genuinely free local model in this inventory.
     for prefer in ("local", "cheap"):
         router = Router(Registry(_tiered_models()), prefer=prefer)
-        assert router.route(_task("code", difficulty="medium")) == "claude-code/opus"
+        assert router.route(_task("code", difficulty="medium")) == "ollama/llama3.2"

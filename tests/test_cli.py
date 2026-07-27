@@ -6,28 +6,30 @@ from pathlib import Path
 
 import pytest
 
-import baton.cli as cli
-from baton import __version__
-from baton.cost import CostMeter
-from baton.providers.base import ProviderError
-from baton.providers.fake import FakeProvider
-from baton.registry import Registry
-from baton.runtime import Runtime
-from baton.types import (
+import volante.cli as cli
+from volante import __version__
+from volante.cost import CostMeter
+from volante.providers.base import ProviderError
+from volante.providers.fake import FakeProvider
+from volante.registry import Registry
+from volante.runtime import Runtime
+from volante.types import (
     CanonicalRequest,
     CanonicalResponse,
     ModelInfo,
+    RunResult,
     Task,
     TextBlock,
     Usage,
     text,
 )
-from baton.worker import Worker
+from volante.worker import Worker
 
 
 def test_parse_args_defaults() -> None:
     args = cli._parse_args(["build a thing"])
     assert args.goal == "build a thing"
+    assert args.list_models is False
     assert args.prefer == "quality"  # CLI default objective: strongest capable model
     assert args.provider is None
     assert args.model is None
@@ -44,6 +46,13 @@ def test_parse_args_all_flags() -> None:
     assert args.model == "m1"
     assert args.json is True
     assert args.no_stream is True
+
+
+def test_parse_args_list_models_needs_no_goal() -> None:
+    args = cli._parse_args(["--list-models", "--json"])
+    assert args.goal is None
+    assert args.list_models is True
+    assert args.json is True
 
 
 def test_parse_args_rejects_unknown_prefer() -> None:
@@ -156,6 +165,37 @@ def _one_task_runtime(*, billing: str = "card"):
     return registry, _runtime(registry, providers, {"T1": mid}, plan)
 
 
+def test_build_uses_shared_verified_bootstrap(monkeypatch) -> None:
+    registry, runtime = _one_task_runtime()
+    providers = {"m1": object()}
+    monkeypatch.setattr(
+        cli,
+        "build_providers_from_env",
+        lambda **kwargs: (registry, providers, "m1"),
+    )
+    seen: dict[str, object] = {}
+
+    async def _verified(got_registry, got_providers, model_id, *, prefer):
+        seen.update(
+            registry=got_registry,
+            providers=got_providers,
+            model_id=model_id,
+            prefer=prefer,
+        )
+        return lambda: runtime
+
+    monkeypatch.setattr(cli, "make_verified_runtime_factory", _verified)
+    got_registry, got_runtime = cli._build(cli._parse_args(["do one"]))
+    assert got_registry is registry
+    assert got_runtime is runtime
+    assert seen == {
+        "registry": registry,
+        "providers": providers,
+        "model_id": "m1",
+        "prefer": "quality",
+    }
+
+
 def test_main_no_stream_success_returns_0(monkeypatch, capsys) -> None:
     registry, runtime = _one_task_runtime()
     monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
@@ -169,6 +209,39 @@ def test_main_no_stream_success_returns_0(monkeypatch, capsys) -> None:
     assert "billed_usd: $0.003000" in out
     assert "credit_usd: $0.000000" in out
     assert "duration_ms:" in out
+    assert "route[T1]:" not in out  # legacy stub router has no decision API
+
+
+def test_main_lists_full_model_inventory_without_running_gate(
+    monkeypatch, capsys
+) -> None:
+    models = [
+        _model("provider/a"),
+        ModelInfo(
+            id="local/b",
+            provider="ollama",
+            strengths={"coding", "reasoning"},
+            context_window=16_384,
+            max_output_tokens=2_048,
+            supports_tools=False,
+            cost_per_1k_in=0,
+            cost_per_1k_out=0,
+            tier=2,
+        ),
+    ]
+    registry = Registry(models)
+    monkeypatch.setattr(
+        cli,
+        "build_providers_from_env",
+        lambda **kwargs: (registry, {model.id: object() for model in models}, models[0].id),
+    )
+
+    code = cli.main(["--list-models", "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["count"] == 2
+    assert [item["id"] for item in payload["models"]] == ["provider/a", "local/b"]
 
 
 def test_main_failed_status_returns_1(monkeypatch, capsys) -> None:
@@ -287,7 +360,7 @@ def test_main_planner_provider_error_returns_nonzero_no_traceback(monkeypatch, c
 
 
 class _BrokenStdout:
-    """Simulates a reader that closed the pipe early (`baton goal | head`)."""
+    """Simulates a reader that closed the pipe early (`volante goal | head`)."""
 
     def write(self, s: str) -> int:
         raise BrokenPipeError()
@@ -323,35 +396,135 @@ def test_main_keyboard_interrupt_during_build_returns_130(monkeypatch, capsys) -
     assert "[interrupted]" in capsys.readouterr().out
 
 
-# ---- §7.1 guard: subscription planner must pass the live parse-plan gate ----
-def test_ensure_planner_gate_skips_probe_for_card_planner() -> None:
-    registry = Registry([_model("m1", billing="card")])
-    # A provider that raises if called at all -- the gate must not probe a card planner.
-    providers = {"m1": _Raiser("m1", ProviderError("must not be called", retryable=False))}
-
-    cli._ensure_planner_gate(registry, providers, "m1")  # no raise
-
-
-def test_ensure_planner_gate_passes_for_subscription_planner_with_valid_plan() -> None:
-    registry = Registry([_model("m1", billing="plan_included")])
-    valid = '[{"id":"t1","description":"d","type":"code","mode":"one_shot","depends_on":[]}]'
-    providers = {"m1": FakeProvider(responses=[_resp(valid, "m1")], name="m1")}
-
-    cli._ensure_planner_gate(registry, providers, "m1")  # no raise
-
-
-def test_ensure_planner_gate_raises_for_subscription_planner_that_fails_gate() -> None:
-    registry = Registry([_model("m1", billing="plan_included")])
-    providers = {"m1": FakeProvider(responses=[_resp("not json", "m1")], name="m1")}
-
-    with pytest.raises(RuntimeError, match="parse-plan gate"):
-        cli._ensure_planner_gate(registry, providers, "m1")
-
-
 def test_console_script_declared() -> None:
     root = Path(__file__).resolve().parents[1]  # repo root (tests/ -> ..)
     data = tomllib.loads((root / "pyproject.toml").read_text())
-    assert data["project"]["scripts"]["baton"] == "baton.cli:main"
-    from baton.cli import main
+    assert data["project"]["scripts"]["volante"] == "volante.cli:main"
+    from volante.cli import main
 
     assert callable(main)
+
+
+def test_parse_args_usage_needs_no_goal() -> None:
+    args = cli._parse_args(["--usage"])
+    assert args.goal is None
+    assert args.usage is True
+
+
+def test_main_usage_reports_disabled_ledger(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    monkeypatch.setenv("VOLANTE_USAGE_LOG", "")
+    assert cli.main(["--usage"]) == 0
+    assert "disabled" in capsys.readouterr().out.lower()
+
+
+def test_main_usage_lists_recorded_runs(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: Path
+) -> None:
+    from volante.observability import record_run
+
+    monkeypatch.setenv("VOLANTE_USAGE_LOG", str(tmp_path / "usage.jsonl"))
+    record_run({"status": "success", "billed_usd": 0.02}, goal="teach me routing",
+               prefer="quality", source="mcp")
+    assert cli.main(["--usage"]) == 0
+    out = capsys.readouterr().out
+    assert "teach me routing" in out
+    assert "[mcp]" in out
+
+
+def test_main_usage_json(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: Path
+) -> None:
+    from volante.observability import record_run
+
+    monkeypatch.setenv("VOLANTE_USAGE_LOG", str(tmp_path / "usage.jsonl"))
+    record_run({"status": "success"}, goal="g", prefer="quality", source="cli")
+    assert cli.main(["--usage", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summary"]["total_runs"] == 1
+    assert payload["runs"][0]["goal"] == "g"
+
+
+def _result(*, estimated: bool) -> RunResult:
+    return RunResult(
+        status="success",
+        final="hi",
+        partial_artifacts={},
+        failed_task=None,
+        cost_usd=0.003,
+        duration_ms=1200,
+        billed_usd=0.003,
+        credit_usd=0.0,
+        cost_estimated=estimated,
+    )
+
+
+def _card_registry() -> Registry:
+    return Registry(
+        [
+            ModelInfo(
+                id="m",
+                provider="fake",
+                strengths={"coding"},
+                context_window=1000,
+                max_output_tokens=100,
+                supports_tools=False,
+                cost_per_1k_in=1.0,
+                cost_per_1k_out=1.0,
+                billing="card",
+                tier=3,
+            )
+        ]
+    )
+
+
+def test_summary_marks_estimated_costs() -> None:
+    # The estimate caveat must travel with the dollar figures, not just exist on the
+    # RunResult: a reader of the summary would otherwise treat inferred amounts as
+    # provider-reported.
+    registry = _card_registry()
+    marked = cli._summary_lines(_result(estimated=True), registry)[1]
+    plain = cli._summary_lines(_result(estimated=False), registry)[1]
+    assert "estimated" in marked
+    assert "estimated" not in plain
+
+
+def test_summary_json_exposes_the_estimate_flag() -> None:
+    registry = _card_registry()
+    marked = json.loads(cli._summary_json(_result(estimated=True), registry))
+    plain = json.loads(cli._summary_json(_result(estimated=False), registry))
+    assert marked["cost_estimated"] is True
+    assert plain["cost_estimated"] is False
+
+
+def test_usage_listing_marks_estimated_rows_and_totals(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    ledger = tmp_path / "usage.jsonl"
+    ledger.write_text(
+        json.dumps(
+            {
+                "ts": "2026-07-27T00:00:00Z", "source": "mcp", "status": "success",
+                "goal": "g", "billed_usd": 4.0, "credit_usd": 1.0, "duration_ms": 10,
+                "subscription_calls": 0, "cost_estimated": True,
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "ts": "2026-07-27T00:00:01Z", "source": "cli", "status": "success",
+                "goal": "h", "billed_usd": 0.4, "credit_usd": 0.1, "duration_ms": 10,
+                "subscription_calls": 0, "cost_estimated": False,
+            }
+        )
+        + "\n"
+    )
+    monkeypatch.setenv("VOLANTE_USAGE_LOG", str(ledger))
+
+    assert cli.main(["--usage"]) == 0
+
+    out = capsys.readouterr().out
+    assert "cash ~$4.0000" in out  # estimated row is marked
+    assert "cash  $0.4000" in out  # authoritative row is not
+    assert "of which estimated: 1 run(s)" in out  # the aggregate says so too

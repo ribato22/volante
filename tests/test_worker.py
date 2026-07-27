@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from baton.cost import CostMeter
-from baton.providers.fake import FakeProvider
-from baton.registry import Registry
-from baton.types import (
+from volante.cost import CostMeter
+from volante.providers.base import IncompleteOutputError
+from volante.providers.fake import FakeProvider
+from volante.registry import Registry
+from volante.types import (
     CanonicalRequest,
     CanonicalResponse,
     ModelInfo,
@@ -13,7 +14,7 @@ from baton.types import (
     Usage,
     text,
 )
-from baton.worker import Worker
+from volante.worker import Worker
 
 
 def _resp(
@@ -22,6 +23,7 @@ def _resp(
     prompt: int = 1,
     completion: int = 1,
     estimated: bool = False,
+    stop_reason: str = "end_turn",
 ) -> CanonicalResponse:
     return CanonicalResponse(
         content=[TextBlock(text=s)],
@@ -31,7 +33,7 @@ def _resp(
             estimated=estimated,
         ),
         model="m",
-        stop_reason="end_turn",
+        stop_reason=stop_reason,
         latency_ms=1,
     )
 
@@ -158,9 +160,8 @@ async def test_run_one_shot_streams_when_on_text_given() -> None:
 
 
 async def test_run_one_shot_forwards_cost_usd_to_credit_ledger() -> None:
-    # §5.3: a subscription CLI-agent provider's authoritative CanonicalResponse.cost_usd
-    # (e.g. Claude Code / Codex total_cost_usd) must reach CostMeter's credit ledger via
-    # add(model_id, usage, cost_usd=...) — the single sanctioned exception.
+    # A subscription CLI-agent provider's authoritative CanonicalResponse.cost_usd
+    # (e.g. Claude Code / Codex total_cost_usd) must reach CostMeter's credit ledger.
     meter = CostMeter()
     resp = CanonicalResponse(
         content=[TextBlock(text="from-sub")],
@@ -206,3 +207,29 @@ async def test_run_one_shot_provider_error_records_nothing() -> None:
         await worker.run_one_shot(_req(), "model-x")
 
     assert meter.totals() == {}
+
+
+@pytest.mark.parametrize("stop_reason", ["max_tokens", "content_filter"])
+async def test_run_one_shot_rejects_incomplete_output_after_metering(
+    stop_reason: str,
+) -> None:
+    meter = CostMeter()
+    provider = FakeProvider(
+        responses=[
+            _resp(
+                "partial",
+                prompt=7,
+                completion=11,
+                stop_reason=stop_reason,
+            )
+        ]
+    )
+    worker = Worker({"model": provider}, meter)
+
+    with pytest.raises(IncompleteOutputError) as exc_info:
+        await worker.run_one_shot(_req(), "model")
+
+    assert exc_info.value.phase == "worker"
+    assert exc_info.value.stop_reason == stop_reason
+    assert exc_info.value.error_code == "incomplete_output"
+    assert meter.totals()["model"] == Usage(7, 11)

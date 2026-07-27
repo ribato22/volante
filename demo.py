@@ -11,8 +11,10 @@ Env read: ANTHROPIC_API_KEY, MOONSHOT_API_KEY (+MOONSHOT_BASE_URL), OLLAMA_BASE_
 a generic OpenAI-compatible slot OPENAI_COMPAT_BASE_URL (+OPENAI_COMPAT_KEY,
 OPENAI_COMPAT_MODEL, optional OPENAI_COMPAT_NAME/_CONTEXT/_MAX_OUTPUT/_TOOLS/_COST_IN/
 _COST_OUT) for Gemini/Groq/OpenRouter/DeepSeek/etc.,
-BATON_SANDBOX=docker (real container isolation; needs Docker up; default subprocess;
-legacy AIORCH_SANDBOX name still works),
+VOLANTE_SANDBOX=docker (real container isolation; needs Docker up). Unset auto-selects
+Docker when its daemon answers and otherwise disables code execution; VOLANTE_SANDBOX=subprocess
+opts in to running model-generated code with your files and network (legacy AIORCH_SANDBOX
+name still works),
 DEMO_FETCH_ALLOWLIST=example.com,docs.python.org (adds fetch_url tool to the agentic run).
 
   # e.g. free Google AI Studio Gemini Flash (top of the free tier by intelligence):
@@ -34,8 +36,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from baton.agent import TurnRecord
-    from baton.registry import Registry
+    from volante.agent import TurnRecord
+    from volante.registry import Registry
 
 
 def detect_providers(env: dict[str, str]) -> list[str]:
@@ -79,23 +81,30 @@ async def demo_agentic() -> None:
     apa pun yang terkonfigurasi — Anthropic ATAU Kimi (lintas-penyedia)."""
     from eval.run import build_providers_from_env
 
-    from baton.agent import AgenticWorker
-    from baton.cost import CostMeter
-    from baton.tools.factory import build_agentic_tools
-    from baton.types import CanonicalRequest, text
+    from volante.agent import AgenticWorker
+    from volante.cost import CostMeter
+    from volante.tools.factory import build_agentic_tools
+    from volante.tools.sandbox import resolve_sandbox_mode
+    from volante.types import CanonicalRequest, text
 
     registry, providers, _ = build_providers_from_env()
     model_id = pick_agentic_model(registry, providers)
     if model_id is None:
         print("No provider configured. Set ANTHROPIC_API_KEY / MOONSHOT_API_KEY / OLLAMA_BASE_URL.")
         return
-    sandbox = os.environ.get("BATON_SANDBOX") or os.environ.get("AIORCH_SANDBOX", "subprocess")
+    # This demo is ABOUT running model-written code, so say up front (before spending a
+    # provider call) when no sandbox is available, instead of handing the model a tool
+    # set without run_python and failing later on "required tool never invoked".
+    sandbox, reason = resolve_sandbox_mode()
+    if sandbox == "unavailable":
+        print(f"The agentic demo needs a code-execution sandbox: {reason}")
+        return
     print(f"Agentic demo — model={model_id}  sandbox={sandbox}\n")
 
     ws = Path(".runs") / "demo" / uuid.uuid4().hex[:8]
     allow = os.environ.get("DEMO_FETCH_ALLOWLIST")
     domains = {d.strip() for d in allow.split(",") if d.strip()} if allow else None
-    tools = build_agentic_tools(ws, allowed_domains=domains)
+    tools = build_agentic_tools(ws, allowed_domains=domains, sandbox_mode=sandbox)
 
     goal = (
         "There is a bug: add(a, b) currently returns a - b. In a file named solution.py, "

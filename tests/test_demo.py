@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import demo
 
-from baton.agent import TurnRecord
-from baton.registry import Registry
-from baton.types import ModelInfo, Usage
+from volante.agent import TurnRecord
+from volante.registry import Registry
+from volante.types import ModelInfo, Usage
 
 
 def _m(mid: str, tools: bool) -> ModelInfo:

@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from baton.providers.base import ProviderError
-from baton.providers.codex import CodexAdapter, build_codex_model, codex_detected
-from baton.types import CanonicalRequest, Usage, text
+from volante.providers.base import ProviderError
+from volante.providers.codex import CodexAdapter, build_codex_model, codex_detected
+from volante.types import CanonicalRequest, Usage, text
 
 
 def _req(prompt: str = "hi") -> CanonicalRequest:
@@ -28,6 +28,10 @@ def test_argv_has_exec_json_skip_git_and_model() -> None:
     )
     assert argv == [
         "codex", "exec", "--json", "--skip-git-repo-check",
+        "--sandbox", "read-only",
+        "--ephemeral",
+        "--ignore-user-config",
+        "--ignore-rules",
         "--config", "model=gpt-5-codex",
     ]
 
@@ -45,7 +49,13 @@ def test_argv_omits_config_model_pair_when_model_empty() -> None:
     argv = CodexAdapter().argv(
         _req(), model="", max_output=4096, system_prompt_mode="append", stream=False,
     )
-    assert argv == ["codex", "exec", "--json", "--skip-git-repo-check"]
+    assert argv == [
+        "codex", "exec", "--json", "--skip-git-repo-check",
+        "--sandbox", "read-only",
+        "--ephemeral",
+        "--ignore-user-config",
+        "--ignore-rules",
+    ]
     assert "--config" not in argv
 
 
@@ -77,8 +87,8 @@ def test_child_env_sets_depth_verbatim() -> None:
     # `depth` passed in is already the CHILD's intended depth (CliAgentProvider
     # does the +1 before calling child_env); the adapter writes it through
     # unchanged -- no double-bump (§8.2 fix).
-    assert CodexAdapter().child_env({}, depth=0)["BATON_CLI_AGENT_DEPTH"] == "0"
-    assert CodexAdapter().child_env({}, depth=1)["BATON_CLI_AGENT_DEPTH"] == "1"
+    assert CodexAdapter().child_env({}, depth=0)["VOLANTE_CLI_AGENT_DEPTH"] == "0"
+    assert CodexAdapter().child_env({}, depth=1)["VOLANTE_CLI_AGENT_DEPTH"] == "1"
 
 
 def test_child_env_depth_matches_claude_code_adapter() -> None:
@@ -86,12 +96,12 @@ def test_child_env_depth_matches_claude_code_adapter() -> None:
     # `test_child_env_sets_depth_and_preserves_oauth` -- child env is "0" from a
     # depth=0 call): the two CliAgentAdapter implementations must never diverge on
     # how the shared CliAgentProvider recursion-depth env travels.
-    from baton.providers.claude_code import DEPTH_ENV, ClaudeCodeAdapter
+    from volante.providers.claude_code import DEPTH_ENV, ClaudeCodeAdapter
 
     for depth in (0, 1, 3):
         codex_env = CodexAdapter().child_env({}, depth=depth)
         claude_env = ClaudeCodeAdapter().child_env({}, depth=depth)
-        assert codex_env["BATON_CLI_AGENT_DEPTH"] == claude_env[DEPTH_ENV] == str(depth)
+        assert codex_env["VOLANTE_CLI_AGENT_DEPTH"] == claude_env[DEPTH_ENV] == str(depth)
 
 
 async def test_depth_guard_refuses_recursion_for_codex(monkeypatch) -> None:
@@ -99,9 +109,9 @@ async def test_depth_guard_refuses_recursion_for_codex(monkeypatch) -> None:
     # isolation): the anti-recursion guard must still block at the first hop for
     # Codex, exactly like it does for ClaudeCode (test_cli_agent.py's
     # test_depth_guard_refuses_recursion). Guard fires BEFORE spawn.
-    from baton.providers.cli_agent import CliAgentProvider
+    from volante.providers.cli_agent import CliAgentProvider
 
-    monkeypatch.setenv("BATON_CLI_AGENT_DEPTH", "1")
+    monkeypatch.setenv("VOLANTE_CLI_AGENT_DEPTH", "1")
     runner = _CaptureRunner(_JSONL)
     provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner, max_depth=1)
     with pytest.raises(ProviderError) as ei:
@@ -138,7 +148,7 @@ _JSONL = "\n".join([
 
 def _run_result(stdout: str, *, stderr: str = "", returncode: int = 0,
                 timed_out: bool = False):
-    from baton.providers.cli_agent import CliRunResult
+    from volante.providers.cli_agent import CliRunResult
     return CliRunResult(
         stdout=stdout, stderr=stderr, returncode=returncode, timed_out=timed_out
     )
@@ -276,9 +286,9 @@ def test_stream_result_line_returns_synthesized_turn_completed_line() -> None:
     # lives on the earlier `agent_message` event) -- unlike Claude's self-contained
     # terminal `result` envelope. Because CliAgentProvider.stream() feeds ONLY this
     # ONE returned line into `parse()`, stream_result_line folds the accumulated
-    # agent_message text into a Baton-namespaced SENTINEL key (`_baton_stream_message`,
+    # agent_message text into a Volante-namespaced SENTINEL key (`_volante_stream_message`,
     # NOT the plausible-real-wire-key `message`) so parse() still recovers it
-    # (PROVISIONAL bridging shape, §14). The sentinel is Baton-internal -- the real
+    # (PROVISIONAL bridging shape, §14). The sentinel is Volante-internal -- the real
     # Codex CLI cannot emit it -- so a genuine live `turn.completed` shape can never
     # collide with it (see test_parse_ignores_real_message_key_on_turn_completed).
     lines = _JSONL.splitlines()
@@ -287,18 +297,18 @@ def test_stream_result_line_returns_synthesized_turn_completed_line() -> None:
     parsed = json.loads(result_line)
     assert parsed["type"] == "turn.completed"
     assert parsed["usage"] == {"input_tokens": 120, "output_tokens": 34}
-    assert parsed["_baton_stream_message"] == "Hello from Codex"
+    assert parsed["_volante_stream_message"] == "Hello from Codex"
     assert "message" not in parsed  # never write the plausible-real-wire key
 
 
-def test_parse_reads_baton_stream_message_sentinel_on_turn_completed() -> None:
+def test_parse_reads_volante_stream_message_sentinel_on_turn_completed() -> None:
     # This is the shape stream_result_line() synthesizes: a single turn.completed
     # line carrying the sentinel. parse() must recover the text from it exactly
     # like it would from an earlier agent_message event.
     jsonl = json.dumps({
         "type": "turn.completed",
         "usage": {"input_tokens": 7, "output_tokens": 3},
-        "_baton_stream_message": "bridged text",
+        "_volante_stream_message": "bridged text",
     })
     resp = CodexAdapter().parse(_run_result(jsonl), _req())
     assert resp.content[0].text == "bridged text"
@@ -308,7 +318,7 @@ def test_parse_ignores_real_message_key_on_turn_completed() -> None:
     # Hardening: `message` is a PLAUSIBLE real Codex wire key. If the installed
     # CLI ever emits a `message`/status field directly on a real turn.completed,
     # parse()'s non-synthetic complete() path must NOT treat it as agent text --
-    # only the Baton-internal `_baton_stream_message` sentinel is honored.
+    # only the Volante-internal `_volante_stream_message` sentinel is honored.
     jsonl = "\n".join([
         _item_completed("real answer"),
         json.dumps({
@@ -353,7 +363,6 @@ def test_build_codex_model_reads_env_tier_and_plan_included() -> None:
         "CODEX_TIER": "4",
         "CODEX_CONTEXT": "400000",
         "CODEX_MAX_OUTPUT": "8192",
-        "CODEX_TOOLS": "shell",
     })
     assert mi.id == "codex/gpt-5-codex"
     assert mi.provider == "codex"
@@ -361,7 +370,26 @@ def test_build_codex_model_reads_env_tier_and_plan_included() -> None:
     assert mi.billing == "plan_included"
     assert mi.context_window == 400000
     assert mi.max_output_tokens == 8192
-    assert mi.supports_tools is True
+    assert mi.supports_tools is False
+
+
+def test_build_codex_model_rejects_false_tool_capability_claim() -> None:
+    with pytest.raises(ValueError, match="does not bridge"):
+        build_codex_model(
+            {
+                "CODEX_MODEL": "gpt-5-codex",
+                "CODEX_TIER": "4",
+                "CODEX_TOOLS": "shell",
+            }
+        )
+
+
+@pytest.mark.parametrize("value", ["", "0", "false", "no", "off"])
+def test_build_codex_model_accepts_explicit_tools_disabled(value: str) -> None:
+    mi = build_codex_model(
+        {"CODEX_MODEL": "gpt-5-codex", "CODEX_TIER": "3", "CODEX_TOOLS": value}
+    )
+    assert mi.supports_tools is False
 
 
 def test_build_codex_model_requires_explicit_tier_no_sniff() -> None:
@@ -396,7 +424,7 @@ class _CaptureRunner:
         self.lines: list[str] = []
 
     async def __call__(self, argv, *, stdin, env, timeout, on_line=None):
-        from baton.providers.cli_agent import CliRunResult
+        from volante.providers.cli_agent import CliRunResult
         self.argv = argv
         self.env = env
         self.stdin = stdin
@@ -408,8 +436,8 @@ class _CaptureRunner:
 
 
 def test_codex_adapter_conforms_to_protocol() -> None:
-    from baton.providers.base import LLMProvider
-    from baton.providers.cli_agent import CliAgentAdapter, CliAgentProvider
+    from volante.providers.base import LLMProvider
+    from volante.providers.cli_agent import CliAgentAdapter, CliAgentProvider
     adapter = CodexAdapter()
     assert isinstance(adapter, CliAgentAdapter)
     provider = CliAgentProvider(adapter, "gpt-5-codex", runner=_CaptureRunner(_JSONL))
@@ -418,20 +446,20 @@ def test_codex_adapter_conforms_to_protocol() -> None:
 
 async def test_complete_through_provider_nets_depth_one_at_top_level(monkeypatch) -> None:
     # End-to-end through the real CliAgentProvider + real CodexAdapter: a
-    # top-level run (no BATON_CLI_AGENT_DEPTH in the parent env, i.e. depth 0) must
+    # top-level run (no VOLANTE_CLI_AGENT_DEPTH in the parent env, i.e. depth 0) must
     # net the CHILD a depth of "1", not "2" -- regression guard for the adapter
     # double-increment bug (provider already adds +1; adapter must not add another).
-    from baton.providers.cli_agent import CliAgentProvider
+    from volante.providers.cli_agent import CliAgentProvider
 
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     runner = _CaptureRunner(_JSONL)
     provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner)
     await provider.complete(_req("write a function"))
-    assert runner.env["BATON_CLI_AGENT_DEPTH"] == "1"
+    assert runner.env["VOLANTE_CLI_AGENT_DEPTH"] == "1"
 
 
 async def test_complete_through_cli_agent_provider_scrubs_env(monkeypatch) -> None:
-    from baton.providers.cli_agent import CliAgentProvider
+    from volante.providers.cli_agent import CliAgentProvider
     monkeypatch.setenv("OPENAI_API_KEY", "sk-should-be-scrubbed")
     monkeypatch.setenv("CODEX_API_KEY", "cdx-should-be-scrubbed")
     runner = _CaptureRunner(_JSONL)
@@ -467,7 +495,7 @@ async def test_complete_through_provider_reads_dated_fixture() -> None:
     # --skip-git-repo-check` run (prompt via stdin) -- the REAL wire shape, not a
     # provisional guess: agent text lives in item.completed/agent_message, usage on
     # turn.completed, and there is NO total_cost_usd.
-    from baton.providers.cli_agent import CliAgentProvider
+    from volante.providers.cli_agent import CliAgentProvider
 
     fixture = (_FIXTURES / "codex_result.2026-07-23-live.jsonl").read_text()
     runner = _CaptureRunner(fixture)
@@ -503,7 +531,7 @@ def test_parse_delta_on_real_live_fixture_only_yields_item_completed_agent_messa
 
 
 async def test_stream_forwards_item_completed_agent_message_delta() -> None:
-    from baton.providers.cli_agent import CliAgentProvider
+    from volante.providers.cli_agent import CliAgentProvider
     runner = _CaptureRunner(_JSONL)
     provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner)
     chunks: list[str] = []
@@ -525,7 +553,7 @@ async def test_stream_through_provider_surfaces_usage_and_cost() -> None:
     # §5.3: cost_usd is the primary credit source -- a STREAMED subscription call
     # must surface REAL usage from the synthesized terminal turn.completed line,
     # not a blind Usage(0, 0).
-    from baton.providers.cli_agent import CliAgentProvider
+    from volante.providers.cli_agent import CliAgentProvider
 
     runner = _CaptureRunner(_JSONL)
     provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner)
@@ -541,7 +569,7 @@ async def test_stream_terminal_is_error_reroutes() -> None:
     # see a mid-stream failure -- CliAgentProvider checks is_error on the TERMINAL
     # line itself (§ Protocol addendum). A codex turn that completes with an `error`
     # field must reroute (quota_exhausted=True), not return a bogus success.
-    from baton.providers.cli_agent import CliAgentProvider
+    from volante.providers.cli_agent import CliAgentProvider
 
     runner = _CaptureRunner(_JSONL_TERMINAL_ERROR)
     provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner)

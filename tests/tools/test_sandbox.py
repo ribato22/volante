@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from baton.tools.sandbox import ExecResult, Sandbox
+from volante.tools.sandbox import ExecResult, Sandbox
 
 
 async def test_runs_code_and_captures_stdout(tmp_path: Path) -> None:
@@ -25,6 +25,21 @@ async def test_nonzero_exit_code(tmp_path: Path) -> None:
 async def test_timeout_sets_flag(tmp_path: Path) -> None:
     r = await Sandbox(tmp_path, timeout_s=1.0).run("while True:\n    pass")
     assert r.timed_out is True
+
+
+async def test_flood_output_is_bounded_and_process_is_stopped(tmp_path: Path) -> None:
+    limit = 8_192
+    r = await Sandbox(
+        tmp_path,
+        timeout_s=5.0,
+        max_output_bytes=limit,
+    ).run("import sys\nwhile True:\n    sys.stdout.write('x' * 65536)\n    sys.stdout.flush()")
+
+    assert r.output_limited is True
+    assert r.timed_out is False
+    assert r.exit_code == -9
+    assert len(r.stdout.encode()) <= limit
+    assert "sandbox output truncated" in r.stdout
 
 
 async def test_workspace_persists_across_runs(tmp_path: Path) -> None:
@@ -52,3 +67,9 @@ async def test_cancellation_raises_and_kills(tmp_path):
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_rejects_invalid_output_limit(tmp_path: Path, value: object) -> None:
+    with pytest.raises(ValueError, match="max_output_bytes"):
+        Sandbox(tmp_path, max_output_bytes=value)  # type: ignore[arg-type]

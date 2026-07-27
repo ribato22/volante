@@ -10,12 +10,12 @@ pytestmark = pytest.mark.integration
 @pytest.mark.skipif(not os.environ.get("ANTHROPIC_API_KEY"), reason="needs ANTHROPIC_API_KEY")
 @pytest.mark.asyncio
 async def test_agentic_fixes_code_until_tests_pass(tmp_path) -> None:
-    from baton.agent import AgenticWorker
-    from baton.cost import CostMeter
-    from baton.providers.anthropic import AnthropicProvider
-    from baton.tools.run_python import RunPythonTool
-    from baton.tools.sandbox import Sandbox
-    from baton.types import CanonicalRequest, text
+    from volante.agent import AgenticWorker
+    from volante.cost import CostMeter
+    from volante.providers.anthropic import AnthropicProvider
+    from volante.tools.run_python import RunPythonTool
+    from volante.tools.sandbox import Sandbox
+    from volante.types import CanonicalRequest, text
 
     model = "claude-sonnet-5"
     provider = AnthropicProvider(api_key=os.environ["ANTHROPIC_API_KEY"], model=model)

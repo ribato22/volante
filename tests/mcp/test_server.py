@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("mcp")
 
-from baton_mcp.server import build_server  # noqa: E402 - after importorskip
+from volante_mcp.server import build_server  # noqa: E402 - after importorskip
 
 
 class _FakeRuntime:
@@ -23,13 +23,13 @@ class _FakeRuntime:
         return _R()
 
 
-async def test_server_registers_baton_run_tool() -> None:
+async def test_server_registers_volante_run_tool() -> None:
     server = build_server(runtime_factory=lambda: _FakeRuntime())
     tools = await server.list_tools()
-    assert "baton_run" in {t.name for t in tools}
+    assert "volante_run" in {t.name for t in tools}
 
 
-async def test_baton_run_tool_returns_formatted_answer() -> None:
+async def test_volante_run_tool_returns_formatted_answer() -> None:
     server = build_server(runtime_factory=lambda: _FakeRuntime())
-    result = await server.call_tool("baton_run", {"goal": "greet the world"})
+    result = await server.call_tool("volante_run", {"goal": "greet the world"})
     assert "answered: greet the world" in str(result)

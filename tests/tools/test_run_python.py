@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from baton.tools.run_python import RunPythonTool
-from baton.tools.sandbox import Sandbox
+from volante.tools.run_python import RunPythonTool
+from volante.tools.sandbox import Sandbox
 
 
 def _tool(tmp_path: Path, **kw) -> RunPythonTool:
@@ -32,3 +32,23 @@ async def test_large_output_is_capped(tmp_path: Path) -> None:
     out = await _tool(tmp_path, max_result_chars=200).run({"code": "print('A' * 5000)"})
     assert len(out) <= 200
     assert "[dipotong]" in out
+
+
+async def test_reports_sandbox_output_limit(tmp_path: Path) -> None:
+    tool = RunPythonTool(
+        Sandbox(tmp_path, timeout_s=5.0, max_output_bytes=256),
+        max_result_chars=1_000,
+    )
+    out = await tool.run(
+        {
+            "code": (
+                "import sys\n"
+                "while True:\n"
+                "    sys.stdout.write('x' * 65536)\n"
+                "    sys.stdout.flush()"
+            )
+        }
+    )
+
+    assert "exit=output_limit" in out
+    assert "sandbox output truncated" in out

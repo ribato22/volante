@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from baton.providers.openai_compat import OpenAICompatProvider
-from baton.types import CanonicalRequest, TextBlock, ToolUseBlock, text
+from volante.providers.openai_compat import OpenAICompatProvider
+from volante.types import CanonicalRequest, TextBlock, ToolUseBlock, text
 
 
 class _D:
@@ -41,7 +41,7 @@ def _provider(monkeypatch, chunks):
         chat = _Chat()
 
     monkeypatch.setattr(
-        "baton.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client()
+        "volante.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client()
     )
     return OpenAICompatProvider(base_url="http://x/v1", api_key="k", model="kimi-x")
 
@@ -97,7 +97,7 @@ def _provider_with_stream(monkeypatch, stream_obj):
         chat = _Chat()
 
     monkeypatch.setattr(
-        "baton.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client()
+        "volante.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client()
     )
     return OpenAICompatProvider(base_url="http://x/v1", api_key="k", model="kimi-x")
 
@@ -120,6 +120,7 @@ async def test_stream_early_stop_forwards_partial_and_closes(monkeypatch) -> Non
     )
     assert got == ["a"]
     assert "".join(b.text for b in res.content if isinstance(b, TextBlock)) == "a"
+    assert res.stop_reason == "early_stop"
     assert stream.closed is True  # finally menutup stream pada early-stop
 
 
@@ -145,18 +146,16 @@ async def test_stream_cancellation_closes_stream(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_stream_stop_reason_defaults_to_end_turn_when_no_finish_reason(
+async def test_stream_stop_reason_is_unknown_when_no_finish_reason(
     monkeypatch,
 ) -> None:
-    # CanonicalResponse.stop_reason is typed `str` (never None): if the stream ends
-    # without any chunk ever setting finish_reason (e.g. early-stop before the
-    # terminal chunk), stop_reason must still fall back to "end_turn".
+    # A stream ending without a terminal chunk is incomplete, even if it emitted text.
     chunks = [_chunk(content="a"), _chunk(content="b")]  # no finish_reason anywhere
     p = _provider(monkeypatch, chunks)
     res = await p.stream(
         CanonicalRequest(messages=[text("user", "hi")], max_tokens=16), lambda s: None
     )
-    assert res.stop_reason == "end_turn"
+    assert res.stop_reason == "unknown"
 
 
 @pytest.mark.asyncio

@@ -18,9 +18,9 @@ from eval.harness import (
 )
 from eval.tasks import REFERENCE_TEST, SLUGIFY_GOAL
 
-from baton.providers.fake import FakeProvider
-from baton.registry import Registry
-from baton.types import (
+from volante.providers.fake import FakeProvider
+from volante.registry import Registry
+from volante.types import (
     CanonicalRequest,
     CanonicalResponse,
     ModelInfo,

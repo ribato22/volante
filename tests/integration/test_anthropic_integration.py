@@ -4,8 +4,8 @@ import os
 
 import pytest
 
-from baton.providers.anthropic import AnthropicProvider
-from baton.types import CanonicalRequest, text
+from volante.providers.anthropic import AnthropicProvider
+from volante.types import CanonicalRequest, text
 
 
 @pytest.mark.integration

@@ -5,15 +5,16 @@ import inspect
 
 import pytest
 
-from baton.providers.base import (
+from volante.providers.base import (
     LLMProvider,
     ProviderError,
     call_provider,
     classify_429,
+    is_candidate_unavailable,
     is_quota_exhausted,
     is_transient_rate_limit,
 )
-from baton.types import (
+from volante.types import (
     CanonicalRequest,
     CanonicalResponse,
     TextBlock,
@@ -101,6 +102,8 @@ def test_provider_error_quota_exhausted_defaults_to_false() -> None:
     # Every existing construction (no kwarg) is a transient/normal error.
     err = ProviderError("rate limited", retryable=True, status=429)
     assert err.quota_exhausted is False
+    assert err.candidate_unavailable is False
+    assert err.provider_unavailable is False
 
 
 def test_provider_error_quota_exhausted_can_be_set_true() -> None:
@@ -110,6 +113,58 @@ def test_provider_error_quota_exhausted_can_be_set_true() -> None:
     assert err.quota_exhausted is True
     # Contract: quota_exhausted=True MUST also be non-retryable (reroute, no backoff).
     assert err.retryable is False
+
+
+def test_provider_error_candidate_unavailable_can_be_set_true() -> None:
+    err = ProviderError(
+        "model_not_found",
+        retryable=False,
+        status=404,
+        candidate_unavailable=True,
+    )
+    assert err.candidate_unavailable is True
+
+
+def test_provider_error_provider_unavailable_can_be_set_true() -> None:
+    err = ProviderError(
+        "invalid API key",
+        retryable=False,
+        status=401,
+        provider_unavailable=True,
+    )
+    assert err.provider_unavailable is True
+
+
+@pytest.mark.parametrize(
+    ("message", "status"),
+    [
+        ("model_not_found", 404),
+        ("The requested model does not exist or you do not have access", 403),
+        ("DeploymentNotFound", 404),
+        ("unsupported model name", 400),
+    ],
+)
+def test_candidate_unavailable_requires_model_specific_signal(
+    message: str,
+    status: int,
+) -> None:
+    assert is_candidate_unavailable(message, status=status) is True
+
+
+@pytest.mark.parametrize(
+    ("message", "status"),
+    [
+        ("not found", 404),
+        ("invalid API key", 401),
+        ("permission denied", 403),
+        ("upstream route not found", 404),
+    ],
+)
+def test_generic_configuration_failures_are_not_candidate_unavailable(
+    message: str,
+    status: int,
+) -> None:
+    assert is_candidate_unavailable(message, status=status) is False
 
 
 # --- 429 classification helpers (residu 2) ---

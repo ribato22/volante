@@ -1,49 +1,208 @@
-# Smithery configuration for the Baton MCP server (https://smithery.ai/docs).
-# Baton is a local stdio MCP server launched with uvx; Smithery collects the provider
-# config from the user and passes it into the server's environment.
+# Smithery configuration for Volante's local stdio MCP server.
 startCommand:
   type: stdio
   configSchema:
     type: object
     properties:
-      claudeCodeEnabled:
-        type: boolean
-        default: true
-        description: Enable the Claude Code subscription provider (sets CLAUDE_CODE_ENABLED).
-      codexEnabled:
-        type: boolean
-        default: false
-        description: Enable the Codex subscription provider (sets CODEX_ENABLED).
-      anthropicApiKey:
-        type: string
-        description: Card-billed Anthropic API key, optional (sets ANTHROPIC_API_KEY).
-      openaiCompatBaseUrl:
-        type: string
-        description: OpenAI-compatible endpoint, e.g. Gemini/Groq/OpenRouter/DeepSeek/Ollama (sets OPENAI_COMPAT_BASE_URL).
-      openaiCompatApiKey:
-        type: string
-        description: API key for the OpenAI-compatible endpoint (sets OPENAI_COMPAT_API_KEY).
-      openaiCompatModel:
-        type: string
-        description: Model id for the OpenAI-compatible endpoint (sets OPENAI_COMPAT_MODEL).
+      anthropicApiKey: { type: string, format: password, writeOnly: true, description: Anthropic API key. }
+      anthropicModels: { type: string, description: Comma-separated Anthropic wire model ids. }
+      anthropicNames: { type: string, description: Optional comma-separated canonical ids. }
+      anthropicStrengths: { type: string, description: Shared comma-separated strengths. }
+      anthropicContext: { type: integer, minimum: 1, description: Shared context-window tokens. }
+      anthropicMaxOutput: { type: integer, minimum: 1, description: Shared maximum output tokens. }
+      anthropicTools: { type: boolean, description: Declare Anthropic tool-call support. }
+      anthropicCostIn: { type: number, minimum: 0, description: USD per 1k input tokens. }
+      anthropicCostOut: { type: number, minimum: 0, description: USD per 1k output tokens. }
+      anthropicTier: { type: integer, minimum: 1, maximum: 4, description: Shared capability tier. }
+
+      moonshotApiKey: { type: string, format: password, writeOnly: true, description: Moonshot API key. }
+      moonshotBaseUrl: { type: string, description: Moonshot OpenAI-compatible base URL. }
+      moonshotModels: { type: string, description: Comma-separated Moonshot wire model ids. }
+      moonshotNames: { type: string, description: Optional comma-separated canonical ids. }
+      moonshotStrengths: { type: string, description: Shared comma-separated strengths. }
+      moonshotContext: { type: integer, minimum: 1, description: Shared context-window tokens. }
+      moonshotMaxOutput: { type: integer, minimum: 1, description: Shared maximum output tokens. }
+      moonshotTools: { type: boolean, description: Declare Moonshot tool-call support. }
+      moonshotCostIn: { type: number, minimum: 0, description: USD per 1k input tokens. }
+      moonshotCostOut: { type: number, minimum: 0, description: USD per 1k output tokens. }
+      moonshotTier: { type: integer, minimum: 1, maximum: 4, description: Shared capability tier. }
+
+      ollamaBaseUrl: { type: string, description: Local Ollama OpenAI-compatible base URL. }
+      ollamaApiKey: { type: string, format: password, writeOnly: true, description: Optional local endpoint credential. }
+      ollamaModels: { type: string, description: Comma-separated Ollama wire model ids. }
+      ollamaNames: { type: string, description: Optional comma-separated canonical ids. }
+      ollamaStrengths: { type: string, description: Shared comma-separated strengths. }
+      ollamaContext: { type: integer, minimum: 1, description: Shared context-window tokens. }
+      ollamaMaxOutput: { type: integer, minimum: 1, description: Shared maximum output tokens. }
+      ollamaTools: { type: boolean, description: Declare Ollama tool-call support. }
+      ollamaCostIn: { type: number, minimum: 0, description: USD per 1k input tokens. }
+      ollamaCostOut: { type: number, minimum: 0, description: USD per 1k output tokens. }
+      ollamaTier: { type: integer, minimum: 1, maximum: 4, description: Shared capability tier. }
+
+      claudeCodeEnabled: { type: boolean, default: false, description: Enable the logged-in Claude Code CLI. }
+      claudeCodeModels: { type: string, description: Comma-separated Claude Code model ids. }
+      claudeCodeTier: { type: integer, minimum: 1, maximum: 4, description: Shared capability tier. }
+      claudeCodeMaxOutput: { type: integer, minimum: 1, description: Shared maximum output tokens. }
+      claudeCodeTimeout: { type: number, minimum: 1, description: Per-call timeout in seconds. }
+      claudeCodeSystemPromptMode: { type: string, enum: [replace, append], description: System-prompt mode. }
+
+      codexEnabled: { type: boolean, default: false, description: Enable the logged-in Codex CLI. }
+      codexModels: { type: string, description: Comma-separated Codex model ids. }
+      codexTier: { type: integer, minimum: 1, maximum: 4, default: 3, description: Required tier when Codex is enabled. }
+      codexContext: { type: integer, minimum: 1, description: Shared context-window tokens. }
+      codexMaxOutput: { type: integer, minimum: 1, description: Shared maximum output tokens. }
+      codexCostIn: { type: number, minimum: 0, description: API-equivalent input valuation. }
+      codexCostOut: { type: number, minimum: 0, description: API-equivalent output valuation. }
+      codexTimeout: { type: number, minimum: 1, description: Per-call timeout in seconds. }
+
+      openaiCompatBaseUrl: { type: string, description: Compatible slot 1 base URL. }
+      openaiCompatKey: { type: string, format: password, writeOnly: true, description: Compatible slot 1 API key. }
+      openaiCompatModel: { type: string, description: Compatible slot 1 wire model id. }
+      openaiCompatName: { type: string, description: Compatible slot 1 canonical id. }
+      openaiCompatStrengths: { type: string, description: Compatible slot 1 comma-separated strengths. }
+      openaiCompatContext: { type: integer, minimum: 1, description: Compatible slot 1 context-window tokens. }
+      openaiCompatMaxOutput: { type: integer, minimum: 1, description: Compatible slot 1 maximum output tokens. }
+      openaiCompatTools: { type: boolean, description: Compatible slot 1 tool-call support. }
+      openaiCompatCostIn: { type: number, minimum: 0, description: Compatible slot 1 input cost. }
+      openaiCompatCostOut: { type: number, minimum: 0, description: Compatible slot 1 output cost. }
+      openaiCompatTier: { type: integer, minimum: 1, maximum: 4, description: Compatible slot 1 tier. }
+
+      openaiCompat2BaseUrl: { type: string, description: Compatible slot 2 base URL. }
+      openaiCompat2Key: { type: string, format: password, writeOnly: true, description: Compatible slot 2 API key. }
+      openaiCompat2Model: { type: string, description: Compatible slot 2 wire model id. }
+      openaiCompat2Name: { type: string, description: Compatible slot 2 canonical id. }
+      openaiCompat2Strengths: { type: string, description: Compatible slot 2 comma-separated strengths. }
+      openaiCompat2Context: { type: integer, minimum: 1, description: Compatible slot 2 context-window tokens. }
+      openaiCompat2MaxOutput: { type: integer, minimum: 1, description: Compatible slot 2 maximum output tokens. }
+      openaiCompat2Tools: { type: boolean, description: Compatible slot 2 tool-call support. }
+      openaiCompat2CostIn: { type: number, minimum: 0, description: Compatible slot 2 input cost. }
+      openaiCompat2CostOut: { type: number, minimum: 0, description: Compatible slot 2 output cost. }
+      openaiCompat2Tier: { type: integer, minimum: 1, maximum: 4, description: Compatible slot 2 tier. }
+
+      openaiCompat3BaseUrl: { type: string, description: Compatible slot 3 base URL. }
+      openaiCompat3Key: { type: string, format: password, writeOnly: true, description: Compatible slot 3 API key. }
+      openaiCompat3Model: { type: string, description: Compatible slot 3 wire model id. }
+      openaiCompat3Name: { type: string, description: Compatible slot 3 canonical id. }
+      openaiCompat3Strengths: { type: string, description: Compatible slot 3 comma-separated strengths. }
+      openaiCompat3Context: { type: integer, minimum: 1, description: Compatible slot 3 context-window tokens. }
+      openaiCompat3MaxOutput: { type: integer, minimum: 1, description: Compatible slot 3 maximum output tokens. }
+      openaiCompat3Tools: { type: boolean, description: Compatible slot 3 tool-call support. }
+      openaiCompat3CostIn: { type: number, minimum: 0, description: Compatible slot 3 input cost. }
+      openaiCompat3CostOut: { type: number, minimum: 0, description: Compatible slot 3 output cost. }
+      openaiCompat3Tier: { type: integer, minimum: 1, maximum: 4, description: Compatible slot 3 tier. }
+
+      qualityProfilesFile: { type: string, description: Local quality-profiles JSON path. }
+      modelOverridesFile: { type: string, description: Local model-overrides JSON path. }
+      fetchAllowlist: { type: string, description: Comma-separated domains that enable fetch_url. }
+      readRoot: { type: string, description: Root directory that enables confined read_file. }
+      sandbox: { type: string, enum: [subprocess, docker], description: "Agentic execution sandbox. Leave unset to auto-select Docker when available and otherwise disable code execution; 'subprocess' runs model-generated code with your files and network." }
+      maxSubscriptionCalls: { type: integer, minimum: 0, default: 16, description: Physical subscription calls allowed per run. }
     additionalProperties: false
   commandFunction: |-
     (config) => ({
       command: 'uvx',
-      args: ['--from', 'baton-orchestrator[mcp]', 'baton-mcp'],
+      args: ['--from', 'volante[mcp]==0.3.0', 'volante-mcp'],
       env: {
-        CLAUDE_CODE_ENABLED: String(config.claudeCodeEnabled ?? true),
-        CODEX_ENABLED: String(config.codexEnabled ?? false),
         ANTHROPIC_API_KEY: config.anthropicApiKey ?? '',
+        ANTHROPIC_MODELS: config.anthropicModels ?? 'claude-opus-4-8',
+        ...(config.anthropicNames ? { ANTHROPIC_NAMES: config.anthropicNames } : {}),
+        ANTHROPIC_STRENGTHS: config.anthropicStrengths ?? '',
+        ANTHROPIC_CONTEXT: String(config.anthropicContext ?? ''),
+        ANTHROPIC_MAX_OUTPUT: String(config.anthropicMaxOutput ?? ''),
+        ANTHROPIC_TOOLS: config.anthropicTools === undefined ? '' : (config.anthropicTools ? '1' : '0'),
+        ANTHROPIC_COST_IN: String(config.anthropicCostIn ?? ''),
+        ANTHROPIC_COST_OUT: String(config.anthropicCostOut ?? ''),
+        ANTHROPIC_TIER: String(config.anthropicTier ?? ''),
+
+        MOONSHOT_API_KEY: config.moonshotApiKey ?? '',
+        MOONSHOT_BASE_URL: config.moonshotBaseUrl ?? '',
+        MOONSHOT_MODELS: config.moonshotModels ?? 'kimi-k2-0711-preview',
+        ...(config.moonshotNames ? { MOONSHOT_NAMES: config.moonshotNames } : {}),
+        MOONSHOT_STRENGTHS: config.moonshotStrengths ?? '',
+        MOONSHOT_CONTEXT: String(config.moonshotContext ?? ''),
+        MOONSHOT_MAX_OUTPUT: String(config.moonshotMaxOutput ?? ''),
+        MOONSHOT_TOOLS: config.moonshotTools === undefined ? '' : (config.moonshotTools ? '1' : '0'),
+        MOONSHOT_COST_IN: String(config.moonshotCostIn ?? ''),
+        MOONSHOT_COST_OUT: String(config.moonshotCostOut ?? ''),
+        MOONSHOT_TIER: String(config.moonshotTier ?? ''),
+
+        OLLAMA_BASE_URL: config.ollamaBaseUrl ?? '',
+        OLLAMA_API_KEY: config.ollamaApiKey ?? 'ollama',
+        OLLAMA_MODELS: config.ollamaModels ?? 'llama3.2',
+        ...(config.ollamaNames ? { OLLAMA_NAMES: config.ollamaNames } : {}),
+        OLLAMA_STRENGTHS: config.ollamaStrengths ?? '',
+        OLLAMA_CONTEXT: String(config.ollamaContext ?? ''),
+        OLLAMA_MAX_OUTPUT: String(config.ollamaMaxOutput ?? ''),
+        OLLAMA_TOOLS: config.ollamaTools === undefined ? '' : (config.ollamaTools ? '1' : '0'),
+        OLLAMA_COST_IN: String(config.ollamaCostIn ?? ''),
+        OLLAMA_COST_OUT: String(config.ollamaCostOut ?? ''),
+        OLLAMA_TIER: String(config.ollamaTier ?? ''),
+
+        CLAUDE_CODE_ENABLED: config.claudeCodeEnabled ? '1' : '0',
+        CLAUDE_CODE_MODELS: config.claudeCodeModels ?? 'opus',
+        CLAUDE_CODE_TIER: String(config.claudeCodeTier ?? ''),
+        CLAUDE_CODE_MAX_OUTPUT: String(config.claudeCodeMaxOutput ?? ''),
+        CLAUDE_CODE_TIMEOUT: String(config.claudeCodeTimeout ?? ''),
+        CLAUDE_CODE_SYSTEM_PROMPT_MODE: config.claudeCodeSystemPromptMode ?? '',
+
+        CODEX_ENABLED: config.codexEnabled ? '1' : '0',
+        ...(config.codexModels ? { CODEX_MODELS: config.codexModels } : {}),
+        CODEX_TIER: String(config.codexTier ?? 3),
+        CODEX_CONTEXT: String(config.codexContext ?? ''),
+        CODEX_MAX_OUTPUT: String(config.codexMaxOutput ?? ''),
+        CODEX_COST_IN: String(config.codexCostIn ?? ''),
+        CODEX_COST_OUT: String(config.codexCostOut ?? ''),
+        CODEX_TIMEOUT: String(config.codexTimeout ?? ''),
+
         OPENAI_COMPAT_BASE_URL: config.openaiCompatBaseUrl ?? '',
-        OPENAI_COMPAT_API_KEY: config.openaiCompatApiKey ?? '',
-        OPENAI_COMPAT_MODEL: config.openaiCompatModel ?? ''
+        OPENAI_COMPAT_KEY: config.openaiCompatKey ?? '',
+        OPENAI_COMPAT_MODEL: config.openaiCompatModel ?? '',
+        OPENAI_COMPAT_NAME: config.openaiCompatName ?? '',
+        OPENAI_COMPAT_STRENGTHS: config.openaiCompatStrengths ?? '',
+        OPENAI_COMPAT_CONTEXT: String(config.openaiCompatContext ?? ''),
+        OPENAI_COMPAT_MAX_OUTPUT: String(config.openaiCompatMaxOutput ?? ''),
+        OPENAI_COMPAT_TOOLS: config.openaiCompatTools === undefined ? '' : (config.openaiCompatTools ? '1' : '0'),
+        OPENAI_COMPAT_COST_IN: String(config.openaiCompatCostIn ?? ''),
+        OPENAI_COMPAT_COST_OUT: String(config.openaiCompatCostOut ?? ''),
+        OPENAI_COMPAT_TIER: String(config.openaiCompatTier ?? ''),
+
+        OPENAI_COMPAT_2_BASE_URL: config.openaiCompat2BaseUrl ?? '',
+        OPENAI_COMPAT_2_KEY: config.openaiCompat2Key ?? '',
+        OPENAI_COMPAT_2_MODEL: config.openaiCompat2Model ?? '',
+        OPENAI_COMPAT_2_NAME: config.openaiCompat2Name ?? '',
+        OPENAI_COMPAT_2_STRENGTHS: config.openaiCompat2Strengths ?? '',
+        OPENAI_COMPAT_2_CONTEXT: String(config.openaiCompat2Context ?? ''),
+        OPENAI_COMPAT_2_MAX_OUTPUT: String(config.openaiCompat2MaxOutput ?? ''),
+        OPENAI_COMPAT_2_TOOLS: config.openaiCompat2Tools === undefined ? '' : (config.openaiCompat2Tools ? '1' : '0'),
+        OPENAI_COMPAT_2_COST_IN: String(config.openaiCompat2CostIn ?? ''),
+        OPENAI_COMPAT_2_COST_OUT: String(config.openaiCompat2CostOut ?? ''),
+        OPENAI_COMPAT_2_TIER: String(config.openaiCompat2Tier ?? ''),
+
+        OPENAI_COMPAT_3_BASE_URL: config.openaiCompat3BaseUrl ?? '',
+        OPENAI_COMPAT_3_KEY: config.openaiCompat3Key ?? '',
+        OPENAI_COMPAT_3_MODEL: config.openaiCompat3Model ?? '',
+        OPENAI_COMPAT_3_NAME: config.openaiCompat3Name ?? '',
+        OPENAI_COMPAT_3_STRENGTHS: config.openaiCompat3Strengths ?? '',
+        OPENAI_COMPAT_3_CONTEXT: String(config.openaiCompat3Context ?? ''),
+        OPENAI_COMPAT_3_MAX_OUTPUT: String(config.openaiCompat3MaxOutput ?? ''),
+        OPENAI_COMPAT_3_TOOLS: config.openaiCompat3Tools === undefined ? '' : (config.openaiCompat3Tools ? '1' : '0'),
+        OPENAI_COMPAT_3_COST_IN: String(config.openaiCompat3CostIn ?? ''),
+        OPENAI_COMPAT_3_COST_OUT: String(config.openaiCompat3CostOut ?? ''),
+        OPENAI_COMPAT_3_TIER: String(config.openaiCompat3Tier ?? ''),
+
+        ...(config.qualityProfilesFile ? { VOLANTE_QUALITY_PROFILES_FILE: config.qualityProfilesFile } : {}),
+        ...(config.modelOverridesFile ? { VOLANTE_MODEL_OVERRIDES_FILE: config.modelOverridesFile } : {}),
+        VOLANTE_FETCH_ALLOWLIST: config.fetchAllowlist ?? '',
+        VOLANTE_READ_ROOT: config.readRoot ?? '',
+        VOLANTE_SANDBOX: config.sandbox ?? '',
+        VOLANTE_MAX_SUBSCRIPTION_CALLS: String(config.maxSubscriptionCalls ?? 16)
       }
     })
   exampleConfig:
-    claudeCodeEnabled: true
+    anthropicModels: claude-opus-4-8,claude-sonnet-4-5
+    claudeCodeEnabled: false
     codexEnabled: false
-    anthropicApiKey: sk-ant-xxxxxxxx
     openaiCompatBaseUrl: https://api.example.com/v1
-    openaiCompatApiKey: sk-xxxxxxxx
-    openaiCompatModel: gpt-4o-mini
+    openaiCompatModel: model-name
+    openaiCompatTools: false
+    maxSubscriptionCalls: 16

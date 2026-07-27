@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from baton.agent import AgenticWorker
-from baton.cost import CostMeter
-from baton.providers.base import ProviderError
-from baton.registry import Registry
-from baton.runtime import Runtime
-from baton.types import (
+from volante.agent import AgenticWorker
+from volante.cost import CostMeter
+from volante.providers.base import ProviderError
+from volante.registry import Registry
+from volante.runtime import Runtime
+from volante.types import (
     CanonicalRequest,
     CanonicalResponse,
     ModelInfo,
@@ -20,7 +20,7 @@ from baton.types import (
     Usage,
     text,
 )
-from baton.worker import Worker
+from volante.worker import Worker
 
 
 def _model(mid: str, ctx: int) -> ModelInfo:
@@ -96,7 +96,7 @@ class _ToolThenDone:
 
 
 class _DirectDone:
-    """Tanpa tool_use — langsung end_turn (dispatch sederhana untuk uji cap langganan)."""
+    """One required tool turn followed by a complete final response."""
 
     def __init__(self, name: str) -> None:
         self.name = name
@@ -104,10 +104,41 @@ class _DirectDone:
 
     async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
         self.calls += 1
+        if self.calls == 1:
+            return CanonicalResponse(
+                content=[
+                    ToolUseBlock(
+                        id=f"{self.name}-tool",
+                        name="run_python",
+                        input={"code": "print('verified')"},
+                    )
+                ],
+                usage=Usage(prompt_tokens=3, completion_tokens=2),
+                model=self.name,
+                stop_reason="tool_use",
+                latency_ms=1,
+            )
         return CanonicalResponse(
             content=[TextBlock(text=f"done via {self.name}")],
             usage=Usage(prompt_tokens=3, completion_tokens=2),
             model=self.name, stop_reason="end_turn", latency_ms=1,
+        )
+
+    async def stream(self, req, on_text) -> CanonicalResponse:
+        return await self.complete(req)
+
+
+class _TransientOutage:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.calls = 0
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        self.calls += 1
+        raise ProviderError(
+            "upstream unavailable",
+            retryable=True,
+            status=503,
         )
 
     async def stream(self, req, on_text) -> CanonicalResponse:
@@ -162,8 +193,8 @@ async def test_agentic_reroutes_on_quota_to_next_candidate_reprojected(
     async def _no_sleep(delay: float) -> None:
         slept.append(delay)
 
-    monkeypatch.setattr("baton.agent.asyncio.sleep", _no_sleep)
-    monkeypatch.setattr("baton.runtime.asyncio.sleep", _no_sleep)
+    monkeypatch.setattr("volante.agent.asyncio.sleep", _no_sleep)
+    monkeypatch.setattr("volante.runtime.asyncio.sleep", _no_sleep)
 
     cm = CostMeter()
     mA = _ToolThenQuota("mA")
@@ -206,8 +237,8 @@ async def test_agentic_all_candidates_quota_exhausted_fails(
     async def _no_sleep(delay: float) -> None:
         return None
 
-    monkeypatch.setattr("baton.agent.asyncio.sleep", _no_sleep)
-    monkeypatch.setattr("baton.runtime.asyncio.sleep", _no_sleep)
+    monkeypatch.setattr("volante.agent.asyncio.sleep", _no_sleep)
+    monkeypatch.setattr("volante.runtime.asyncio.sleep", _no_sleep)
 
     cm = CostMeter()
     mA = _ToolThenQuota("mA")
@@ -240,7 +271,7 @@ async def test_agentic_subscription_cap_reroutes_to_direct(
 ) -> None:
     # residu-3: cap kuota per-run juga harus melindungi jalur agentic (konsumen
     # kuota terberat), bukan hanya jalur one-shot.
-    monkeypatch.setenv("BATON_MAX_SUBSCRIPTION_CALLS", "1")
+    monkeypatch.setenv("VOLANTE_MAX_SUBSCRIPTION_CALLS", "2")
 
     cm = CostMeter()
     sub = _DirectDone("mSub")
@@ -268,9 +299,59 @@ async def test_agentic_subscription_cap_reroutes_to_direct(
     res = await rt.aexecute("goal")
 
     assert res.status == "success"
-    # cap=1: t1 pakai langganan (hitungan -> 1); t2 melewati cap -> reroute ke direct
+    # cap=2: t1 completes its tool+final turns on subscription; t2 then hits the cap
+    # and reroutes to the direct model for its own tool+final turns
     # TANPA pernah memanggil worker agentic mSub sama sekali.
-    assert sub.calls == 1
-    assert direct.calls == 1
+    assert sub.calls == 2
+    assert direct.calls == 2
     statuses = [e.payload for e in projector.last_bb.entries() if e.kind == "status"]
-    assert any("subscription cap 1 reached" in s for s in statuses)
+    assert any("subscription cap 2 reached" in s for s in statuses)
+
+
+@pytest.mark.asyncio
+async def test_agentic_exhausted_transient_outage_reroutes_to_healthy_provider(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    async def no_sleep(delay: float) -> None:
+        return None
+
+    monkeypatch.setattr("volante.agent.asyncio.sleep", no_sleep)
+    meter = CostMeter()
+    outage = _TransientOutage("mA")
+    healthy = _DirectDone("mB")
+    agentic = AgenticWorker(
+        {"mA": outage, "mB": healthy},
+        meter,
+        max_iters=8,
+        max_retries=1,
+    )
+    projector = _Projector({"mA": 64, "mB": 64})
+    runtime = Runtime(
+        _Sup([Task(id="t1", description="fix", type="code", mode="agentic")]),
+        _RankRouter(["mA", "mB"]),
+        projector,
+        Worker(
+            providers={"mA": outage, "mB": healthy},
+            cost_meter=meter,
+        ),
+        _Synth(),
+        Registry([_model("mA", 100_000), _model("mB", 100_000)]),
+        meter,
+        agentic_worker=agentic,
+        tools_factory=lambda workspace: {"run_python": _RecordingTool()},
+        runs_dir=tmp_path / "runs",
+    )
+
+    result = await runtime.aexecute("goal")
+
+    assert result.status == "success"
+    assert result.partial_artifacts["t1"] == "done via mB"
+    assert outage.calls == 2
+    assert healthy.calls == 2
+    statuses = [
+        entry.payload
+        for entry in projector.last_bb.entries()
+        if entry.kind == "status"
+    ]
+    assert any("provider_unavailable" in status for status in statuses)

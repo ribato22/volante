@@ -1,5 +1,5 @@
 {
-  // Recommended extensions for working on Baton. VSCode will offer to install these.
+  // Recommended extensions for working on Volante. VSCode will offer to install these.
   "recommendations": [
     "ms-python.python",
     "charliermarsh.ruff",

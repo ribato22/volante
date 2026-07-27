@@ -5,7 +5,7 @@ dibaca dari env, lalu run_suite dieksekusi dan laporannya dicetak. `format_repor
 bersifat murni (tanpa jaringan) dan itulah bagian yang di-unit-test; `main()` +
 `build_providers_from_env()` menyentuh jaringan dan dijalankan manual. Wiring provider
 (`build_providers_from_env`, `make_runtime_factory`, helper OpenAI-compat) kini tinggal
-di `baton.bootstrap` dan hanya di-re-export di sini agar `run.<name>` tetap resolve.
+di `volante.bootstrap` dan hanya di-re-export di sini agar `run.<name>` tetap resolve.
 
 Contoh::
 
@@ -15,11 +15,13 @@ Contoh::
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
-from eval.harness import run_suite
+from eval.harness import EVAL_K, run_suite
 from eval.tasks import EVAL_SUITE
 
-from baton.bootstrap import (
+from volante import __version__
+from volante.bootstrap import (
     _all_openai_compat_from_env,  # noqa: F401  re-export utk tests/eval/test_run.py
     _openai_compat_from_env,  # noqa: F401  re-export utk tests/eval/test_run.py
     build_providers_from_env,
@@ -88,13 +90,57 @@ def format_report(result: dict) -> str:
     return "\n".join(lines)
 
 
-async def main() -> None:
+async def main(argv: list[str] | None = None) -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="eval",
+        description="3-arm suite: baseline vs orchestration vs agentic-single.",
+    )
+    parser.add_argument(
+        "--json",
+        metavar="FILE",
+        default=None,
+        help=(
+            "also write the complete result as JSON — a self-describing artifact "
+            "(models, k, per-goal scores, costs) so a published number can be traced "
+            "back to the run that produced it"
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    # The agentic arm executes model-written code, so the suite cannot run without a
+    # sandbox. Check BEFORE any provider call: failing here costs nothing, while failing
+    # mid-suite would waste the money already spent on the earlier arms.
+    from volante.tools.sandbox import resolve_sandbox_mode
+
+    mode, reason = resolve_sandbox_mode()
+    if mode == "unavailable":
+        raise SystemExit(f"eval needs a code-execution sandbox: {reason}")
+
     registry, providers, model_id = build_providers_from_env()
     make_runtime = make_runtime_factory(registry, providers, model_id)
     result = await run_suite(
         EVAL_SUITE, make_runtime, providers[model_id], model_id, registry
     )
     print(format_report(result))
+    if args.json:
+        import json
+        from datetime import UTC, datetime
+
+        artifact = {
+            "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
+            "volante_version": __version__,
+            "planner_model_id": model_id,
+            "inventory": sorted(m.id for m in registry.all()),
+            "k": EVAL_K,
+            "suite": [t.id for t in EVAL_SUITE],
+            "result": result,
+        }
+        path = Path(args.json).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(f"\nwrote {path}")
 
 
 if __name__ == "__main__":

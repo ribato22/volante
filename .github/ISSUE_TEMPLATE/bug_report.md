@@ -12,7 +12,7 @@ A clear, concise description of what the bug is.
 
 ## Reproduction
 
-Minimal steps to reproduce the behavior, ideally a `uv run baton "..."` invocation, a
+Minimal steps to reproduce the behavior, ideally a `uv run volante "..."` invocation, a
 `demo.py`/library snippet, or a failing `uv run pytest` test.
 
 ```bash
@@ -25,12 +25,12 @@ What you expected to happen.
 
 ## Actual behavior
 
-What actually happened (include the full error output / traceback if any — `baton` itself should
+What actually happened (include the full error output / traceback if any — `volante` itself should
 never print a raw traceback, so if you see one that's part of the bug).
 
 ## Environment
 
-- Baton version (`uv run baton --version`):
+- Volante version (`uv run volante --version`):
 - Python version (`python --version`):
 - OS:
 - Provider(s) configured (Anthropic / OpenAI-compat / Kimi / Ollama / Claude Code / Codex — no need

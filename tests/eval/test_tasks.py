@@ -30,14 +30,16 @@ def test_reference_test_emits_json_passed_total():
     assert "total" in REFERENCE_TEST
 
 
-# --- EVAL_SUITE (5 goal komposit) ------------------------------------------
+# --- EVAL_SUITE (goal komposit) ------------------------------------------
 
 
-def test_eval_suite_has_five_unique_ids():
-    assert len(EVAL_SUITE) == 5
+def test_eval_suite_ids_are_unique():
     ids = [t.id for t in EVAL_SUITE]
-    assert len(set(ids)) == 5  # unik
-    assert set(ids) == EXPECTED_IDS
+    assert len(set(ids)) == len(ids)  # unik
+    # Kata satu-fungsi asli tetap ada; goal multi-bagian ditambahkan agar tesis
+    # orkestrasi punya sesuatu untuk di-fan-out (lihat README).
+    assert EXPECTED_IDS <= set(ids)
+    assert {"textkit", "ledger"} <= set(ids)
 
 
 def test_eval_suite_entries_are_evaltask():

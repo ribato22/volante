@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import baton.providers.openai_compat as oc
-from baton.providers.base import ProviderError
-from baton.types import CanonicalRequest, TextBlock, Usage, text
+import volante.providers.openai_compat as oc
+from volante.providers.base import ProviderError
+from volante.types import CanonicalRequest, TextBlock, Usage, text
 
 
 def _fake_response(
@@ -42,10 +42,11 @@ def _install_fake_openai(monkeypatch, *, response=None, error=None):
     else:
         create_mock = AsyncMock(return_value=response)
 
-    def fake_ctor(*, base_url, api_key, timeout):
+    def fake_ctor(*, base_url, api_key, timeout, max_retries):
         capture["base_url"] = base_url
         capture["api_key"] = api_key
         capture["timeout"] = timeout
+        capture["max_retries"] = max_retries
         client = MagicMock()
         client.chat.completions.create = create_mock
         return client
@@ -65,6 +66,7 @@ async def test_construct_passes_base_url_api_key_and_default_timeout(monkeypatch
     assert capture["base_url"] == "https://api.moonshot.cn/v1"
     assert capture["api_key"] == "sk-test"
     assert capture["timeout"] == 120.0
+    assert capture["max_retries"] == 0
     assert provider.timeout == 120.0
 
 
@@ -171,8 +173,8 @@ async def test_complete_maps_response_and_marks_usage_real(monkeypatch):
         ("tool_calls", "tool_use"),
         ("function_call", "tool_use"),
         ("content_filter", "content_filter"),
-        (None, "end_turn"),
-        ("something_weird", "end_turn"),
+        (None, "unknown"),
+        ("something_weird", "something_weird"),
     ],
 )
 async def test_finish_reason_mapping_full_table(monkeypatch, finish, expected):
@@ -426,6 +428,55 @@ async def test_429_ambiguous_card_billing_defaults_transient(monkeypatch):
         )
     assert ei.value.retryable is True
     assert ei.value.quota_exhausted is False
+
+
+async def test_model_not_found_is_candidate_unavailable(monkeypatch):
+    _install_fake_openai(
+        monkeypatch,
+        error=_FakeStatusError(
+            "model_not_found: requested model does not exist",
+            status_code=404,
+        ),
+    )
+    provider = oc.OpenAICompatProvider(
+        base_url="http://localhost:11434/v1",
+        api_key="k",
+        model="missing",
+    )
+
+    with pytest.raises(ProviderError) as raised:
+        await provider.complete(
+            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+        )
+
+    assert raised.value.candidate_unavailable is True
+    assert raised.value.retryable is False
+    assert raised.value.quota_exhausted is False
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+async def test_generic_provider_configuration_failure_is_provider_unavailable(
+    monkeypatch,
+    status: int,
+) -> None:
+    _install_fake_openai(
+        monkeypatch,
+        error=_FakeStatusError("generic provider failure", status_code=status),
+    )
+    provider = oc.OpenAICompatProvider(
+        base_url="https://provider.invalid/v1",
+        api_key="bad",
+        model="configured",
+    )
+
+    with pytest.raises(ProviderError) as raised:
+        await provider.complete(
+            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
+        )
+
+    assert raised.value.provider_unavailable is True
+    assert raised.value.candidate_unavailable is False
+    assert raised.value.retryable is False
 
 
 async def test_billing_defaults_to_card(monkeypatch):

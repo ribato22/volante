@@ -1,30 +1,43 @@
-# Baton
+# Volante
 
-[![CI](https://github.com/ribato22/baton/actions/workflows/ci.yml/badge.svg)](https://github.com/ribato22/baton/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/ribato22/baton/blob/main/LICENSE)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](pyproject.toml)
+[![CI](https://github.com/ribato22/volante/actions/workflows/ci.yml/badge.svg)](https://github.com/ribato22/volante/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/ribato22/volante/blob/main/LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 
-**A cross-provider multi-model AI orchestration engine.** A *supervisor* model decomposes a goal
-into a task DAG, *routes* each sub-task to the best-quality model capable of it — by required
-strengths and tool support — across providers (Anthropic, any OpenAI-compatible endpoint, Ollama),
-runs them one-shot or in an agentic tool loop, and *synthesizes* a final answer. Built without an
-orchestration framework (no LangChain / CrewAI / LiteLLM).
+**A transparent, user-owned model router and orchestration control plane (alpha).** A *supervisor*
+model decomposes a goal into a task DAG, *routes* each sub-task across the user's explicitly
+configured models, runs them one-shot or in an agentic tool loop, and *synthesizes* a final answer.
+Hard capabilities are enforced first; explainable metadata and quality evidence rank the eligible
+models. Volante runs locally and keeps inventory, policy, credentials, and decision traces under the
+user's control.
 
-> One conductor, many players — pass the *baton* from the leader model to the workers and back.
+Selection quality is an evidence-based prediction, not a claim of a universal winner. Volante does
+not yet ship published representative cross-provider benchmarks or automatic score calibration.
+Built without an orchestration framework (no LangChain / CrewAI / LiteLLM).
+
+> A *volante* steers the game: the deep-lying midfielder who reads the whole pitch and sends the
+> ball where it does the most good — then takes it back. One mind, many players.
 
 ---
 
 ## Highlights
 
-- **Supervisor + routing.** An LLM plans a validated, acyclic task DAG; a router sends each task
-  to the strongest model capable of it (by required strengths + tool support). `--prefer
-  cash_protect_quota` right-sizes instead, to protect subscription quota.
-- **Cross-provider.** `AnthropicProvider` and a generic `OpenAICompatProvider` speak to Anthropic,
-  Google AI Studio (Gemini), Groq, OpenRouter, DeepSeek, Moonshot (Kimi), local Ollama, and any
-  other OpenAI-compatible endpoint — no code changes, just env vars.
+- **Supervisor + explainable routing.** An LLM plans a validated, acyclic task DAG; the router
+  evaluates every configured model, rejects hard capability mismatches, scores the eligible set,
+  and records the complete decision trace. Optional evaluation-derived quality profiles replace
+  coarse metadata with evidence. `quality`, `local`, `cheap`, and `cash_protect_quota` are distinct
+  routing objectives.
+- **User-owned, cross-provider control plane.** `AnthropicProvider` and a generic
+  `OpenAICompatProvider` speak to Anthropic, Google AI Studio (Gemini), Groq, OpenRouter, DeepSeek,
+  Moonshot (Kimi), local Ollama, and any other OpenAI-compatible endpoint. The inventory and
+  credentials stay in the user's environment.
+- **Scoped provider failover.** Model/deployment, provider authentication/endpoint, exhausted-retry,
+  and timeout failures are recorded and can move work to the next ranked eligible candidate,
+  including planner/synthesizer fallbacks. Malformed or semantically invalid requests still fail
+  fast instead of spraying the request across providers.
 - **Hybrid one-shot / agentic.** Tasks run as a single call *or* as a model↔tool loop (`run_python`
-  in a subprocess sandbox — container-isolated under `BATON_SANDBOX=docker` — plus host-mediated
+  in a Docker-isolated sandbox when a daemon is available, withheld when none is — plus host-mediated
   `fetch_url` / `read_file`).
 - **Shared context.** An append-only *blackboard* carries provenance; each task gets a scoped,
   budget-capped projection of only the dependency artifacts it needs.
@@ -37,14 +50,14 @@ orchestration framework (no LangChain / CrewAI / LiteLLM).
 - **Forgery-resistant evaluation.** A 3-arm eval (baseline vs. orchestration vs. single-agent) with
   a scorer that runs untrusted solution code under **process + filesystem separation** so a model
   cannot fake a passing score.
-- **Tested.** 560+ tests, zero-network by default (`FakeProvider` + local subprocesses), `ruff`-clean.
+- **Tested.** 800+ tests, zero-network by default (`FakeProvider` + local subprocesses), `ruff`-clean.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
     goal(["goal"]) --> S["Supervisor<br/>plan → validated task DAG<br/>(acyclic · typed · one_shot | agentic)"]
-    S --> R["Router<br/>strongest capable model per task<br/>(by strengths + tool support)"]
+    S --> R["Router<br/>best predicted fit per task<br/>(hard constraints → explainable score)"]
     R --> P
     subgraph wave["wave execution · asyncio fan-out · fail-fast"]
         direction TB
@@ -71,8 +84,8 @@ flowchart TD
    goal ──────────► │  Supervisor  │  plan → validated task DAG (acyclic, typed, one_shot|agentic)
                     └──────┬───────┘
                            ▼
-                    ┌──────────────┐   per task: pick the strongest model whose strengths +
-                    │    Router    │   tool support fit the task (quality-first)
+                    ┌──────────────┐   per task: hard-capability filter, then rank the
+                    │    Router    │   predicted fit from configured evidence
                     └──────┬───────┘
                            ▼
         ┌───────────── wave execution (asyncio, fan-out cap, fail-fast) ─────────────┐
@@ -101,27 +114,27 @@ flowchart TD
 
 | Component | File | Responsibility |
 |---|---|---|
-| Supervisor | `src/baton/supervisor.py` | Decompose goal → validated task DAG |
-| Router | `src/baton/router.py` | Task → strongest capable model (by strengths + tool support) |
-| Projector | `src/baton/projector.py` | Scoped, budget-capped request from blackboard artifacts |
-| Worker | `src/baton/worker.py` | One-shot model call |
-| AgenticWorker | `src/baton/agent.py` | Model↔tool loop with per-turn records |
-| Blackboard | `src/baton/blackboard.py` | Append-only shared state with provenance |
-| Synthesizer | `src/baton/synthesizer.py` | Artifacts → final answer |
-| Runtime | `src/baton/runtime.py` | Orchestrate: plan → waves → synthesize (streaming, fail-fast) |
-| Providers | `src/baton/providers/` | Anthropic + OpenAI-compatible adapters (complete/stream/tools) |
-| Tools | `src/baton/tools/` | Sandbox / DockerSandbox, run_python, fetch_url, read_file |
-| Eval | `eval/` | 5 composite goals, 3-arm comparison, forgery-resistant scorer |
+| Supervisor | `src/volante/supervisor.py` | Decompose goal → validated task DAG |
+| Router | `src/volante/router.py` | Whole inventory → eligible candidates → explainable ranking |
+| Projector | `src/volante/projector.py` | Scoped, budget-capped request from blackboard artifacts |
+| Worker | `src/volante/worker.py` | One-shot model call |
+| AgenticWorker | `src/volante/agent.py` | Model↔tool loop with per-turn records |
+| Blackboard | `src/volante/blackboard.py` | Append-only shared state with provenance |
+| Synthesizer | `src/volante/synthesizer.py` | Artifacts → final answer |
+| Runtime | `src/volante/runtime.py` | Orchestrate: plan → waves → synthesize (streaming, fail-fast) |
+| Providers | `src/volante/providers/` | Anthropic + OpenAI-compatible adapters (complete/stream/tools) |
+| Tools | `src/volante/tools/` | Sandbox / DockerSandbox, run_python, fetch_url, read_file |
+| Eval | `eval/` | 7 goals (5 katas + 2 multi-part), 3-arm comparison, forgery-resistant scorer |
 
 ## Quickstart
 
 Requires **Python 3.11+** and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
-git clone https://github.com/ribato22/baton
-cd baton
+git clone https://github.com/ribato22/volante
+cd volante
 uv sync --dev            # install deps + dev tools
-uv run pytest            # 580+ tests, no network
+uv run pytest            # 800+ tests, no network
 uv run ruff check .      # lint
 
 # See it orchestrate end-to-end with ZERO API keys (FakeProvider demo):
@@ -165,37 +178,54 @@ cost: $0.001834
 ```text
 GOAL          WINNER            BASE   ORCH   AGEN
 -------------------------------------------------
-slugify       orchestration     0.70   1.00   0.85
-roman         baseline          1.00   0.85   0.55
-calc          orchestration     0.55   0.85   0.70
-csv_stats     agentic           0.40   0.55   0.85
-json_flatten  orchestration     0.70   1.00   0.85
+slugify       —                 0.xx   0.xx   0.xx
+roman         —                 0.xx   0.xx   0.xx
+calc          —                 0.xx   0.xx   0.xx
+csv_stats     —                 0.xx   0.xx   0.xx
+json_flatten  —                 0.xx   0.xx   0.xx
 -------------------------------------------------
-wins: baseline=1  orchestration=3  agentic=1  ties=0
-totals: baseline $0.0210  orchestration $0.0480  agentic $0.0350
-VERDICT: ORCHESTRATION
+wins: baseline=?  orchestration=?  agentic=?  ties=?
+totals: baseline $?  orchestration $?  agentic $?
+VERDICT: (whatever your models actually produce)
 ```
+
+Run it yourself — it needs your keys and **spends real money** (7 goals × 3 arms × k runs):
+
+```bash
+uv run python -m eval.run --json results.json   # artifact records models, k, per-goal scores, costs
+```
+
+**Those are placeholders, not results.** Volante publishes no benchmark numbers, and this table is
+only the output *format*. The five original goals are single-function katas, which decomposition cannot
+plausibly improve — orchestration pays a mandatory planning + synthesis call on top of the work, so
+on tasks that small it should be expected to lose on cost and latency. Two goals (`textkit`,
+`ledger`) are deliberately multi-part — three separable components each, one set independent and one
+with internal dependencies — because fan-out can only pay off when there is something to fan out. Whether orchestration beats one strong model on realistic, genuinely
+multi-part work is **an open question in this project, not a settled claim.** Run it against your own
+models and task distribution before believing either answer.
 
 ## Usage
 
-Baton ships three surfaces: a one-command **CLI** (the primary entrypoint), an optional **Web UI**,
+Volante ships three surfaces: a one-command **CLI** (the primary entrypoint), an optional **Web UI**,
 and an importable **library**. All three need at least one configured provider — see
 [Providers](#providers) — or (Web UI only) fall back to a no-key demo.
 
 ### CLI (primary)
 
 ```bash
-uv run baton "write a haiku about concurrency, then explain the metaphor"
+uv run volante "write a haiku about concurrency, then explain the metaphor"
 ```
 
-`baton` streams the plan, each parallel worker's output (labelled per task), and the synthesis live,
-then prints a summary. Flags (`baton --help`):
+`volante` streams the plan, each parallel worker's output (labelled per task), and the synthesis live,
+then prints a summary. Flags (`volante --help`):
 
 | Flag | Description |
 |---|---|
-| `--prefer {quality,cash_protect_quota,local,cheap}` | routing objective (default `quality` — the strongest model capable of each task). `cash_protect_quota` right-sizes to protect subscription quota; `local`/`cheap` are accepted but currently behave as `quality` |
+| `--prefer {quality,cash_protect_quota,local,cheap}` | routing objective. `quality` (default) ranks predicted task fit; `cash_protect_quota` reserves subscription quota; `local` prioritizes eligible local models; `cheap` prioritizes configured economic cost |
 | `--provider NAME` / `-P NAME` | restrict the planner/synth baseline to this provider |
 | `--model ID` | override the planner/synth `model_id` |
+| `--list-models` | print the complete configured/detected routing inventory and exit; combine with `--json` for machine-readable output |
+| `--usage` | print the recent usage ledger (`~/.volante/usage.jsonl`) — including runs delegated from an IDE via MCP — and exit; combine with `--json` |
 | `--json` | print the run summary as one parseable JSON line; disables streaming |
 | `--no-stream` | disable live streaming of plan/worker/synth text |
 | `--version` | print the installed version and exit |
@@ -203,10 +233,10 @@ then prints a summary. Flags (`baton --help`):
 Exit codes: `0` success, `1` run failure, `2` config error (e.g. no provider configured), `130`
 Ctrl-C (prints whatever partial output had streamed so far — never a raw traceback).
 
-The text-mode summary reports `billed_usd` (real cash spent) vs. `credit_usd` (subscription/plan
-API-equivalent valuation of subscription calls, not cash) plus `subscription_models` (the count of
-distinct subscription-billed models used) — a subscription run is cash-free but still consumes your
-interactive quota (see below).
+The summary reports `billed_usd` (real cash spent) vs. `credit_usd` (subscription/plan
+API-equivalent value, not cash), physical `subscription_calls`, and a per-task route trace. JSON
+mode also includes every eligible/rejected candidate, score component, selected model, and model
+actually executed after any fallback.
 
 ### Web UI
 
@@ -216,34 +246,67 @@ uv run python -m webui          # then open http://127.0.0.1:8000
 ```
 
 A small FastAPI + Server-Sent-Events app streams a run live in the browser — the plan, each parallel
-worker's output (labelled per task), the synthesis, and the final result with cost. It runs with your
-configured providers, or a built-in `FakeProvider` demo if none are set (no API key needed). This is
-a **source-checkout feature** — `webui/` is not shipped in the built wheel/PyPI package.
+worker's output (labelled per task), the synthesis, and the final result with cost and model routes.
+It runs with your configured providers, or a built-in `FakeProvider` demo if none are set (no API
+key needed). This is a **source-checkout feature** — `webui/` is not shipped in the built wheel/PyPI
+package.
 
-`BATON_UI_HOST` / `BATON_UI_PORT` override the bind address. The page inserts all model output via
-`textContent` only (never raw HTML), so streamed text cannot inject markup.
+`VOLANTE_UI_HOST` / `VOLANTE_UI_PORT` override the bind address. Volante refuses a non-loopback host
+unless `VOLANTE_UI_AUTH_TOKEN` is set; for remote access also set `VOLANTE_UI_ALLOWED_HOSTS` to the
+comma-separated hostnames clients will use. `VOLANTE_UI_MAX_GOAL_CHARS` (default `20000`) and
+`VOLANTE_UI_MAX_CONCURRENT_RUNS` (default `2`) bound input and concurrency. The page inserts all
+model output via `textContent` only (never raw HTML), so streamed text cannot inject markup. A
+`/usage` page (linked from the header, gated by the same `VOLANTE_UI_AUTH_TOKEN`) shows the usage
+ledger below.
+
+### Monitoring usage
+
+Every run from the CLI, the Web UI, and the **MCP server** best-effort appends one JSON line to a
+usage ledger — `~/.volante/usage.jsonl` by default (`VOLANTE_USAGE_LOG` to relocate, empty to disable) —
+recording status, cash vs. plan credit, physical subscription calls, duration, the models used, and
+a truncated goal. This is how you monitor Volante when an IDE agent delegates goals to it over MCP:
+
+```bash
+uv run volante --usage            # recent runs + totals, newest first
+uv run volante --usage --json     # the same as one JSON object
+```
+
+The Web UI `/usage` dashboard reads the same ledger (summary tiles + a recent-runs table). Set
+`VOLANTE_LOG=debug` (or `info`/`warning`/`error`) to raise engine diagnostics on stderr — for an MCP
+server that surfaces in the client's server-output pane (e.g. VS Code's **Output** → the Volante MCP
+server); it is silent by default and never writes to stdout.
 
 ### Library
 
 ```python
 import asyncio
-import baton
+import volante
 
 
 async def main() -> None:
-    registry, providers, model_id = baton.build_providers_from_env()
-    runtime = baton.make_runtime_factory(registry, providers, model_id)()
+    registry, providers, model_id = volante.build_providers_from_env()
+    factory = await volante.make_verified_runtime_factory(
+        registry, providers, model_id
+    )
+    runtime = factory()
     result = await runtime.aexecute("your goal")
-    print(result.status, result.billed_usd, result.credit_usd)
+    print(result.status, result.billed_usd, result.credit_usd, result.cost_estimated)
 
 
 asyncio.run(main())
 ```
 
-The top-level `baton` package re-exports the common library API (`Runtime`, `Registry`,
-`Router`, `build_providers_from_env`, `make_runtime_factory`, `RunResult`, `ModelInfo`, `Task`,
-`LLMProvider`, `ProviderError` — see `baton.__all__`) so you don't need to reach into submodules
-for everyday use.
+A `Runtime` is **single-use**: it runs one goal, and its accounting, route trace, and planner are
+all per-run. Call `factory()` again for each goal (a second or overlapping `aexecute` on the same
+instance is refused with a `RuntimeError` rather than silently mixing two runs' numbers). Read
+`result.cost_estimated` alongside the amounts — it is `True` when a provider reported no token
+counts for at least one call, so part of the figures is inferred from configured rates rather than
+reported by the provider.
+
+The top-level `volante` package re-exports the common library API (`Runtime`, `Registry`,
+`Router`, `RoutingDecision`, `ModelQualityProfile`, inventory helpers,
+`build_providers_from_env`, `make_verified_runtime_factory`, `RunResult`, `ModelInfo`, `Task`,
+`LLMProvider`, `ProviderError` — see `volante.__all__`) so you don't need to reach into submodules.
 
 See [`examples/`](examples/) for runnable scripts — including
 [`examples/fake_provider.py`](examples/fake_provider.py), which needs **no API key** at all. For a
@@ -252,7 +315,7 @@ guided tour with hardcoded goals, see the demo script:
 
 ### Using your Claude / ChatGPT subscription (no API key)
 
-Baton can drive the *official headless CLIs* you're already logged into instead of (or alongside) a
+Volante can drive the *official headless CLIs* you're already logged into instead of (or alongside) a
 card-billed API key:
 
 ```bash
@@ -260,17 +323,17 @@ export CLAUDE_CODE_ENABLED=1               # needs `claude` installed and logged
 # CLAUDE_CODE_SYSTEM_PROMPT_MODE=replace is the default — makes `claude -p` behave as a
 # raw completion; `append` breaks strict-JSON planning, so leave it unset unless you know why.
 export CODEX_ENABLED=1 CODEX_TIER=3         # needs `codex login`
-uv run baton "your goal"
+uv run volante "your goal"
 ```
 
 > ⚠️ **Subscription runs are cash-free but consume your interactive Claude Code / Codex quota** —
 > the same pool your interactive coding sessions draw from. A heavy orchestration run can trip a
-> rate-limit pause. The default `quality` objective favors the strongest capable model per task,
+> rate-limit pause. The default `quality` objective favors the highest predicted fit per task,
 > which can lean on subscription models. Pass `--prefer cash_protect_quota` to mitigate this — it
 > sends bulk/easy work to cheaper local/free-tier models and reserves subscription models for hard
 > tasks only.
 > A card-billed, free-tier, or local model as **planner** is recommended: subscription CLIs ignore
-> `temperature`, so Baton retries planning with self-correction and can gate `claude -p` as planner
+> `temperature`, so Volante retries planning with self-correction and can gate `claude -p` as planner
 > behind a live parse-plan check (it only plans if it demonstrably emits valid plan JSON).
 >
 > This drives the **official headless CLIs** (`claude -p`, `codex exec`) that you are already logged
@@ -279,7 +342,7 @@ uv run baton "your goal"
 
 ### In your IDE (VSCode) & MCP
 
-Baton is a CLI first, so it already works in **any** editor's integrated terminal (`uv run baton
+Volante is a CLI first, so it already works in **any** editor's integrated terminal (`uv run volante
 "…"`). For VSCode there are two extra conveniences:
 
 **1. One-keystroke tasks.** The repo ships [`.vscode/tasks.json`](.vscode/tasks.json). Open
@@ -287,35 +350,35 @@ Baton is a CLI first, so it already works in **any** editor's integrated termina
 
 | Task | What it does |
 |------|--------------|
-| **Baton: Run goal** | Prompts for a goal and orchestrates it (streams plan → workers → synthesis). |
-| **Baton: Web UI** | Serves the live Web UI at <http://127.0.0.1:8000>. |
-| **Baton: MCP server (stdio)** | Runs the MCP server for AI-agent integration (below). |
-| **Baton: Test / Lint** | `pytest` / `ruff` over the project. |
+| **Volante: Run goal** | Prompts for a goal and orchestrates it (streams plan → workers → synthesis). |
+| **Volante: Web UI** | Serves the live Web UI at <http://127.0.0.1:8000>. |
+| **Volante: MCP server (stdio)** | Runs the MCP server for AI-agent integration (below). |
+| **Volante: Test / Lint** | `pytest` / `ruff` over the project. |
 
-**2. MCP server — let the AI *inside* your editor call Baton.** Baton ships an
-[MCP](https://modelcontextprotocol.io) server ([`baton_mcp/`](baton_mcp/)) exposing one tool,
-`baton_run(goal, prefer?)`, that plans → routes → runs → synthesizes and returns the final answer
+**2. MCP server — let the AI *inside* your editor call Volante.** Volante ships an
+[MCP](https://modelcontextprotocol.io) server ([`volante_mcp/`](volante_mcp/)) exposing one tool,
+`volante_run(goal, prefer?)`, that plans → routes → runs → synthesizes and returns the final answer
 plus an honest cash/plan-credit footer. Any MCP-capable assistant (Claude Code, Cursor, VS Code
-Copilot *agent mode*, Windsurf) can then delegate whole goals to Baton.
+Copilot *agent mode*, Windsurf) can then delegate whole goals to Volante.
 
 Install it clone-free (recommended), or from a source checkout:
 
 ```bash
 # clone-free — uv fetches the published package + the `mcp` extra on demand:
-uvx --from "baton-orchestrator[mcp]" baton-mcp
+uvx --from "volante[mcp]==0.3.0" volante-mcp
 
 # or install it and run the console script:
-pip install "baton-orchestrator[mcp]"   # then:
-baton-mcp
+pip install "volante[mcp]==0.3.0"   # then:
+volante-mcp
 
 # or from a source checkout:
-uv sync --extra mcp && uv run --extra mcp python -m baton_mcp
+uv sync --extra mcp && uv run --extra mcp python -m volante_mcp
 ```
 
 Register it with your client. **Claude Code** — one command:
 
 ```bash
-claude mcp add baton -- uvx --from "baton-orchestrator[mcp]" baton-mcp
+claude mcp add volante -- uvx --from "volante[mcp]==0.3.0" volante-mcp
 ```
 
 **Cursor / VS Code / Windsurf** — add to the client's MCP config (e.g. `.cursor/mcp.json`, or
@@ -324,9 +387,9 @@ VS Code's `.vscode/mcp.json` under a `"servers"` key):
 ```jsonc
 {
   "mcpServers": {
-    "baton": {
+    "volante": {
       "command": "uvx",
-      "args": ["--from", "baton-orchestrator[mcp]", "baton-mcp"]
+      "args": ["--from", "volante[mcp]==0.3.0", "volante-mcp"]
     }
   }
 }
@@ -337,38 +400,38 @@ The server reads providers from the environment exactly like the CLI (including
 fall back to a demo. A full branded VSCode *extension* is intentionally **not** shipped; the CLI,
 tasks, and the MCP server cover the same ground.
 
-**In the official MCP registry.** Baton is published to the
-[official MCP registry](https://registry.modelcontextprotocol.io) as `io.github.ribato22/baton`
+**In the official MCP registry.** Volante is published to the
+[official MCP registry](https://registry.modelcontextprotocol.io) as `io.github.ribato22/volante`
 (a validated [`server.json`](server.json) manifest plus a `publish-mcp.yml` GitHub Actions workflow
 that re-publishes it via OIDC on each release). Directories such as [mcp.so](https://mcp.so),
 [PulseMCP](https://www.pulsemcp.com), and [Glama](https://glama.ai) index from it.
 
 **As a Claude Code plugin.** This repo also doubles as a plugin marketplace — one command wires the
-MCP server and a `/baton:run` slash command into Claude Code:
+MCP server and a `/volante:run` slash command into Claude Code:
 
 ```text
-/plugin marketplace add ribato22/baton
-/plugin install baton@baton
+/plugin marketplace add ribato22/volante
+/plugin install volante@volante
 ```
 
 Requires [`uv`](https://docs.astral.sh/uv/) on your PATH (the plugin launches the server with
-`uvx`). See [`plugins/baton/`](plugins/baton/).
+`uvx`). See [`plugins/volante/`](plugins/volante/).
 
 **Other MCP clients (Codex, Cursor, Windsurf, Gemini CLI, Cline).** These don't have a plugin
 marketplace — they consume MCP servers via config. Point them at the same launch command:
 
-- **OpenAI Codex CLI** — `codex mcp add baton -- uvx --from "baton-orchestrator[mcp]" baton-mcp`
-  (writes an `[mcp_servers.baton]` block to `~/.codex/config.toml`; add providers with repeated
+- **OpenAI Codex CLI** — `codex mcp add volante -- uvx --from "volante[mcp]==0.3.0" volante-mcp`
+  (writes an `[mcp_servers.volante]` block to `~/.codex/config.toml`; add providers with repeated
   `--env KEY=VALUE`).
-- **Gemini CLI** — `gemini mcp add baton uvx -- --from "baton-orchestrator[mcp]" baton-mcp`
-  (the `--` is required because Baton's first arg is `--from`).
+- **Gemini CLI** — `gemini mcp add volante uvx -- --from "volante[mcp]==0.3.0" volante-mcp`
+  (the `--` is required because Volante's first arg is `--from`).
 - **Cursor / Windsurf / Cline / Roo** — add the standard `mcpServers` entry to the client's MCP
   config (`~/.cursor/mcp.json`, `~/.codeium/windsurf/mcp_config.json`, or the Cline settings):
 
   ```json
-  { "mcpServers": { "baton": {
+  { "mcpServers": { "volante": {
       "command": "uvx",
-      "args": ["--from", "baton-orchestrator[mcp]", "baton-mcp"],
+      "args": ["--from", "volante[mcp]==0.3.0", "volante-mcp"],
       "env": { "CLAUDE_CODE_ENABLED": "1", "ANTHROPIC_API_KEY": "sk-ant-..." }
   } } }
   ```
@@ -377,23 +440,24 @@ Set your providers in each client's `env` block (`CLAUDE_CODE_ENABLED`, `CODEX_E
 `ANTHROPIC_API_KEY`, `OPENAI_COMPAT_*`).
 
 **Claude Desktop & Smithery — MCPB bundle.** A one-file [MCPB bundle](mcpb/) is attached to each
-[release](https://github.com/ribato22/baton/releases) as `baton-<version>.mcpb`. **Open it in Claude
+[release](https://github.com/ribato22/volante/releases) as `volante-<version>.mcpb`. **Open it in Claude
 Desktop** for a one-click install (it shows a provider-config UI). Or publish it to
-[Smithery](https://smithery.ai) as a *local* server — because Baton is stdio (not a hosted HTTPS
+[Smithery](https://smithery.ai) as a *local* server — because Volante is stdio (not a hosted HTTPS
 endpoint), that's the CLI bundle path, not the "publish a URL" web form:
 
 ```bash
-# download baton-<version>.mcpb from the release, then (needs a Smithery API key):
-npx -y @smithery/cli mcp publish ./baton-<version>.mcpb -n <your-namespace>/baton
+# download volante-<version>.mcpb from the release, then (needs a Smithery API key):
+npx -y @smithery/cli mcp publish ./volante-<version>.mcpb -n <your-namespace>/volante
 ```
 
-The bundle just wraps `uvx --from "baton-orchestrator[mcp]" baton-mcp`, so it runs locally and your
+The bundle wraps `uvx --from "volante[mcp]==0.3.0" volante-mcp`, so it runs locally and your
 subscription CLIs + API keys work as usual (needs `uv` on PATH).
 
 ## Providers
 
-Set environment variables for any subset; baseline priority is
-**Anthropic > OpenAI-compat > Kimi > Ollama**. See [`.env.example`](https://github.com/ribato22/baton/blob/main/.env.example) for the full list.
+Set environment variables for any subset. Every configured model becomes part of the user's model
+inventory considered by the router; the **Anthropic > OpenAI-compat > Kimi > Ollama** priority only
+chooses the default planner/synthesizer. See [`.env.example`](https://github.com/ribato22/volante/blob/main/.env.example) for the full list.
 
 | Provider | Env | Access |
 |---|---|---|
@@ -402,22 +466,173 @@ Set environment variables for any subset; baseline priority is
 | **Moonshot / Kimi** | `MOONSHOT_API_KEY` | Paid API |
 | **Ollama** | `OLLAMA_BASE_URL` | **Local & free** |
 
+### Model inventory and quality evidence
+
+Volante never guesses which remote models an account owns. Provider catalog and entitlement APIs are
+inconsistent, can require extra permissions, and do not prove that a model is currently usable.
+Instead, the routing inventory is explicit and auditable:
+
+```bash
+# Comma-separated lists; the singular forms remain backward compatible.
+export ANTHROPIC_MODELS=claude-opus-4-8,claude-sonnet-4-5
+export ANTHROPIC_NAMES=anthropic/opus,anthropic/sonnet
+export MOONSHOT_MODELS=kimi-k2-0711-preview,kimi-k2-turbo-preview
+export OLLAMA_MODELS=qwen2.5-coder:14b,llama3.2
+export CLAUDE_CODE_MODELS=opus,sonnet
+export CODEX_MODELS=gpt-5-codex,gpt-5-codex-mini
+
+uv run volante --list-models
+uv run volante --list-models --json
+```
+
+`*_NAMES` is optional and, when supplied, must contain exactly one canonical id per wire model.
+All configured models are registered; no default seed is silently added. The inventory command is
+offline: “configured/detected” does not claim live entitlement, quota, or service availability.
+At execution time, an explicit model/deployment-not-found or model-access denial marks only that
+candidate unavailable. A generic authentication or endpoint failure marks the provider unavailable.
+Volante records either fallback event and can try the next ranked model; malformed or semantically
+invalid requests still fail fast instead of blindly calling every provider.
+
+Without measured evidence, `quality` is deliberately a **prediction** based on declared strengths,
+tier, context/output headroom, and task difficulty. Volante does not pad that prediction: a scoring
+component that says the same thing about every eligible model (`task_fit` when no model declares a
+specialized strength, `reliability` when no profile is configured) is given **zero weight** and its
+share is redistributed to the components that actually carry information. The route trace names the
+components it dropped, so a tier-driven ranking reads as exactly that instead of hiding behind a
+45-point “task fit” constant.
+
+Two levers turn those components back on.
+
+**1. Declare what a model is actually good at.** Beyond the required strength for a task type
+(`coding` for `code`, `reasoning` for the rest), these optional tags raise `task_fit` and let peers
+of the same tier be ranked apart:
+
+| Task type | Optional strength tags that improve fit |
+|---|---|
+| `code` | `software_engineering`, `debugging`, `instruction_following` |
+| `research` | `research`, `grounding`, `long_context` |
+| `write` | `writing`, `creativity`, `instruction_following` |
+| `analyze` | `analysis`, `math`, `long_context` |
+
+Set them per provider slot with the `*_STRENGTHS` env vars (for example
+`ANTHROPIC_STRENGTHS=coding,reasoning,software_engineering,debugging`) or per model in the
+overrides file. These are *your* declarations, not vendor claims Volante bakes in.
+
+**2. Calibrate from measurements you own.** Convert scores you actually observed into a strict
+profiles file — no provider calls, so it costs nothing:
+
+```bash
+# measurements.json — one entry per observed run; null means "produced nothing usable":
+#   {"anthropic/opus": {"code": [1.0, 0.8], "write": [0.9]},
+#    "ollama/qwen":    {"code": [0.4, null]}}
+uv run volante --calibrate measurements.json --calibrate-out quality-profiles.json
+export VOLANTE_QUALITY_PROFILES_FILE=$PWD/quality-profiles.json
+```
+
+`--calibrate` averages per task type and macro-averages those means into `overall_score`, so an
+unbalanced sample (30 `code` runs, one `write` run) describes the model rather than your sampling.
+`confidence` follows the **weakest-sampled** task type and is capped below `1.0` — the router
+applies one confidence to every task type, so unrelated runs must not make a single observation
+read as certain. `reliability_score` is emitted **only** when you recorded `null` runs: deriving it
+from low scores would make the reliability component a copy of the quality component. Model ids must
+exist in your configured inventory (the loader is strict), and the output replaces rather than
+merges, so calibrate every model you care about in one file.
+
+The profile file format is the same one you can write by hand:
+
+```json
+{
+  "anthropic/opus": {
+    "task_scores": {"code": 0.96, "research": 0.94, "write": 0.91, "analyze": 0.95},
+    "overall_score": 0.95,
+    "reliability_score": 0.98,
+    "confidence": 0.9,
+    "source": "team-eval-2026-07"
+  },
+  "ollama/qwen2.5-coder:14b": {
+    "task_scores": {"code": 0.78},
+    "overall_score": 0.70,
+    "reliability_score": 0.86,
+    "is_local": true,
+    "confidence": 0.8,
+    "source": "team-eval-2026-07"
+  }
+}
+```
+
+Save that strict JSON outside source control and set
+`VOLANTE_QUALITY_PROFILES_FILE=/absolute/path/to/quality-profiles.json`. Scores are normalized
+`0..1`; supported task keys are `code`, `research`, `write`, and `analyze`. Unknown model ids,
+unknown fields, duplicate JSON keys, invalid/non-finite scores, and credential-like extra fields
+fail closed. A decision trace records the evidence source and caveat rather than claiming an
+empirically universal winner.
+
+The repository includes a 3-arm evaluation harness, but Volante does not yet publish representative
+cross-provider empirical benchmark results or automatically calibrate quality profiles. Treat the
+configured scores as user-owned evidence, validate them against your own task distribution, and
+recalibrate them as models or endpoints change.
+
+Plural family settings share their provider-level defaults. When two models in the same family
+have different hard capabilities, limits, prices, or tiers, declare those per canonical model id
+in a second strict JSON file:
+
+```json
+{
+  "anthropic/haiku": {
+    "strengths": ["reasoning"],
+    "context_window": 200000,
+    "max_output_tokens": 4096,
+    "supports_tools": true,
+    "cost_per_1k_in": 0.0008,
+    "cost_per_1k_out": 0.004,
+    "tier": 2
+  },
+  "anthropic/opus": {
+    "strengths": ["coding", "reasoning", "long_context"],
+    "context_window": 200000,
+    "max_output_tokens": 8192,
+    "supports_tools": true,
+    "cost_per_1k_in": 0.015,
+    "cost_per_1k_out": 0.075,
+    "tier": 4
+  }
+}
+```
+
+Set `VOLANTE_MODEL_OVERRIDES_FILE=/absolute/path/to/model-overrides.json`. Overrides may contain only
+the seven fields shown above; model ids must already exist in the configured inventory. Quality
+profiles carry soft, evaluation-derived evidence, while model overrides carry hard/economic
+metadata used for eligibility, projection, routing, and accounting. Neither file accepts secrets.
+
+Agentic tool availability is also explicit. `run_python` is offered only when an isolating sandbox
+is available (see [Security](#security--limitations-honest)); set
+`VOLANTE_FETCH_ALLOWLIST=example.com,docs.python.org` to enable `fetch_url`, and set
+`VOLANTE_READ_ROOT=/absolute/path/to/trusted/files` to enable `read_file`. The supervisor declares
+`required_tools` per agentic task, and Volante rejects a plan or execution when those tools are not
+enabled or were never actually invoked. The hostname allowlist is not a complete SSRF defense
+against DNS rebinding/private resolution, and `VOLANTE_READ_ROOT` should point to a trusted tree
+without adversarial concurrent symlink changes.
+
 > **Subscription CLI agents are opt-in and consume your interactive quota.** Scraping claude.ai /
-> ChatGPT is not built (ToS, fragile, ban risk). Instead Baton can drive the *official headless CLIs*
+> ChatGPT is not built (ToS, fragile, ban risk). Instead Volante can drive the *official headless CLIs*
 > you're already logged into — Claude Code (`claude -p`) and Codex (`codex exec`) — with no API key.
 > This is **off by default** (`CLAUDE_CODE_ENABLED=1` / `CODEX_ENABLED=1` plus the CLI installed) and
 > is **never** used by the eval. Honest caveat: `claude -p` and `codex exec` today draw from the
 > **same interactive subscription pool** as the chat apps (not a separate/metered bucket), so a full
 > orchestration run — and especially the 3-arm eval — can burn your Claude Code / Codex allowance and
-> trip a mid-run hard-pause. Baton reports `credit_usd` (subscription value consumed) separately from
+> trip a mid-run hard-pause. Volante reports `credit_usd` (subscription value consumed) separately from
 > `billed_usd` (cash), routes only hard/high-tier tasks to subscription (bulk work goes to
-> local/free-tier), and caps subscription calls per run (`BATON_MAX_SUBSCRIPTION_CALLS`, default 4).
+> local/free-tier), and caps physical subscription calls per run
+> (`VOLANTE_MAX_SUBSCRIPTION_CALLS`, default 16, including the subscription-planner compatibility
+> preflight, planning, retries, worker/agent turns, and synthesis). Under the default `quality`
+> objective, any eligible subscription model may be selected; the hard-task reservation behavior
+> applies only to `--prefer cash_protect_quota`.
 >
 > **Billing surface moves — re-verify before trusting it.** Whether `claude -p` bills against the
 > subscription pool vs. a metered API-rate credit bucket has flipped several times in months
 > (announced 2026-06-15, then paused; still paused as of 2026-07-22). When Anthropic next announces a
 > billing change, repeat the live gate in
-> [`docs/claude-code-live-gate.md`](https://github.com/ribato22/baton/blob/main/docs/claude-code-live-gate.md)
+> [`docs/claude-code-live-gate.md`](https://github.com/ribato22/volante/blob/main/docs/claude-code-live-gate.md)
 > and re-check the Help Center banner, then update the "verified" date recorded there.
 
 **Free, high-intelligence option** — Google AI Studio (Gemini Flash), via the generic slot:
@@ -430,13 +645,16 @@ export OPENAI_COMPAT_NAME=google/gemini-flash
 uv run python demo.py orchestrate
 ```
 
-The generic slot defaults to industry-standard values (context 128k, output 8k, tool-capable, cost
-0 for free tiers) and registers its own `ModelInfo`, so cost/context accounting is correct.
+The generic slot defaults to context 128k, output 8k, tool support **off**, and cost 0. Set
+`OPENAI_COMPAT_TOOLS=true` only after confirming function-calling support, and set the provider's
+actual costs/tier/strengths; Volante registers that `ModelInfo` so routing and accounting use the
+declared metadata rather than a hidden seed.
 
-**Several providers at once** — add `OPENAI_COMPAT_2_*`, `OPENAI_COMPAT_3_*`, … (each with its own
-`model_id` / pricing / context). For example Gemini plus Groq, so the supervisor plans on Gemini
-while the cheaper Groq model runs the parallel workers — genuine cross-provider orchestration. See
-[`.env.example`](https://github.com/ribato22/baton/blob/main/.env.example).
+**Several models/providers at once** — add `OPENAI_COMPAT_2_*`, `OPENAI_COMPAT_3_*`, … (each with
+its own `model_id` / pricing / context), or use the plural model lists above for Anthropic,
+Moonshot, Ollama, Claude Code, and Codex. Slots may point to different providers or to several
+models from the same compatible endpoint. For example, configure Gemini plus Groq so the supervisor
+plans on Gemini while a Groq model runs parallel workers. See [`.env.example`](https://github.com/ribato22/volante/blob/main/.env.example).
 
 ## Evaluation
 
@@ -458,31 +676,38 @@ Read the verdict together with the warnings the harness emits:
 
 ## Security & limitations (honest)
 
-This is a study project; its isolation guarantees are deliberately scoped and documented.
+Volante is alpha software; its isolation guarantees are deliberately scoped and documented.
 
-- **Agentic sandbox is for self-written goals.** The default subprocess `Sandbox` protects against
-  *accidents*, not *adversaries*: on macOS the host network and disk remain reachable. For real
-  isolation use `BATON_SANDBOX=docker` (runs code in a container with `--network none`, read-only
-  root, cgroup limits) — this is the prerequisite for the network-isolation guarantee.
-- **External tools are host-mediated.** `fetch_url` (domain allowlist) and `read_file` (root-confined)
-  run in the trusted orchestrator so sandboxed code stays network-isolated. Prompt-injection
-  containment holds only under the Docker sandbox.
+- **Code execution is secure by default, and fails closed.** With no `VOLANTE_SANDBOX` set, Volante
+  probes for a running Docker daemon: if one answers, `run_python` executes in a container
+  (`--network none`, read-only root, dropped capabilities, cgroup limits). If none answers,
+  `run_python` is **not offered at all** — the planner is told it cannot execute code — rather than
+  quietly running model-written code with your files and network. The subprocess `Sandbox` protects
+  against *accidents*, not *adversaries* (host network and disk stay reachable), so it is now an
+  explicit opt-in: `VOLANTE_SANDBOX=subprocess`, which prints a warning on every start. An unknown
+  `VOLANTE_SANDBOX` value is rejected instead of silently downgrading.
+- **External tools are host-mediated.** `fetch_url` (hostname allowlist, no redirects, bounded body)
+  and `read_file` (resolved-path root check, bounded read) run in the trusted orchestrator so
+  sandboxed code stays network-isolated. The allowlist does not defeat DNS rebinding/private
+  address resolution, and the root check is not race-proof against a hostile symlink swap; use
+  trusted domains and trusted local trees. Prompt-injection containment holds only under Docker.
 - **Eval scoring is forgery-resistant, best-effort POSIX.** Process + filesystem separation stops a
   solution from faking a score; a solution calling `setsid()` can still escape the `killpg` group
   (the wall-clock timeout still bounds the run). It is process isolation, not a security sandbox for
   arbitrary hostile code.
-- **Never put secrets in model context.** Allowlists and the read-file root are the trust boundary.
+- **Never put secrets in model context.** Treat allowlists and the read-file root as explicit
+  exposure controls, not as a general-purpose adversarial security sandbox.
 
 ## Project layout
 
 ```text
-src/baton/     # engine (importable package: `baton`)
+src/volante/     # engine (importable package: `volante`)
   providers/          # Anthropic + OpenAI-compatible adapters, FakeProvider
   tools/              # Sandbox, DockerSandbox, run_python, fetch_url, read_file
 eval/                 # goals, 3-arm harness, forgery-resistant scorer, runner
 examples/             # small runnable library-API scripts (incl. a no-key FakeProvider demo)
 webui/                # optional FastAPI + SSE web UI (uv run python -m webui)
-tests/                # 560+ tests (unit + opt-in integration)
+tests/                # 800+ tests (unit + opt-in integration)
 docs/                 # internal design/build records — see docs/README.md; not user docs
 demo.py               # end-to-end demo (orchestrate | agentic | eval)
 ```
@@ -493,28 +718,35 @@ demo.py               # end-to-end demo (orchestrate | agentic | eval)
   subprocesses; integration tests that touch the network/Docker are marked `integration` and skipped
   by default (`uv run pytest -m integration` to opt in).
 - **Lint:** `uv run ruff check .` (line length 100; `E,F,I,UP,B`).
-- Contributions welcome — see [CONTRIBUTING.md](https://github.com/ribato22/baton/blob/main/CONTRIBUTING.md)
-  and our [Code of Conduct](https://github.com/ribato22/baton/blob/main/CODE_OF_CONDUCT.md).
-  Security reports: [SECURITY.md](https://github.com/ribato22/baton/blob/main/SECURITY.md). Release notes:
-  [CHANGELOG.md](https://github.com/ribato22/baton/blob/main/CHANGELOG.md).
+- Contributions welcome — see [CONTRIBUTING.md](https://github.com/ribato22/volante/blob/main/CONTRIBUTING.md)
+  and our [Code of Conduct](https://github.com/ribato22/volante/blob/main/CODE_OF_CONDUCT.md).
+  Security reports: [SECURITY.md](https://github.com/ribato22/volante/blob/main/SECURITY.md). Release notes:
+  [CHANGELOG.md](https://github.com/ribato22/volante/blob/main/CHANGELOG.md).
 
-## Non-goals
+## Project status & non-goals
 
-Baton is a **study engine** for multi-model orchestration, not a production framework.
-It deliberately avoids LangChain, LiteLLM, and CrewAI — the point is to see how a supervisor, router,
-projector, and blackboard actually work under the hood, not to hide them behind an abstraction. Don't
-adopt it as a drop-in production agent framework; treat it as a reference implementation to read,
-fork, and learn from.
+Volante is an **alpha, transparent, user-owned model router and orchestration control plane**. It is
+usable today through its CLI, library, Web UI, and MCP server for inventories and providers that the
+user explicitly configures. It is not a managed model gateway, an automatic entitlement-discovery
+service, or a guarantee that its predicted fit is empirically optimal. Interfaces may still evolve.
+
+For production use, validate Volante's routing against a representative workload, supply and maintain
+your own quality evidence, choose the documented isolation mode for the threat model, and retain an
+application-level recovery path. The framework-free implementation is intentional: supervisor,
+router, projector, and blackboard behavior stays inspectable instead of being hidden behind
+LangChain, LiteLLM, or CrewAI abstractions.
 
 ## Roadmap
 
-- Run the real 3-arm eval across providers and interpret whether orchestration beats a single model.
-- Per-task labelled streaming to a UI; async-generator / backpressure streaming API.
+- Publish representative cross-provider 3-arm benchmark results and interpret whether orchestration
+  beats a single model.
+- Calibrate task-specific quality profiles automatically from representative user evaluations.
+- Async-generator/backpressure streaming API.
 - Ollama tool-calling / streaming integration coverage.
 
 ## License
 
-[MIT](https://github.com/ribato22/baton/blob/main/LICENSE) © 2026 ribato.
+[MIT](https://github.com/ribato22/volante/blob/main/LICENSE) © 2026 ribato.
 
 <!-- MCP registry ownership marker (proves this PyPI package maps to the server name). -->
-<!-- mcp-name: io.github.ribato22/baton -->
+<!-- mcp-name: io.github.ribato22/volante -->

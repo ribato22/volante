@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from baton.tools.base import Tool, ToolRegistry
-from baton.types import ToolSpec
+from volante.tools.base import Tool, ToolRegistry
+from volante.types import ToolSpec
 
 
 class _Echo:

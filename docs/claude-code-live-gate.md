@@ -1,7 +1,7 @@
 # Claude Code live-verification gate (spec §13)
 
 **Status:** REQUIRED before the Codex adapter (Phase 8) may be enabled. The
-`ClaudeCodeAdapter` (`src/baton/providers/claude_code.py`) is unit-tested against a
+`ClaudeCodeAdapter` (`src/volante/providers/claude_code.py`) is unit-tested against a
 DATED mock fixture only (`tests/providers/fixtures/claude_code_result.2026-07-22.json`).
 This gate reconfirms the volatile CLI contract on real hardware (§8.3: Anthropic billing
 announce→pause within ~a month; stream-json granularity may shift).
@@ -66,7 +66,7 @@ per spec §8.1 "OAuth preserved; do NOT force API key").
 
 ## Outcome — recorded from the live gate run
 
-- **Date / operator:** 2026-07-23 / Baton dev (subscription OAuth, `ANTHROPIC_API_KEY` unset).
+- **Date / operator:** 2026-07-23 / Volante dev (subscription OAuth, `ANTHROPIC_API_KEY` unset).
 - **`claude --version`:** `2.1.161 (Claude Code)`.
 - **Confirmations 1–4:**
   1. **JSON schema — PASS.** Real output carries `result`, `usage.input_tokens`,

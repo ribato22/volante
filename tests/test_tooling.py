@@ -12,8 +12,8 @@ def test_runtime_sdks_importable() -> None:
     importlib.import_module("openai")
 
 
-def test_baton_version() -> None:
-    mod = importlib.import_module("baton")
+def test_volante_version() -> None:
+    mod = importlib.import_module("volante")
     # Valid semver string; not pinned to a specific value so bumps don't churn this.
     assert re.fullmatch(r"\d+\.\d+\.\d+([.\-+].*)?", mod.__version__)
 

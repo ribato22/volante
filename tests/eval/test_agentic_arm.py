@@ -3,10 +3,10 @@ from __future__ import annotations
 import pytest
 from eval.harness import AgenticArmResult, run_agentic_single, score_agentic
 
-from baton.providers.base import ProviderError
-from baton.providers.fake import FakeProvider
-from baton.registry import Registry
-from baton.types import (
+from volante.providers.base import ProviderError
+from volante.providers.fake import FakeProvider
+from volante.registry import Registry
+from volante.types import (
     CanonicalRequest,
     CanonicalResponse,
     ModelInfo,
@@ -107,9 +107,41 @@ async def test_run_agentic_single_surfaces_provider_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_run_agentic_single_success_has_no_error() -> None:
-    provider = FakeProvider(responses=[_resp([TextBlock(text="done")], "end_turn")])
+    provider = FakeProvider(
+        responses=[
+            _resp(
+                [
+                    ToolUseBlock(
+                        id="u1",
+                        name="run_python",
+                        input={"code": "print('verified')"},
+                    )
+                ],
+                "tool_use",
+            ),
+            _resp([TextBlock(text="done")], "end_turn"),
+        ]
+    )
     res = await run_agentic_single("goal", provider, "m1", Registry([_model("m1")]))
     assert res.error is None
+
+
+@pytest.mark.asyncio
+async def test_run_agentic_single_records_model_that_skips_required_tool() -> None:
+    provider = FakeProvider(
+        responses=[_resp([TextBlock(text="claimed success")], "end_turn")]
+    )
+
+    res = await run_agentic_single(
+        "goal",
+        provider,
+        "m1",
+        Registry([_model("m1")]),
+    )
+
+    assert res.error is not None
+    assert "CapabilityUnavailableError" in res.error
+    assert "without invoking any configured tool" in res.error
 
 
 def test_score_agentic_good_vs_broken() -> None:

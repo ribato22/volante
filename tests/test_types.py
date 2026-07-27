@@ -5,7 +5,7 @@ import typing
 
 import pytest
 
-from baton.types import (
+from volante.types import (
     CanonicalMessage,
     CanonicalRequest,
     CanonicalResponse,
@@ -322,9 +322,17 @@ def test_task_difficulty_can_be_set() -> None:
     assert t.difficulty == "hard"
 
 
-def test_task_difficulty_is_the_last_field() -> None:
+def test_task_fields_preserve_positional_prefix_and_append_required_tools() -> None:
     names = [f.name for f in dataclasses.fields(Task)]
-    assert names[-1] == "difficulty"
+    assert names[:6] == [
+        "id",
+        "description",
+        "type",
+        "mode",
+        "depends_on",
+        "difficulty",
+    ]
+    assert names[-1] == "required_tools"
 
 
 def test_run_result_billed_and_credit_default_zero() -> None:
@@ -350,10 +358,33 @@ def test_run_result_accepts_billed_and_credit() -> None:
     assert r.cost_usd == pytest.approx(r.billed_usd + r.credit_usd)
 
 
-def test_run_result_credit_usd_is_the_last_field() -> None:
+def test_run_result_appends_optional_fields_without_breaking_callers() -> None:
+    # Positional compatibility contract: a new field may only be APPENDED. Pinning the
+    # whole known order as a PREFIX catches an insertion or a swap (which would silently
+    # rebind existing positional callers) while still allowing growth at the tail.
+    expected = [
+        "status",
+        "final",
+        "partial_artifacts",
+        "failed_task",
+        "usage_total",
+        "cost_usd",
+        "duration_ms",
+        "error_code",
+        "error_message",
+        "routing_decisions",
+        "subscription_calls",
+        "billed_usd",
+        "credit_usd",
+    ]
     names = [f.name for f in dataclasses.fields(RunResult)]
-    assert names[-1] == "credit_usd"
-    assert names[-2] == "billed_usd"
+    assert names[: len(expected)] == expected
+
+    # Falsifiable companion: the historical 7-argument positional form must still bind
+    # the same fields it always did.
+    legacy = RunResult("success", "final", {}, None, {}, 1.5, 42)
+    assert legacy.cost_usd == 1.5
+    assert legacy.duration_ms == 42
 
 
 def test_canonical_response_cost_usd_defaults_none() -> None:

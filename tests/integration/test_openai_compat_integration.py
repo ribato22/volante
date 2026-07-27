@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-from baton.providers.openai_compat import OpenAICompatProvider
-from baton.types import CanonicalRequest, TextBlock, text
+from volante.providers.openai_compat import OpenAICompatProvider
+from volante.types import CanonicalRequest, TextBlock, text
 
 pytestmark = pytest.mark.integration
 

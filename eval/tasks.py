@@ -382,3 +382,174 @@ EVAL_SUITE: list[EvalTask] = [
     EvalTask("csv_stats", CSV_STATS_GOAL, CSV_STATS_REFERENCE_TEST),
     EvalTask("json_flatten", JSON_FLATTEN_GOAL, JSON_FLATTEN_REFERENCE_TEST),
 ]
+
+
+# --- Goal multi-bagian (menguji tesis orkestrasi) -----------------------------
+# Lima goal di atas adalah kata satu-fungsi: dekomposisi tak bisa membantu di sana,
+# sementara orkestrasi tetap membayar panggilan planning + sintesis. Dua goal berikut
+# punya komponen yang BENAR-BENAR terpisah, sehingga fan-out paralel punya peluang
+# nyata — satu-satunya kondisi di mana pertanyaan "orkestrasi vs satu model kuat"
+# bisa dijawab, bukan diasumsikan.
+
+TEXTKIT_GOAL = (
+    'Implement three INDEPENDENT functions in solution.py. '
+    '(1) word_frequencies(text: str) -> dict[str, int] lowercases the text, splits it '
+    'on every character that is not an ASCII letter, discards empty pieces, and returns '
+    'a dict mapping each word to how many times it occurs — for example '
+    'word_frequencies("Cat, cat; DOG") == {"cat": 2, "dog": 1}. '
+    '(2) parse_duration(s: str) -> int converts a compact duration into whole seconds. '
+    'The string is a concatenation of one or more parts, each an integer followed by '
+    'the unit h, m, or s, always in that order and each unit used at most once — '
+    'parse_duration("1h30m") == 5400, parse_duration("45s") == 45, '
+    'parse_duration("2h5s") == 7205, parse_duration("0m") == 0. '
+    '(3) column_widths(rows: list[list[str]]) -> list[int] returns, for each column '
+    'index, the length of the longest string in that column across all rows; every row '
+    'has the same number of columns, and an empty rows list returns an empty list — '
+    'column_widths([["a", "bbb"], ["cc", "d"]]) == [2, 3]. '
+    'The three functions are unrelated: none of them may call another. Also add a pytest '
+    'test module (functions named test_*) covering all three, and a short README.'
+)
+
+TEXTKIT_REFERENCE_TEST: str = '''\
+from __future__ import annotations
+
+import json
+import sys
+
+WORD_CASES = [
+    ("Cat, cat; DOG", {"cat": 2, "dog": 1}),
+    ("", {}),
+    ("a1b2c", {"a": 1, "b": 1, "c": 1}),
+    ("Hello---hello  HELLO", {"hello": 3}),
+]
+DURATION_CASES = [
+    ("1h30m", 5400),
+    ("45s", 45),
+    ("2h5s", 7205),
+    ("0m", 0),
+    ("10m30s", 630),
+    ("3h", 10800),
+]
+WIDTH_CASES = [
+    ([["a", "bbb"], ["cc", "d"]], [2, 3]),
+    ([], []),
+    ([["", "xy"]], [0, 2]),
+    ([["one"], ["three"], ["to"]], [5]),
+]
+
+
+def main() -> None:
+    total = len(WORD_CASES) + len(DURATION_CASES) + len(WIDTH_CASES)
+    passed = 0
+    for text_in, expected in WORD_CASES:
+        try:
+            if call_solution("word_frequencies", text_in) == expected:
+                passed += 1
+        except Exception:
+            pass
+    for text_in, expected in DURATION_CASES:
+        try:
+            if call_solution("parse_duration", text_in) == expected:
+                passed += 1
+        except Exception:
+            pass
+    for rows, expected in WIDTH_CASES:
+        try:
+            if call_solution("column_widths", rows) == expected:
+                passed += 1
+        except Exception:
+            pass
+    print(_TAG + json.dumps({"passed": passed, "total": total}))
+
+
+main()
+sys.exit(0)
+'''
+
+LEDGER_GOAL = (
+    'Implement three functions in solution.py that build on each other. '
+    '(1) parse_entry(line: str) -> dict parses a pipe-separated ledger line '
+    '"DATE|LABEL|AMOUNT" into {"date": str, "label": str, "amount": float}; the label '
+    'is stripped of surrounding whitespace and the amount may be negative — '
+    'parse_entry("2026-07-27| coffee |-3.50") == '
+    '{"date": "2026-07-27", "label": "coffee", "amount": -3.5}. '
+    '(2) convert(amount: float, rate: float) -> float multiplies the amount by the rate '
+    'and rounds the result to 2 decimal places with Python\'s built-in round — '
+    'convert(-3.5, 2.0) == -7.0, convert(10.0, 0.333) == 3.33. '
+    '(3) summarize(lines: list[str], rate: float) -> dict uses BOTH of the above to '
+    'return {"count": int, "total": float, "converted": float}, where count is the number '
+    'of lines, total is the sum of the parsed amounts rounded to 2 decimals with round, '
+    'and converted is convert(total, rate). An empty list returns '
+    '{"count": 0, "total": 0.0, "converted": 0.0}. Also add a pytest test module '
+    '(functions named test_*) covering all three, and a short README.'
+)
+
+LEDGER_REFERENCE_TEST: str = '''\
+from __future__ import annotations
+
+import json
+import sys
+
+ENTRY_CASES = [
+    (
+        "2026-07-27| coffee |-3.50",
+        {"date": "2026-07-27", "label": "coffee", "amount": -3.5},
+    ),
+    ("2026-01-01|rent|1200", {"date": "2026-01-01", "label": "rent", "amount": 1200.0}),
+    (
+        "2026-02-02|  two words  |0.25",
+        {"date": "2026-02-02", "label": "two words", "amount": 0.25},
+    ),
+]
+CONVERT_CASES = [
+    ((-3.5, 2.0), -7.0),
+    ((10.0, 0.333), 3.33),
+    ((0.0, 5.0), 0.0),
+]
+SUMMARY_CASES = [
+    (([], 2.0), {"count": 0, "total": 0.0, "converted": 0.0}),
+    (
+        (["2026-01-01|a|1.5", "2026-01-02|b|2.5"], 2.0),
+        {"count": 2, "total": 4.0, "converted": 8.0},
+    ),
+    (
+        (["2026-01-01|a|-1.0", "2026-01-02|b|0.5"], 1.0),
+        {"count": 2, "total": -0.5, "converted": -0.5},
+    ),
+]
+
+
+def main() -> None:
+    total = len(ENTRY_CASES) + len(CONVERT_CASES) + len(SUMMARY_CASES)
+    passed = 0
+    for line, expected in ENTRY_CASES:
+        try:
+            if call_solution("parse_entry", line) == expected:
+                passed += 1
+        except Exception:
+            pass
+    for (amount, rate), expected in CONVERT_CASES:
+        try:
+            if call_solution("convert", amount, rate) == expected:
+                passed += 1
+        except Exception:
+            pass
+    for (lines, rate), expected in SUMMARY_CASES:
+        try:
+            if call_solution("summarize", lines, rate) == expected:
+                passed += 1
+        except Exception:
+            pass
+    print(_TAG + json.dumps({"passed": passed, "total": total}))
+
+
+main()
+sys.exit(0)
+'''
+
+EVAL_SUITE.extend(
+    [
+        EvalTask("textkit", TEXTKIT_GOAL, TEXTKIT_REFERENCE_TEST),
+        EvalTask("ledger", LEDGER_GOAL, LEDGER_REFERENCE_TEST),
+    ]
+)

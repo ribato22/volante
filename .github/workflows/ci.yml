@@ -31,16 +31,16 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --dev --locked
 
       - name: Lint (ruff)
         run: uv run ruff check .
 
       - name: Type-check (mypy; enforces the shipped py.typed promise)
-        run: uv run mypy src/baton
+        run: uv run mypy src/volante
 
       - name: Test (no network; integration tests skipped by default)
-        run: uv run pytest --cov=src/baton --cov=eval --cov-report=term-missing
+        run: uv run pytest --cov=src/volante --cov=eval --cov-report=term-missing
 
   build:
     name: build & package smoke test
@@ -62,11 +62,11 @@ jobs:
 
       - name: Wheel-install smoke test
         # Catches packaging regressions a unit test can't (accidental webui/ or docs/
-        # inclusion, a broken `baton` console-script entrypoint, missing dependency
+        # inclusion, a broken `volante` console-script entrypoint, missing dependency
         # metadata) by installing the built wheel into a throwaway venv — separate
         # from the dev environment `uv sync --dev` builds for the test job above.
         run: |
-          python3 -m venv /tmp/baton-wheel-venv
-          /tmp/baton-wheel-venv/bin/pip install --quiet dist/*.whl
-          /tmp/baton-wheel-venv/bin/baton --version
-          /tmp/baton-wheel-venv/bin/baton --help
+          python3 -m venv /tmp/volante-wheel-venv
+          /tmp/volante-wheel-venv/bin/pip install --quiet dist/*.whl
+          /tmp/volante-wheel-venv/bin/volante --version
+          /tmp/volante-wheel-venv/bin/volante --help

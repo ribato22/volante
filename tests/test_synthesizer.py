@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from baton.blackboard import Blackboard
-from baton.cost import CostMeter
-from baton.providers.fake import FakeProvider
-from baton.synthesizer import Synthesizer
-from baton.types import (
+import pytest
+
+from volante.blackboard import Blackboard
+from volante.cost import CostMeter
+from volante.providers.base import IncompleteOutputError
+from volante.providers.fake import FakeProvider
+from volante.synthesizer import Synthesizer
+from volante.types import (
     CanonicalRequest,
     CanonicalResponse,
     Entry,
@@ -20,6 +23,8 @@ def _resp(
     prompt: int = 1,
     completion: int = 1,
     estimated: bool = False,
+    cost_usd: float | None = None,
+    stop_reason: str = "end_turn",
 ) -> CanonicalResponse:
     return CanonicalResponse(
         content=[TextBlock(text=s)],
@@ -29,8 +34,9 @@ def _resp(
             estimated=estimated,
         ),
         model="m",
-        stop_reason="end_turn",
+        stop_reason=stop_reason,
         latency_ms=1,
+        cost_usd=cost_usd,
     )
 
 
@@ -95,6 +101,31 @@ async def test_synthesize_returns_provider_text() -> None:
     assert out == "FINAL-REPORT"
 
 
+@pytest.mark.parametrize("stop_reason", ["max_tokens", "content_filter"])
+async def test_synthesize_rejects_incomplete_output_after_metering(
+    stop_reason: str,
+) -> None:
+    meter = CostMeter()
+    provider = FakeProvider(
+        responses=[
+            _resp(
+                "PARTIAL",
+                prompt=5,
+                completion=13,
+                stop_reason=stop_reason,
+            )
+        ]
+    )
+    synth = Synthesizer(provider=provider, model_id="synth-model", cost_meter=meter)
+
+    with pytest.raises(IncompleteOutputError) as exc_info:
+        await synth.synthesize("Write a report", _bb_with_artifacts())
+
+    assert exc_info.value.phase == "synthesis"
+    assert exc_info.value.stop_reason == stop_reason
+    assert meter.totals()["synth-model"] == Usage(5, 13)
+
+
 async def test_synthesize_prompt_includes_goal_and_artifacts() -> None:
     meter = CostMeter()
     provider = _CapturingProvider(_resp("ok"))
@@ -138,6 +169,18 @@ async def test_synthesize_records_usage_keyed_by_model_id() -> None:
     assert totals["synth-model"].completion_tokens == 6
 
 
+async def test_synthesize_forwards_provider_authoritative_cost() -> None:
+    meter = CostMeter()
+    provider = FakeProvider(
+        responses=[_resp("FINAL", cost_usd=0.456)]
+    )
+    synth = Synthesizer(provider=provider, model_id="synth-model", cost_meter=meter)
+
+    await synth.synthesize("Write a report", _bb_with_artifacts())
+
+    assert meter._direct["synth-model"]["usd"] == 0.456
+
+
 async def test_synthesize_streams_when_on_text_given() -> None:
     meter = CostMeter()
     provider = FakeProvider(responses=[_resp("FINAL-REPORT", completion=6)])
@@ -161,3 +204,44 @@ async def test_synthesize_propagates_estimated_flag() -> None:
     assert meter.has_estimated() is False
     await synth.synthesize("Write a report", bb)
     assert meter.has_estimated() is True
+
+
+async def test_synthesis_prompt_is_bounded_by_selected_model_context() -> None:
+    meter = CostMeter()
+    provider = _CapturingProvider(_resp("bounded"))
+    synth = Synthesizer(provider=provider, model_id="synth-model", cost_meter=meter)
+    synth.set_model_limits(context_window=200, max_output_tokens=40)
+    bb = _bb_with_artifacts()
+    bb.append(
+        Entry(
+            run_id="r1",
+            task_id="t1",
+            attempt=1,
+            kind="artifact",
+            payload="HEAD-" + ("X" * 20_000) + "-TAIL",
+            model_id="m",
+            usage=None,
+            timestamp=2.0,
+        )
+    )
+
+    await synth.synthesize("G" * 10_000, bb)
+
+    assert provider.last_req is not None
+    prompt = provider.last_req.messages[0].content[0].text
+    # (200 - 40) * 0.85 * 4 = 544 conservative input characters.
+    assert len(prompt) <= 544
+    assert provider.last_req.max_tokens == 40
+    assert provider.last_req.context_window == 200
+
+
+async def test_synthesizer_call_gate_runs_immediately_before_provider() -> None:
+    meter = CostMeter()
+    provider = _CapturingProvider(_resp("ok"))
+    synth = Synthesizer(provider=provider, model_id="synth-model", cost_meter=meter)
+    calls: list[str] = []
+    synth.set_call_gate(calls.append)
+
+    await synth.synthesize("Write a report", _bb_with_artifacts())
+
+    assert calls == ["synth-model"]

@@ -15,8 +15,30 @@ permissions:
   contents: read
 
 jobs:
+  verify:
+    name: Verify release candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install development dependencies
+        run: uv sync --dev --locked
+
+      - name: Verify lint, types, tests, and distribution contracts
+        run: |
+          uv run ruff check .
+          uv run mypy src/volante
+          uv run pytest
+
   build:
-    name: Build distribution
+    name: Build release artifacts
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -33,7 +55,7 @@ jobs:
       - name: Verify the git tag matches the built version
         # A mislabeled tag would otherwise publish an immutable, wrongly-versioned
         # artifact to PyPI. Parse the version straight from the built wheel filename
-        # (baton-<version>-py3-none-any.whl) and require tag `vX.Y.Z` == `X.Y.Z`.
+        # (volante-<version>-py3-none-any.whl) and require tag `vX.Y.Z` == `X.Y.Z`.
         run: |
           tag="${GITHUB_REF_NAME#v}"
           wheel="$(ls dist/*.whl | head -n1)"
@@ -44,11 +66,26 @@ jobs:
       - name: Check package metadata (twine)
         run: uvx twine check dist/*
 
-      - name: Upload build artifacts
+      - name: Validate and build MCPB
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          npx --yes @anthropic-ai/mcpb@2.1.2 validate mcpb/manifest.json
+          npx --yes @anthropic-ai/mcpb@2.1.2 pack mcpb "volante-${version}.mcpb"
+          test -s "volante-${version}.mcpb"
+
+      - name: Upload Python distributions
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: dist/
+          if-no-files-found: error
+
+      - name: Upload MCPB
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mcpb
+          path: volante-*.mcpb
+          if-no-files-found: error
 
   publish:
     name: Publish to PyPI
@@ -56,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/baton-orchestrator/
+      url: https://pypi.org/project/volante/
     # Job-scoped: only this job gets the OIDC token used for Trusted Publishing.
     permissions:
       id-token: write
@@ -73,3 +110,86 @@ jobs:
           # Idempotent: re-running a tag (e.g. after a history rewrite) must not fail
           # on the immutable, already-published version.
           skip-existing: true
+
+      - name: Verify PyPI actually serves THESE artifacts
+        # skip-existing makes a re-tagged, already-published version succeed silently.
+        # Combined with a forgotten version bump that is indistinguishable from a real
+        # release: the job is green, the GitHub Release is cut, and PyPI still serves the
+        # OLD code. Compare the digests instead of trusting the exit status.
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${VERSION#v}"
+          curl -fsSL "https://pypi.org/pypi/volante/${version}/json" -o pypi.json
+          python - <<'PY'
+          import hashlib, json, os, pathlib, sys
+
+          version = os.environ["VERSION"].removeprefix("v")
+          published = {
+              entry["filename"]: entry["digests"]["sha256"]
+              for entry in json.load(open("pypi.json"))["urls"]
+          }
+          built = sorted(pathlib.Path("dist").iterdir())
+          if not built:
+              sys.exit("::error::no built artifacts to verify")
+          failures = []
+          for path in built:
+              local = hashlib.sha256(path.read_bytes()).hexdigest()
+              remote = published.get(path.name)
+              if remote is None:
+                  failures.append(f"{path.name} is not published on PyPI for {version}")
+              elif remote != local:
+                  failures.append(
+                      f"{path.name}: PyPI serves {remote[:12]}… but this run built "
+                      f"{local[:12]}… — the upload was skipped as already-existing, so "
+                      f"version {version} was NOT actually released from this commit"
+                  )
+          for failure in failures:
+              print(f"::error::{failure}")
+          sys.exit(1 if failures else 0)
+          PY
+
+  github-release:
+    name: Publish GitHub Release
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Python distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: artifacts/dist
+
+      - name: Download MCPB
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mcpb
+          path: artifacts
+
+      - name: Create or refresh the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          assets=(artifacts/dist/* "artifacts/volante-${version}.mcpb")
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --verify-tag \
+              --title "Volante ${version}" \
+              --generate-notes
+          fi
+
+  publish-mcp:
+    name: Publish MCP Registry record
+    needs: [publish, github-release]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-mcp.yml
+    with:
+      ref: ${{ github.ref }}

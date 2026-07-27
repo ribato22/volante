@@ -27,10 +27,15 @@ async def stream_events(runtime: Any, goal: str) -> AsyncIterator[dict]:
         {"type": "phase",  "text": <delta>}              # planning + synthesis
         {"type": "worker", "task": <id>, "text": <delta>} # a parallel worker's delta
         {"type": "result", "status", "final", "failed_task",
-                            "cost_usd", "billed_usd", "credit_usd", "duration_ms"}
+                            "error_code", "error_message", "cost_usd", "billed_usd",
+                            "credit_usd", "cost_estimated", "capability_notice", "duration_ms",
+                            "subscription_calls", "routing_decisions"}
         {"type": "error",  "message": <str>}
     """
-    queue: asyncio.Queue = asyncio.Queue()
+    # Synchronous provider callbacks cannot await downstream SSE backpressure.
+    # Bound the bridge: if a client is too slow, stop the expensive model run
+    # instead of buffering an unbounded amount of model-controlled text.
+    queue: asyncio.Queue = asyncio.Queue(maxsize=256)
     # Mutable phase flags shared with the sync callbacks (closures can't rebind).
     stage = {"workers": False, "synthesis": False}
 
@@ -40,33 +45,52 @@ async def stream_events(runtime: Any, goal: str) -> AsyncIterator[dict]:
         if stage["workers"] and not stage["synthesis"]:
             stage["synthesis"] = True
             queue.put_nowait({"type": "stage", "stage": "synthesis"})
-        queue.put_nowait({"type": "phase", "text": delta})
+        try:
+            queue.put_nowait({"type": "phase", "text": delta})
+        except asyncio.QueueFull as exc:
+            raise RuntimeError("UI stream consumer is too slow") from exc
 
     def on_worker(task_id: str, delta: str) -> None:
         if not stage["workers"]:
             stage["workers"] = True
-            queue.put_nowait({"type": "stage", "stage": "workers"})
-        queue.put_nowait({"type": "worker", "task": task_id, "text": delta})
+            try:
+                queue.put_nowait({"type": "stage", "stage": "workers"})
+            except asyncio.QueueFull as exc:
+                raise RuntimeError("UI stream consumer is too slow") from exc
+        try:
+            queue.put_nowait({"type": "worker", "task": task_id, "text": delta})
+        except asyncio.QueueFull as exc:
+            raise RuntimeError("UI stream consumer is too slow") from exc
 
     async def _run() -> None:
         try:
             res = await runtime.aexecute(goal, on_text=on_text, on_worker_text=on_worker)
-            queue.put_nowait(
+            await queue.put(
                 {
                     "type": "result",
                     "status": res.status,
                     "final": res.final,
                     "failed_task": res.failed_task,
+                    "error_code": getattr(res, "error_code", None),
+                    "error_message": getattr(res, "error_message", None),
                     "cost_usd": res.cost_usd,
                     "billed_usd": res.billed_usd,
                     "credit_usd": res.credit_usd,
+                    "cost_estimated": getattr(res, "cost_estimated", False),
+                    "capability_notice": getattr(res, "capability_notice", None),
                     "duration_ms": res.duration_ms,
+                    "subscription_calls": getattr(res, "subscription_calls", 0),
+                    "routing_decisions": getattr(res, "routing_decisions", {}),
                 }
             )
         except Exception as exc:  # noqa: BLE001 - surface ANY failure to the UI
-            queue.put_nowait({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
+            await queue.put(
+                {"type": "error", "message": f"{type(exc).__name__}: {exc}"}
+            )
         finally:
-            queue.put_nowait(None)  # sentinel: producer done
+            current = asyncio.current_task()
+            if current is None or current.cancelling() == 0:
+                await queue.put(None)  # sentinel: producer done
 
     task = asyncio.create_task(_run())
     try:
@@ -76,4 +100,6 @@ async def stream_events(runtime: Any, goal: str) -> AsyncIterator[dict]:
                 break
             yield event
     finally:
-        await task
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)

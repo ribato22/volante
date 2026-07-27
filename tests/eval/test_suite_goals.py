@@ -366,3 +366,79 @@ def test_reference_test_scores_broken_below_one(task):
     _, broken = FIXTURES[task.id]
     assert score_code(broken, task.reference_test) < 1.0
 
+
+
+TEXTKIT_GOOD = '''\
+import re
+
+
+def word_frequencies(text):
+    out = {}
+    for word in re.split(r"[^A-Za-z]+", text.lower()):
+        if word:
+            out[word] = out.get(word, 0) + 1
+    return out
+
+
+def parse_duration(s):
+    seconds = 0
+    for value, unit in re.findall(r"(\\d+)([hms])", s):
+        seconds += int(value) * {"h": 3600, "m": 60, "s": 1}[unit]
+    return seconds
+
+
+def column_widths(rows):
+    if not rows:
+        return []
+    return [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
+'''
+
+# BUG: setiap fungsi mengembalikan nilai kosong -> hanya lolos case yang memang kosong.
+TEXTKIT_BROKEN = '''\
+def word_frequencies(text):
+    return {}
+
+
+def parse_duration(s):
+    return 0
+
+
+def column_widths(rows):
+    return []
+'''
+
+LEDGER_GOOD = '''\
+def parse_entry(line):
+    date, label, amount = line.split("|")
+    return {"date": date, "label": label.strip(), "amount": float(amount)}
+
+
+def convert(amount, rate):
+    return round(amount * rate, 2)
+
+
+def summarize(lines, rate):
+    entries = [parse_entry(line) for line in lines]
+    total = round(sum(entry["amount"] for entry in entries), 2)
+    return {"count": len(entries), "total": total, "converted": convert(total, rate)}
+'''
+
+# BUG: label tak di-strip dan konversi tak dibulatkan -> gagal case whitespace & pembulatan.
+LEDGER_BROKEN = '''\
+def parse_entry(line):
+    date, label, amount = line.split("|")
+    return {"date": date, "label": label, "amount": float(amount)}
+
+
+def convert(amount, rate):
+    return amount * rate
+
+
+def summarize(lines, rate):
+    entries = [parse_entry(line) for line in lines]
+    total = sum(entry["amount"] for entry in entries)
+    return {"count": len(entries), "total": total, "converted": convert(total, rate)}
+'''
+
+FIXTURES["textkit"] = (TEXTKIT_GOOD, TEXTKIT_BROKEN)
+FIXTURES["ledger"] = (LEDGER_GOOD, LEDGER_BROKEN)

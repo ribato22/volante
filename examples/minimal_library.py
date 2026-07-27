@@ -1,8 +1,8 @@
-"""Minimal example: use Baton as a library against your OWN configured provider.
+"""Minimal example: use Volante as a library against your OWN configured provider.
 
 Needs at least one provider configured in the environment — see the README
 "Providers" section or `.env.example` (ANTHROPIC_API_KEY, OPENAI_COMPAT_BASE_URL,
-MOONSHOT_API_KEY, or OLLAMA_BASE_URL). Uses only the public top-level `baton` API
+MOONSHOT_API_KEY, or OLLAMA_BASE_URL). Uses only the public top-level `volante` API
 (see README Usage > Library).
 
 Run:
@@ -19,19 +19,21 @@ from __future__ import annotations
 import asyncio
 import sys
 
-import baton
+import volante
 
 
 async def main() -> int:
     goal = " ".join(sys.argv[1:]) or "write a haiku about concurrency"
 
     try:
-        registry, providers, model_id = baton.build_providers_from_env()
+        registry, providers, model_id = volante.build_providers_from_env()
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
-    make_runtime = baton.make_runtime_factory(registry, providers, model_id)
+    make_runtime = await volante.make_verified_runtime_factory(
+        registry, providers, model_id
+    )
     runtime = make_runtime()
 
     result = await runtime.aexecute(goal)

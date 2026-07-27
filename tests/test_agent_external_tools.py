@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from baton.agent import AgenticWorker
-from baton.cost import CostMeter
-from baton.providers.fake import FakeProvider
-from baton.tools.fetch_url import FetchUrlTool
-from baton.tools.run_python import RunPythonTool
-from baton.tools.sandbox import Sandbox
-from baton.types import (
+from volante.agent import AgenticWorker
+from volante.cost import CostMeter
+from volante.providers.fake import FakeProvider
+from volante.tools.fetch_url import FetchUrlTool
+from volante.tools.run_python import RunPythonTool
+from volante.tools.sandbox import Sandbox
+from volante.types import (
     CanonicalRequest,
     CanonicalResponse,
     TextBlock,
@@ -20,8 +20,18 @@ from baton.types import (
 
 class _FakeResp:
     def __init__(self, text="PAGE-BODY", status=200) -> None:
-        self.text = text
+        self._body = text.encode()
         self.status_code = status
+        self.headers = {"content-length": str(len(self._body))}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def aiter_bytes(self):
+        yield self._body
 
 
 class _FakeClient:
@@ -34,7 +44,7 @@ class _FakeClient:
     async def __aexit__(self, *a):
         return False
 
-    async def get(self, url):
+    def stream(self, method, url):
         return self._resp
 
 
@@ -57,7 +67,7 @@ def _req() -> CanonicalRequest:
 async def test_agentic_loop_fetch_url_then_run_python(tmp_path: Path, monkeypatch) -> None:
     # fetch_url is host-mediated: patch httpx so NO network is touched.
     monkeypatch.setattr(
-        "baton.tools.fetch_url.httpx.AsyncClient",
+        "volante.tools.fetch_url.httpx.AsyncClient",
         lambda **kw: _FakeClient(_FakeResp("PAGE-BODY", 200), **kw),
     )
     tools = {

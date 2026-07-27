@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from baton.cost import CostMeter
-from baton.types import ModelInfo, Usage
+from volante.cost import CostMeter
+from volante.types import ModelInfo, Usage
 
 
 @dataclass
@@ -204,6 +204,15 @@ def test_add_cost_usd_keeps_totals_full_tokens() -> None:
     assert (totals["a"].prompt_tokens, totals["a"].completion_tokens) == (100, 50)
 
 
+def test_totals_returns_independent_usage_values() -> None:
+    meter = CostMeter()
+    meter.add("a", Usage(prompt_tokens=10, completion_tokens=5))
+    exported = meter.totals()
+    exported["a"].prompt_tokens = 999
+    exported.clear()
+    assert meter.totals()["a"].prompt_tokens == 10
+
+
 def test_add_cost_usd_fully_direct_uses_authoritative_usd_not_rate() -> None:
     # Setiap call membawa cost_usd otoritatif -> kontribusi = SUM cost_usd (bukan token*rate).
     m = CostMeter()
@@ -252,3 +261,22 @@ def test_add_cost_usd_mixed_direct_and_rate_different_split() -> None:
     # amount = 0/1000*1.0 + 200/1000*2.0 + 1.0 = 0.4 + 1.0 = 1.4
     assert billed == pytest.approx(1.4)
     assert credit == 0.0
+
+
+def test_merge_preserves_usage_estimates_and_authoritative_costs() -> None:
+    left = CostMeter()
+    right = CostMeter()
+    left.add("a", Usage(10, 2), cost_usd=0.4)
+    right.add("a", Usage(5, 3, estimated=True), cost_usd=0.6)
+    right.add("b", Usage(7, 1))
+
+    left.merge(right)
+
+    assert left.totals() == {
+        "a": Usage(15, 5, estimated=True),
+        "b": Usage(7, 1),
+    }
+    assert left.has_estimated() is True
+    assert left._direct["a"]["prompt"] == 15
+    assert left._direct["a"]["completion"] == 5
+    assert left._direct["a"]["usd"] == pytest.approx(1.0)

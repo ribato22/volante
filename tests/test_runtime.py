@@ -4,15 +4,15 @@ import asyncio
 
 import pytest
 
-from baton.agent import AgenticResult, TurnRecord
-from baton.cost import CostMeter
-from baton.projector import Projector
-from baton.providers.base import ProviderError
-from baton.providers.fake import FakeProvider
-from baton.registry import Registry
-from baton.router import Router
-from baton.runtime import Runtime
-from baton.types import (
+from volante.agent import AgenticResult, TurnRecord
+from volante.cost import CostMeter
+from volante.projector import Projector
+from volante.providers.base import ProviderError
+from volante.providers.fake import FakeProvider
+from volante.registry import Registry
+from volante.router import Router
+from volante.runtime import Runtime
+from volante.types import (
     CanonicalRequest,
     CanonicalResponse,
     ModelInfo,
@@ -21,7 +21,7 @@ from baton.types import (
     Usage,
     text,
 )
-from baton.worker import Worker
+from volante.worker import Worker
 
 
 def _resp(txt: str, model: str, *, prompt: int = 1000, completion: int = 1000) -> CanonicalResponse:
@@ -368,7 +368,7 @@ def test_retryable_error_retries_then_fails_and_records_str_err(monkeypatch) -> 
     async def _fast_sleep(delay: float) -> None:
         slept.append(delay)  # rekam backoff, tanpa tidur nyata (test cepat)
 
-    monkeypatch.setattr("baton.runtime.asyncio.sleep", _fast_sleep)
+    monkeypatch.setattr("volante.runtime.asyncio.sleep", _fast_sleep)
 
     cm = CostMeter()
     projector = _StubProjector()
@@ -398,7 +398,7 @@ def test_timeout_is_retryable_then_fails(monkeypatch) -> None:
     async def _fast_sleep(delay: float) -> None:
         return None
 
-    monkeypatch.setattr("baton.runtime.asyncio.sleep", _fast_sleep)
+    monkeypatch.setattr("volante.runtime.asyncio.sleep", _fast_sleep)
 
     cm = CostMeter()
     projector = _StubProjector()
@@ -624,7 +624,7 @@ def test_reroute_quota_exhausted_tries_next_candidate_no_sleep(monkeypatch) -> N
     async def _fast_sleep(delay: float) -> None:
         slept.append(delay)  # rekam backoff tanpa tidur nyata
 
-    monkeypatch.setattr("baton.runtime.asyncio.sleep", _fast_sleep)
+    monkeypatch.setattr("volante.runtime.asyncio.sleep", _fast_sleep)
 
     cm = CostMeter()
     plan = [Task(id="T1", description="only", type="code", mode="one_shot")]
@@ -707,7 +707,7 @@ def _billed_model(mid: str, billing: str) -> ModelInfo:
 
 
 def test_subscription_guard_reroutes_to_direct_when_cap_reached(monkeypatch) -> None:
-    monkeypatch.setenv("BATON_MAX_SUBSCRIPTION_CALLS", "1")
+    monkeypatch.setenv("VOLANTE_MAX_SUBSCRIPTION_CALLS", "1")
     cm = CostMeter()
     # T2 depends on T1 -> sekuensial (hitungan cap deterministik, bukan race wave).
     plan = [
@@ -739,18 +739,15 @@ def test_subscription_guard_reroutes_to_direct_when_cap_reached(monkeypatch) -> 
 
 
 class _BoomAgenticWorker:
-    """AgenticWorker pengganti yang MELEMPAR bila dipanggil — buktikan degradasi
-    ke one_shot tak pernah menyentuh AgenticWorker sama sekali."""
+    """AgenticWorker pengganti yang MELEMPAR bila capability routing gagal."""
 
     async def run(self, req, model_id, tools, on_text=None):
-        raise AssertionError("AgenticWorker must not be called when degrading to one_shot")
+        raise AssertionError("AgenticWorker must not be called without a capable model")
 
 
-def test_agentic_task_degrades_to_one_shot_when_no_tool_capable_model(caplog) -> None:
-    # Live repro: subscription-only registry -> semua model supports_tools=False ->
-    # Router.route_ranked(needs_tools=True) tak punya kandidat -> ValueError. Sebelum
-    # fix, ini menggagalkan seluruh run. Sesudah fix: task didegradasi ke one_shot dan
-    # sukses lewat Worker biasa (AgenticWorker TIDAK dipanggil).
+def test_agentic_task_fails_when_no_tool_capable_model() -> None:
+    # A tool-requiring task must never silently become one-shot: doing so can
+    # hallucinate execution/file/network results and report a false success.
     cm = CostMeter()
     plan = [Task(id="T1", description="write a brief", type="code", mode="agentic")]
     supervisor = _StubSupervisor(plan)
@@ -773,14 +770,13 @@ def test_agentic_task_degrades_to_one_shot_when_no_tool_capable_model(caplog) ->
         agentic_worker=_BoomAgenticWorker(),
     )
 
-    with caplog.at_level("WARNING"):
-        result = runtime.execute("goal")
+    result = runtime.execute("goal")
 
-    assert result.status == "success"
-    assert result.partial_artifacts == {"T1": "art-1"}  # one-shot Worker path menghasilkan artifact
-    assert any(
-        "agentic" in rec.message and "one_shot" in rec.message for rec in caplog.records
-    )
+    assert result.status == "failed"
+    assert result.failed_task == "T1"
+    assert result.partial_artifacts == {}
+    assert result.error_code == "capability_unavailable"
+    assert "requires tool support" in (result.error_message or "")
 
 
 class _FakeAgentic:
@@ -849,7 +845,7 @@ def test_subscription_cap_counts_dispatch_even_when_call_fails(monkeypatch) -> N
     # Kontrak (line 361): "Each subscription-billed worker CALL increments it" -> hitung
     # pada DISPATCH, bukan hanya sukses. Kalau tidak, dispatch yang gagal/quota_exhausted
     # tak pernah terhitung dan cap bisa dilewati oleh MORE real interactive calls than cap.
-    monkeypatch.setenv("BATON_MAX_SUBSCRIPTION_CALLS", "1")
+    monkeypatch.setenv("VOLANTE_MAX_SUBSCRIPTION_CALLS", "1")
     cm = CostMeter()
     plan = [
         Task(id="T1", description="one", type="code", mode="one_shot"),

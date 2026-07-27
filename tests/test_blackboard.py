@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from baton.blackboard import Blackboard
-from baton.types import Entry, Task, Usage
+from volante.blackboard import Blackboard
+from volante.types import Entry, Task, Usage
 
 
 def mk_task(task_id: str) -> Task:

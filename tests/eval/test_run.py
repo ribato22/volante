@@ -4,9 +4,9 @@ import eval.run as run
 import pytest
 from eval.run import format_report
 
-from baton.registry import Registry
-from baton.router import Router
-from baton.types import Task
+from volante.registry import Registry
+from volante.router import Router
+from volante.types import Task
 
 _ARM_NAMES = ("baseline", "orchestration", "agentic")
 
@@ -139,7 +139,7 @@ def test_openai_compat_from_env_none_when_unset():
 
 
 def test_openai_compat_from_env_standard_defaults():
-    # Default standar: context 128k, output 8k, tool-capable, biaya 0, id diturunkan.
+    # Safe defaults: context 128k, output 8k, tools off, cost 0, derived id.
     info, base_url, api_key, wire = run._openai_compat_from_env(
         {
             "OPENAI_COMPAT_BASE_URL": "https://x/v1",
@@ -153,7 +153,7 @@ def test_openai_compat_from_env_standard_defaults():
     assert info.provider == "openai_compat"
     assert info.context_window == 128_000
     assert info.max_output_tokens == 8_192
-    assert info.supports_tools is True
+    assert info.supports_tools is False
     assert info.cost_per_1k_in == 0.0
     assert info.cost_per_1k_out == 0.0
     assert info.strengths == {"coding", "reasoning"}
@@ -188,10 +188,13 @@ def test_openai_compat_from_env_requires_model():
 
 
 def test_openai_compat_model_routable_for_all_task_types():
-    # strengths catch-all {coding, reasoning} + tool-capable -> router bisa
-    # mengarahkan SEMUA jenis task (dan task agentic) ke model tunggal ini.
+    # Strengths cover all one-shot types; agentic capability requires explicit opt-in.
     info, *_ = run._openai_compat_from_env(
-        {"OPENAI_COMPAT_BASE_URL": "https://x/v1", "OPENAI_COMPAT_MODEL": "m"}
+        {
+            "OPENAI_COMPAT_BASE_URL": "https://x/v1",
+            "OPENAI_COMPAT_MODEL": "m",
+            "OPENAI_COMPAT_TOOLS": "true",
+        }
     )
     router = Router(Registry([info]))
     for ttype in ("code", "research", "write", "analyze"):
@@ -199,6 +202,17 @@ def test_openai_compat_model_routable_for_all_task_types():
         assert router.route(task) == info.id
     agentic = Task(id="a", description="d", type="code", mode="agentic")
     assert router.route(agentic) == info.id
+
+
+def test_openai_compat_strengths_are_strict_per_slot_metadata() -> None:
+    info, *_ = run._openai_compat_from_env(
+        {
+            "OPENAI_COMPAT_BASE_URL": "https://x/v1",
+            "OPENAI_COMPAT_MODEL": "code-only",
+            "OPENAI_COMPAT_STRENGTHS": "coding,debugging",
+        }
+    )
+    assert info.strengths == {"coding", "debugging"}
 
 
 def test_build_providers_wires_openai_compat_slot(monkeypatch):
@@ -240,15 +254,27 @@ def test_all_openai_compat_collects_slot1_and_numbered():
     assert info2.cost_per_1k_out == 0.0006  # harga per-slot benar (bukan numpang slot lain)
 
 
-def test_all_openai_compat_stops_at_gap():
-    # slot 1 + slot 3 tanpa slot 2 -> hanya slot 1 (penomoran kontigu mulai 2).
+def test_all_openai_compat_rejects_gap_instead_of_hiding_inventory():
+    # Slot 3 without slot 2 is invalid; silently omitting it makes the inventory false.
     env = {
         "OPENAI_COMPAT_BASE_URL": "https://a/v1",
         "OPENAI_COMPAT_MODEL": "m1",
         "OPENAI_COMPAT_3_BASE_URL": "https://c/v1",
         "OPENAI_COMPAT_3_MODEL": "m3",
     }
-    assert [s[0].id for s in run._all_openai_compat_from_env(env)] == ["openai-compat/m1"]
+    with pytest.raises(RuntimeError, match="contiguous"):
+        run._all_openai_compat_from_env(env)
+
+
+def test_openai_compat_tools_rejects_unknown_boolean() -> None:
+    with pytest.raises(RuntimeError, match="must be a boolean"):
+        run._openai_compat_from_env(
+            {
+                "OPENAI_COMPAT_BASE_URL": "https://a/v1",
+                "OPENAI_COMPAT_MODEL": "m1",
+                "OPENAI_COMPAT_TOOLS": "definitely",
+            }
+        )
 
 
 def test_all_openai_compat_numbered_slot_requires_model():

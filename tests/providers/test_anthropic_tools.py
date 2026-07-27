@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from baton.providers.anthropic import AnthropicProvider
-from baton.types import (
+from volante.providers.anthropic import AnthropicProvider
+from volante.types import (
     CanonicalMessage,
     CanonicalRequest,
     TextBlock,
@@ -45,7 +45,7 @@ class _FakeClient:
 def _provider(monkeypatch, resp) -> tuple[AnthropicProvider, _FakeClient]:
     client = _FakeClient(resp)
     monkeypatch.setattr(
-        "baton.providers.anthropic.anthropic.AsyncAnthropic",
+        "volante.providers.anthropic.anthropic.AsyncAnthropic",
         lambda **kw: client,
     )
     return AnthropicProvider(api_key="k", model="claude-x"), client

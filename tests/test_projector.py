@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from baton.blackboard import Blackboard
-from baton.projector import Projector
-from baton.registry import Registry
-from baton.types import Entry, ModelInfo, Task
+from volante.blackboard import Blackboard
+from volante.projector import (
+    Projector,
+    model_input_char_budget,
+    model_input_token_budget,
+)
+from volante.registry import Registry
+from volante.types import Entry, ModelInfo, Task
 
 
 def _model(**overrides) -> ModelInfo:
@@ -142,3 +146,29 @@ def test_project_budget_uses_085_safety_margin() -> None:
     assert "[dipangkas tengah artifact t1]" in usr_text
     assert (len(sys_text) + len(usr_text)) // 4 <= margin_budget
     assert req.max_tokens == 200
+
+
+def test_shared_input_budget_caps_output_reserve_before_applying_margin() -> None:
+    # Projector caps output at half of context, even when registry metadata exposes
+    # a larger maximum. Router must use this same reserve before deciding full fit.
+    model = _model(context_window=1_000, max_output_tokens=700)
+    task = Task(
+        id="t1",
+        description="summarize",
+        type="write",
+        mode="one_shot",
+    )
+    req = Projector(Registry([model])).project(
+        task,
+        model.id,
+        Blackboard(goal="Goal", plan=[task]),
+    )
+
+    assert model_input_token_budget(1_000, 700) == 425
+    assert model_input_char_budget(1_000, 700) == 1_700
+    assert req.max_tokens == 500
+    assert sum(
+        len(block.text)
+        for message in req.messages
+        for block in message.content
+    ) <= 1_700

@@ -6,25 +6,133 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-27
+
 ### Added
+- **Whole-inventory, evidence-aware routing.** Every explicitly configured model across Anthropic,
+  OpenAI-compatible slots, Moonshot, Ollama, Claude Code, and Codex is evaluated for each task.
+  Hard capability constraints run before a deterministic, explainable score; optional strict
+  `ModelQualityProfile` JSON adds task quality, reliability, confidence, and evidence provenance.
+  `quality`, `local`, `cheap`, and `cash_protect_quota` now have distinct semantics.
+- **Auditable model selection.** `RunResult` carries complete per-task decisions (eligible and
+  rejected candidates, score components, selected and actually executed model, objective, caveats).
+  CLI, MCP, and Web UI expose the route trace, structured failure details, and physical
+  subscription-call count. `volante --list-models [--json]` reports the full offline inventory.
+- **Repeatable provider inventories.** `ANTHROPIC_MODELS`, `MOONSHOT_MODELS`, `OLLAMA_MODELS`,
+  `CLAUDE_CODE_MODELS`, and `CODEX_MODELS` register multiple models while preserving singular env
+  compatibility; optional parallel `*_NAMES` provide canonical ids, and strict per-model override
+  JSON supplies heterogeneous hard capabilities, limits, tiers, and prices.
+- **Usage observability.** A `VOLANTE_LOG` level knob surfaces engine diagnostics on stderr (e.g. VS
+  Code's MCP "Output" pane), silent by default. Every CLI, Web UI, and MCP run best-effort appends
+  one JSON line (status, cash vs plan credit, subscription calls, duration, selected models,
+  truncated goal) to a usage ledger (`~/.volante/usage.jsonl`, `VOLANTE_USAGE_LOG`-configurable, empty
+  disables). `volante --usage [--json]` prints it, and the Web UI gains an authenticated `/usage`
+  dashboard (summary tiles + recent-runs table) so goals delegated from an IDE via MCP stay
+  auditable. Records are truncated under `PIPE_BUF` for atomic concurrent appends.
+- **Evidence-weighted routing + `--calibrate`.** A scoring component that says the same thing
+  about every eligible model now gets ZERO weight, with its share redistributed to the
+  components that carry information, and the decision trace names what was dropped. Previously
+  `task_fit` (45 of 100) and `reliability` (4) were flat constants whenever no quality profile
+  was configured — 49% of a "predicted quality" score that could not rank anything, while
+  reading as evidence. The weighting is decided once per routing call, so all candidates stay
+  comparable, and rankings are unchanged (a constant shifts every score equally).
+  `volante --calibrate measurements.json` turns scores you measured into a strict quality-profiles
+  file: per-task-type means, a macro-averaged `overall_score` so an unbalanced sample cannot drive
+  it, `confidence` taken from the weakest-sampled task type and capped below 1.0, and a
+  `reliability_score` only when you actually recorded failed runs (`null`), so it cannot become a
+  copy of the quality score. The output is round-tripped through Volante's own strict loader before
+  success is reported. The optional strength vocabulary that also activates `task_fit` is now
+  documented in the README and `.env.example`.
+- **In-band capability disclosure.** `RunResult.capability_notice` states when a run lacked a
+  capability — code execution withheld for want of a sandbox, or running unisolated — and the CLI,
+  `--json`, the MCP result footer, and the Web UI all show it on success as well as failure. A
+  degraded answer (code that was never actually executed) is no longer indistinguishable from a
+  full-capability one for callers who never see this process's stderr, such as an IDE MCP client.
+- **Estimated-cost disclosure.** `RunResult.cost_estimated` reports whether any usage in the run was
+  inferred because a provider returned no token counts, and every surface that prints a dollar
+  figure now says so: the CLI summary and `--json`, the MCP result footer, the Web UI result panel
+  and `/usage` table, and each usage-ledger record. Amounts Volante inferred are no longer
+  indistinguishable from provider-reported ones.
+- **Runtime safety invariants.** Strict task/plan validation, safe per-task workspace containment,
+  model-aware context budgets, structured planning/task/synthesis failures, phase deadlines,
+  authoritative cost propagation, and one physical subscription-call gate across planning,
+  retries, worker/agent turns, and synthesis.
 - **MCPB bundle (Claude Desktop + Smithery).** A one-file [`mcpb/`](mcpb/) manifest packs into a
-  `baton-<version>.mcpb` (attached to each release) — open it in Claude Desktop for a one-click
+  `volante-<version>.mcpb` (attached to each release) — open it in Claude Desktop for a one-click
   install with a provider-config UI, or upload it as a local server at smithery.ai/new. It wraps
-  `uvx --from "baton-orchestrator[mcp]" baton-mcp`, so it runs locally (subscription CLIs + API keys
-  work). Built/validated with `@anthropic-ai/mcpb`.
+  `uvx --from "volante[mcp]==0.3.0" volante-mcp`, so it runs locally (subscription CLIs +
+  API keys work). Built/validated with a pinned `@anthropic-ai/mcpb`.
 - **Multi-client MCP docs + Smithery manifest.** A [`smithery.yaml`](smithery.yaml) (stdio +
   provider config schema) for listing on [smithery.ai](https://smithery.ai), plus a README section
   with exact config for OpenAI Codex CLI (`codex mcp add …`), Gemini CLI, Cursor, Windsurf, and
   Cline/Roo. (These clients integrate MCP servers via config, not a plugin marketplace.)
-- **Published to Smithery + a narrow orchestrate skill.** Baton is published to
-  [Smithery](https://smithery.ai/server/ribato/baton) (`ribato/baton`, via the MCPB bundle). The
+- **Published to Smithery + a narrow orchestrate skill.** Volante is published to
+  [Smithery](https://smithery.ai/server/ribato/volante) (`ribato/volante`, via the MCPB bundle). The
   Claude Code plugin also gains a tightly-scoped `orchestrate` skill that auto-delegates to
-  `baton_run` **only** for large, multi-part goals (not simple tasks), to avoid over-invocation.
+  `volante_run` **only** for large, multi-part goals (not simple tasks), to avoid over-invocation.
 - **Claude Code plugin.** The repo doubles as a plugin marketplace
-  (`.claude-plugin/marketplace.json` + [`plugins/baton/`](plugins/baton/)): one command
-  (`/plugin marketplace add ribato22/baton` then `/plugin install baton@baton`) wires the Baton
-  MCP server and a `/baton:run <goal>` slash command into Claude Code. Validated with
+  (`.claude-plugin/marketplace.json` + [`plugins/volante/`](plugins/volante/)): one command
+  (`/plugin marketplace add ribato22/volante` then `/plugin install volante@volante`) wires the Volante
+  MCP server and a `/volante:run <goal>` slash command into Claude Code. Validated with
   `claude plugin validate`.
+
+### Changed
+- **Renamed: Baton → Volante.** The PyPI distribution moves from `baton-orchestrator` to
+  `volante`, the importable package and CLI from `baton` to `volante`, the MCP server from
+  `baton-mcp` to `volante-mcp`, its tool from `baton_run` to `volante_run`, and every setting
+  from `BATON_*` to `VOLANTE_*`. A *volante* is the deep-lying midfielder who steers the
+  game — literally "steering wheel" in Brazilian Portuguese — reading the whole pitch and sending
+  the ball where it does the most good, which is the job this router does for models.
+  The old name collided with several unrelated orchestration projects and could never hold the
+  plain `baton` name on PyPI, which is why installs said `baton-orchestrator` while imports said
+  `baton`. Existing `BATON_*` environment settings are still honored, with a deprecation notice,
+  and will be dropped in a later release. Releases up to `0.2.1` remain published under
+  `baton-orchestrator`; nothing is republished under the old name.
+- **Code execution is now secure by default and fails closed.** `run_python` previously ran
+  model-generated code in an unisolated subprocess by default, reachable on every CLI, Web UI, and
+  MCP run — with the caller's filesystem and network. Volante now auto-selects the container sandbox
+  when a Docker daemon answers, and when none does it withholds `run_python` entirely (the planner
+  is never told it can execute code) instead of downgrading silently. The weak sandbox became an
+  informed opt-in, `VOLANTE_SANDBOX=subprocess`, which warns on every start, and an unrecognized
+  `VOLANTE_SANDBOX` value is rejected rather than treated as "subprocess". **Breaking for hosts
+  without Docker:** agentic code-execution tasks stop being planned until you install/start Docker
+  or opt in explicitly.
+- **Public alpha positioning and routing claims.** Volante is now presented as a transparent,
+  user-owned model router and orchestration control plane: usable through its CLI, library, Web UI,
+  and MCP server while still explicitly alpha. Documentation describes quality as an evidence-based
+  prediction after hard-capability filtering—not an empirically universal winner—and records that
+  representative cross-provider benchmarks and automatic profile calibration remain future work.
+  The documented regression suite is reported conservatively as 800+ tests.
+
+### Fixed
+- **`Runtime` reuse now fails loudly instead of misreporting.** A `Runtime` runs exactly one goal —
+  its planner is non-re-entrant and its cost meter, subscription counter, and route trace are all
+  per-run — but a second or overlapping `aexecute` used to report the first run's accumulated cost
+  as if it were the new run's, or surface as an obscure `planning_error`. It now raises immediately
+  with an actionable message; build a fresh `Runtime` per goal (which is what the runtime factory
+  already returns on every code path).
+- **Provider and tool boundaries.** SDK-internal retries are disabled so Volante owns retry policy;
+  CLI-agent child environments use an explicit allowlist and hardened non-interactive flags;
+  CLI/sandbox output and `fetch_url`/`read_file` input are bounded while streaming rather than after
+  unbounded buffering. Agentic plans declare required tools and cannot claim success without
+  actually invoking them.
+- **Output and availability integrity.** Planning, workers, agent turns, and synthesis reject empty
+  or non-terminal/truncated provider responses. Model/deployment-specific availability failures
+  and provider-wide authentication, endpoint, timeout, or exhausted-transient failures reroute to
+  the next ranked candidate and remain visible in the decision trace. Planning and synthesis now
+  have bounded cross-provider phase fallbacks; malformed semantic requests still fail fast.
+- **Web UI trust boundary.** Prompts move from query strings to bounded authenticated POST requests
+  exchanged for opaque one-use SSE ids, with origin/host checks, concurrent-run limits, TTLs, and
+  security headers. Non-loopback binding requires an access token.
+- **Distribution configuration parity.** MCPB, Smithery, and the official MCP Registry manifest
+  now use the engine's `OPENAI_COMPAT_KEY` contract, expose the required companion model id, mark
+  secrets correctly, emit subscription toggles as exact `1`/`0`, and keep package/plugin/manifest
+  versions in lockstep through automated contract tests.
+- **Shared subscription planner gate.** CLI, MCP, Web UI, and the public async runtime-factory
+  path now enforce the same live parse-plan check for subscription-only planners.
+- **Release supply chain.** Releases now test/lint/type-check first, build and validate Python +
+  MCPB artifacts, publish a GitHub Release, and then update the MCP Registry. The registry
+  publisher is version/checksum pinned instead of executing an unverified `latest` download.
 
 ## [0.2.1] - 2026-07-24
 
@@ -44,12 +152,11 @@ All notable changes to this project are documented here. The format is based on
   then `baton-mcp`); `python -m baton_mcp` still works. Previously it ran only from a source
   checkout. Invoked without the `mcp` extra, `baton-mcp` now exits with an install hint instead
   of a traceback.
-- **`quality` routing objective (now the default).** The router picks the strongest model
-  capable of each task (highest tier that matches the required strengths + tool support; ties
-  broken toward the cash-free subscription option, then id), so the best available model answers
-  each task. It is the objective wired into the CLI, Web UI, MCP server, and `make_runtime_factory`
-  by default. `Router`/`route_ranked` now genuinely branch on `prefer` (previously only
-  `cash_protect_quota` was implemented).
+- **`quality` routing objective (now the default).** The router ranks eligible models by predicted
+  fit from configured metadata (tier, required strengths, and tool support; ties broken toward the
+  cash-free subscription option, then id). It is the objective wired into the CLI, Web UI, MCP
+  server, and `make_runtime_factory` by default. `Router`/`route_ranked` now genuinely branch on
+  `prefer` (previously only `cash_protect_quota` was implemented).
 - **Python 3.11 support**: lowered `requires-python` to `>=3.11` (verified — the full
   test suite passes on 3.11), added the 3.11 trove classifier and a 3.11 CI matrix leg;
   ruff/mypy targets lowered to `py311`/`3.11` accordingly.
@@ -58,11 +165,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 - **Default routing objective is now `quality`** (was `cash_protect_quota`). By default Baton now
-  favors the strongest capable model per task rather than right-sizing to the cheapest adequate one,
-  so it may use stronger/subscription-billed models more often (and consume more interactive quota).
-  Pass `--prefer cash_protect_quota` (CLI) or `prefer="cash_protect_quota"` to restore the previous
-  quota-protecting behavior. Docs reframed accordingly (routing headline, diagram, tables, MCP tool,
-  subscription note).
+  favors the highest predicted fit among hard-capability-eligible models rather than right-sizing to
+  the cheapest adequate one, so it may use higher-tier/subscription-billed models more often (and
+  consume more interactive quota). Pass `--prefer cash_protect_quota` (CLI) or
+  `prefer="cash_protect_quota"` to restore the previous quota-protecting behavior. Docs reframed
+  accordingly (routing headline, diagram, tables, MCP tool, subscription note).
 - Bumped all GitHub Actions to their Node-24 releases (checkout v5, setup-uv v7,
   upload-artifact v7, download-artifact v8) to clear the Node-20 deprecation warning —
   still fully commit-SHA-pinned.
@@ -192,7 +299,8 @@ All notable changes to this project are documented here. The format is based on
 - The Code of Conduct now routes reports to a **private** channel (maintainer email / private GitHub
   Security Advisory) instead of the public issue tracker, and is linked from CONTRIBUTING and the README.
 
-[Unreleased]: https://github.com/ribato22/baton/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/ribato22/baton/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ribato22/baton/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/ribato22/baton/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ribato22/baton/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ribato22/baton/releases/tag/v0.1.0

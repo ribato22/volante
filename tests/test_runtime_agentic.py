@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from baton.agent import AgenticResult, TurnRecord
-from baton.cost import CostMeter
-from baton.providers.fake import FakeProvider
-from baton.registry import Registry
-from baton.runtime import Runtime
-from baton.types import CanonicalRequest, ModelInfo, Task, Usage, text
-from baton.worker import Worker
+from volante.agent import AgenticResult, TurnRecord
+from volante.cost import CostMeter
+from volante.providers.fake import FakeProvider
+from volante.registry import Registry
+from volante.runtime import Runtime
+from volante.types import CanonicalRequest, ModelInfo, Task, Usage, text
+from volante.worker import Worker
 
 
 def _model(mid: str) -> ModelInfo:

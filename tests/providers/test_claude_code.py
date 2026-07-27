@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from baton.providers.base import ProviderError
-from baton.providers.claude_code import ClaudeCodeAdapter
-from baton.providers.cli_agent import CliAgentProvider, CliRunResult
-from baton.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage, text
+from volante.providers.base import ProviderError
+from volante.providers.claude_code import ClaudeCodeAdapter
+from volante.providers.cli_agent import CliAgentProvider, CliRunResult
+from volante.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage, text
 
 
 def _req(sys_prompt: str | None, user: str) -> CanonicalRequest:
@@ -41,6 +41,10 @@ def test_argv_json_append_is_canonical_no_bare() -> None:
         "--model", "opus",
         "--tools", "",
         "--strict-mcp-config",
+        "--safe-mode",
+        "--no-session-persistence",
+        "--disable-slash-commands",
+        "--no-chrome",
         "--disallowedTools", "LSP",
         "--append-system-prompt", "SYS",
     ]
@@ -113,7 +117,7 @@ def test_stdin_is_user_text_only() -> None:
 
 
 def test_child_env_scrubs_api_key_forcing_subscription() -> None:
-    from baton.providers.claude_code import DEPTH_ENV
+    from volante.providers.claude_code import DEPTH_ENV
 
     a = ClaudeCodeAdapter()
     base = {"PATH": "/bin", "ANTHROPIC_API_KEY": "sk-would-bill-card", DEPTH_ENV: "0"}
@@ -255,10 +259,10 @@ def test_result_fixture_is_dated() -> None:
 
 async def test_complete_through_provider_nets_depth_one_at_top_level(monkeypatch) -> None:
     # End-to-end through the real CliAgentProvider + real ClaudeCodeAdapter: a
-    # top-level run (no BATON_CLI_AGENT_DEPTH in the parent env, i.e. depth 0) must
+    # top-level run (no VOLANTE_CLI_AGENT_DEPTH in the parent env, i.e. depth 0) must
     # net the CHILD a depth of "1", not "2" -- regression guard for the adapter
     # double-increment bug (provider already adds +1; adapter must not add another).
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     fixture = (_FIXTURES / "claude_code_result.2026-07-22.json").read_text()
     captured: dict[str, dict] = {}
 
@@ -269,7 +273,7 @@ async def test_complete_through_provider_nets_depth_one_at_top_level(monkeypatch
     provider = CliAgentProvider(ClaudeCodeAdapter(), "opus", runner=runner)
     req = CanonicalRequest(messages=[text("user", "hi")], max_tokens=64)
     await provider.complete(req)
-    assert captured["env"]["BATON_CLI_AGENT_DEPTH"] == "1"
+    assert captured["env"]["VOLANTE_CLI_AGENT_DEPTH"] == "1"
 
 
 async def test_complete_through_provider_carries_cost_usd() -> None:
@@ -396,7 +400,7 @@ async def test_stream_terminal_is_error_reroutes() -> None:
 
 
 def test_claude_code_model_info_seed() -> None:
-    from baton.providers.claude_code import claude_code_model_info
+    from volante.providers.claude_code import claude_code_model_info
 
     mi = claude_code_model_info("opus")
     assert mi.id == "claude-code/opus"
@@ -409,6 +413,6 @@ def test_claude_code_model_info_seed() -> None:
 
 
 def test_claude_code_model_info_tier_override() -> None:
-    from baton.providers.claude_code import claude_code_model_info
+    from volante.providers.claude_code import claude_code_model_info
 
     assert claude_code_model_info("opus", tier=3).tier == 3

@@ -4,10 +4,18 @@ import json
 
 import pytest
 
-from baton.cost import CostMeter
-from baton.providers.fake import FakeProvider
-from baton.supervisor import _MAX_PLAN_ATTEMPTS, Supervisor
-from baton.types import CanonicalRequest, CanonicalResponse, Task, TextBlock, Usage
+from volante.cost import CostMeter
+from volante.providers.base import IncompleteOutputError
+from volante.providers.fake import FakeProvider
+from volante.supervisor import _MAX_PLAN_ATTEMPTS, Supervisor
+from volante.types import (
+    CanonicalRequest,
+    CanonicalResponse,
+    InvalidGoalError,
+    Task,
+    TextBlock,
+    Usage,
+)
 
 _PLANNER_MODEL = "anthropic/claude-sonnet-5"
 
@@ -34,6 +42,8 @@ def _resp(
     prompt: int = 0,
     completion: int = 0,
     estimated: bool = False,
+    cost_usd: float | None = None,
+    stop_reason: str = "end_turn",
 ) -> CanonicalResponse:
     return CanonicalResponse(
         content=[TextBlock(text=payload)],
@@ -43,8 +53,9 @@ def _resp(
             estimated=estimated,
         ),
         model="fake",
-        stop_reason="end_turn",
+        stop_reason=stop_reason,
         latency_ms=0,
+        cost_usd=cost_usd,
     )
 
 
@@ -139,6 +150,35 @@ async def test_plan_records_planning_usage_in_cost_meter() -> None:
     assert totals[_PLANNER_MODEL].completion_tokens == 45
 
 
+@pytest.mark.parametrize("stop_reason", ["max_tokens", "content_filter", "unknown"])
+async def test_plan_rejects_incomplete_terminal_response_after_metering(
+    stop_reason: str,
+) -> None:
+    provider = _CountingProvider(
+        [
+            _resp(
+                _one_task_plan(),
+                prompt=12,
+                completion=7,
+                stop_reason=stop_reason,
+            )
+        ]
+    )
+    cost_meter = CostMeter()
+    sup = Supervisor(provider, _PLANNER_MODEL, cost_meter)
+
+    with pytest.raises(IncompleteOutputError) as exc_info:
+        await sup.plan("plan me")
+
+    assert provider.calls == 1
+    assert exc_info.value.phase == "planning"
+    assert exc_info.value.stop_reason == stop_reason
+    assert exc_info.value.error_code == "incomplete_output"
+    totals = cost_meter.totals()[_PLANNER_MODEL]
+    assert totals.prompt_tokens == 12
+    assert totals.completion_tokens == 7
+
+
 async def test_cost_meter_keyed_by_model_id_not_provider_name() -> None:
     # PATCH: key akumulasi adalah model_id, BUKAN provider.name ("fake").
     provider = FakeProvider(
@@ -152,6 +192,19 @@ async def test_cost_meter_keyed_by_model_id_not_provider_name() -> None:
 
     assert list(cost_meter.totals().keys()) == [_PLANNER_MODEL]
     assert "fake" not in cost_meter.totals()
+
+
+async def test_plan_forwards_provider_authoritative_cost() -> None:
+    provider = FakeProvider(
+        responses=[_resp(_one_task_plan(), prompt=10, completion=2, cost_usd=0.123)]
+    )
+    meter = CostMeter()
+    sup = Supervisor(provider, _PLANNER_MODEL, meter)
+
+    await sup.plan("plan me")
+
+    direct = meter._direct[_PLANNER_MODEL]
+    assert direct["usd"] == pytest.approx(0.123)
 
 
 async def test_estimated_usage_propagates_to_has_estimated() -> None:
@@ -361,17 +414,13 @@ async def test_planning_call_is_billed_even_when_plan_invalid() -> None:
     assert totals[_PLANNER_MODEL].completion_tokens == 30
 
 
-async def test_plan_reads_difficulty_leniently() -> None:
+async def test_plan_defaults_missing_difficulty_but_rejects_invalid_values() -> None:
     plan_json = json.dumps(
         [
             {"id": "a", "description": "hard one", "type": "code",
              "mode": "one_shot", "depends_on": [], "difficulty": "hard"},
             {"id": "b", "description": "no difficulty key", "type": "code",
              "mode": "one_shot", "depends_on": []},
-            {"id": "c", "description": "unknown label", "type": "code",
-             "mode": "one_shot", "depends_on": [], "difficulty": "spicy"},
-            {"id": "d", "description": "non-string difficulty", "type": "code",
-             "mode": "one_shot", "depends_on": [], "difficulty": ["hard"]},
         ]
     )
     provider = FakeProvider(responses=[_resp(plan_json)])
@@ -379,14 +428,33 @@ async def test_plan_reads_difficulty_leniently() -> None:
 
     tasks = await sup.plan("mixed difficulties")
     by_id = {t.id: t for t in tasks}
-    assert by_id["a"].difficulty == "hard"    # valid value passes through
-    assert by_id["b"].difficulty == "medium"  # missing key -> lenient default
-    assert by_id["c"].difficulty == "medium"  # unknown label -> lenient default
-    assert by_id["d"].difficulty == "medium"  # non-string -> lenient default
+    assert by_id["a"].difficulty == "hard"
+    assert by_id["b"].difficulty == "medium"
+
+    for invalid in ("spicy", ["hard"]):
+        bad = json.dumps(
+            [
+                {
+                    "id": "bad",
+                    "description": "invalid difficulty",
+                    "type": "code",
+                    "mode": "one_shot",
+                    "depends_on": [],
+                    "difficulty": invalid,
+                }
+            ]
+        )
+        bad_sup = Supervisor(
+            FakeProvider(responses=[_resp(bad)] * _MAX_PLAN_ATTEMPTS),
+            _PLANNER_MODEL,
+            CostMeter(),
+        )
+        with pytest.raises(ValueError, match="difficulty"):
+            await bad_sup.plan("reject invalid difficulty")
 
 
 def test_plan_system_prompt_requests_difficulty() -> None:
-    from baton.supervisor import _PLAN_SYSTEM
+    from volante.supervisor import _PLAN_SYSTEM
 
     assert "difficulty" in _PLAN_SYSTEM
     for label in ("trivial", "easy", "medium", "hard"):
@@ -400,7 +468,7 @@ def test_plan_system_prompt_restricts_agentic_to_tool_use() -> None:
     # agentic ONLY for tasks that genuinely need a tool loop (execute code,
     # read local files, fetch a URL) -- research/analysis/writing/reasoning
     # tasks, which don't need tools, should be one_shot.
-    from baton.supervisor import _PLAN_SYSTEM
+    from volante.supervisor import _PLAN_SYSTEM
 
     assert "one_shot" in _PLAN_SYSTEM
     assert "agentic" in _PLAN_SYSTEM
@@ -540,3 +608,181 @@ async def test_plan_valid_on_first_try_makes_exactly_one_call() -> None:
 
     assert [t.id for t in tasks] == ["t1"]
     assert provider.calls == 1
+
+
+async def test_planner_request_uses_selected_model_limits() -> None:
+    provider = _CountingProvider([_resp(_one_task_plan())])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+    sup.set_model_limits(context_window=4_096, max_output_tokens=512)
+
+    await sup.plan("plan me")
+
+    request = provider.requests[0]
+    assert request.context_window == 4_096
+    assert request.max_tokens == 512
+
+
+async def test_planner_rejects_goal_that_cannot_fit_without_calling_provider() -> None:
+    provider = _CountingProvider([_resp(_one_task_plan())])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+    sup.set_model_limits(context_window=512, max_output_tokens=128)
+
+    with pytest.raises(InvalidGoalError, match="does not fit"):
+        await sup.plan("x" * 5_000)
+
+    assert provider.calls == 0
+
+
+@pytest.mark.parametrize("goal", ["", "   "])
+async def test_planner_rejects_empty_goal_without_provider_call(goal: str) -> None:
+    provider = _CountingProvider([_resp(_one_task_plan())])
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+
+    with pytest.raises(InvalidGoalError):
+        await sup.plan(goal)
+
+    assert provider.calls == 0
+
+
+@pytest.mark.parametrize(
+    "task_id",
+    [
+        "",
+        ".",
+        "..",
+        "../escape",
+        "/tmp/escape",
+        "nested/task",
+        "has space",
+        "x" * 65,
+    ],
+)
+async def test_plan_rejects_unsafe_task_ids(task_id: str) -> None:
+    payload = json.dumps(
+        [
+            {
+                "id": task_id,
+                "description": "unsafe",
+                "type": "code",
+                "mode": "one_shot",
+                "difficulty": "medium",
+                "depends_on": [],
+            }
+        ]
+    )
+    sup = Supervisor(
+        FakeProvider(responses=[_resp(payload)] * _MAX_PLAN_ATTEMPTS),
+        _PLANNER_MODEL,
+        CostMeter(),
+    )
+
+    with pytest.raises(ValueError, match="task id|unsafe"):
+        await sup.plan("reject unsafe id")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("type", "browse"),
+        ("mode", "magic"),
+        ("difficulty", "extreme"),
+    ],
+)
+async def test_plan_rejects_unknown_task_discriminators(
+    field: str, value: str
+) -> None:
+    item = {
+        "id": "t1",
+        "description": "invalid discriminator",
+        "type": "code",
+        "mode": "one_shot",
+        "difficulty": "medium",
+        "depends_on": [],
+    }
+    item[field] = value
+    payload = json.dumps([item])
+    sup = Supervisor(
+        FakeProvider(responses=[_resp(payload)] * _MAX_PLAN_ATTEMPTS),
+        _PLANNER_MODEL,
+        CostMeter(),
+    )
+
+    with pytest.raises(ValueError, match=f"invalid {field}"):
+        await sup.plan("reject unknown discriminator")
+
+
+@pytest.mark.parametrize(
+    ("mode", "required_tools", "message"),
+    [
+        ("one_shot", ["run_python"], "one_shot"),
+        ("agentic", ["shell"], "unsupported required tool"),
+    ],
+)
+async def test_plan_rejects_invalid_required_tool_contract(
+    mode: str,
+    required_tools: list[str],
+    message: str,
+) -> None:
+    payload = json.dumps(
+        [
+            {
+                "id": "t1",
+                "description": "tool task",
+                "type": "code",
+                "mode": mode,
+                "difficulty": "medium",
+                "depends_on": [],
+                "required_tools": required_tools,
+            }
+        ]
+    )
+    sup = Supervisor(
+        FakeProvider(responses=[_resp(payload)] * _MAX_PLAN_ATTEMPTS),
+        _PLANNER_MODEL,
+        CostMeter(),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        await sup.plan("reject invalid tool contract")
+
+
+async def test_plan_rejects_known_tool_that_is_disabled_for_this_run() -> None:
+    payload = json.dumps(
+        [
+            {
+                "id": "t1",
+                "description": "fetch a URL",
+                "type": "research",
+                "mode": "agentic",
+                "difficulty": "medium",
+                "depends_on": [],
+                "required_tools": ["fetch_url"],
+            }
+        ]
+    )
+    sup = Supervisor(
+        FakeProvider(responses=[_resp(payload)] * _MAX_PLAN_ATTEMPTS),
+        _PLANNER_MODEL,
+        CostMeter(),
+    )
+    sup.set_available_tools({"run_python"})
+
+    with pytest.raises(ValueError, match="unavailable.*fetch_url"):
+        await sup.plan("reject disabled tool")
+
+
+async def test_call_gate_runs_for_every_physical_planner_attempt() -> None:
+    provider = _CountingProvider(
+        responses=[
+            _resp("not json"),
+            _resp(_one_task_plan()),
+        ]
+    )
+    calls: list[str] = []
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+    sup.set_call_gate(calls.append)
+
+    await sup.plan("retry once")
+
+    assert calls == [_PLANNER_MODEL, _PLANNER_MODEL]
+    assert provider.calls == 2

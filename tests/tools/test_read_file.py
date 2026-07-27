@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from baton.tools.read_file import ReadFileTool
+from volante.tools.read_file import ReadFileTool
 
 
 async def test_reads_file_under_root(tmp_path: Path) -> None:
@@ -37,3 +37,10 @@ async def test_caps_size(tmp_path: Path) -> None:
     (tmp_path / "big.txt").write_text("B" * 5000, encoding="utf-8")
     out = await ReadFileTool(tmp_path, max_bytes=100).run({"path": "big.txt"})
     assert len(out) == 100
+
+
+def test_rejects_non_positive_size_cap(tmp_path: Path) -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="max_bytes"):
+        ReadFileTool(tmp_path, max_bytes=0)

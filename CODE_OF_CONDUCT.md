@@ -61,7 +61,7 @@ appointed representative at an online or offline event.
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported **privately** to the project maintainer by email at
 **rizkybachtiar7@gmail.com**, or through a
-[private GitHub Security Advisory](https://github.com/ribato22/baton/security/advisories/new).
+[private GitHub Security Advisory](https://github.com/ribato22/volante/security/advisories/new).
 Do not use the public issue tracker for reports. All complaints will be reviewed
 and investigated promptly and fairly.
 

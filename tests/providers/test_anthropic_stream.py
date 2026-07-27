@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from baton.providers.anthropic import AnthropicProvider
-from baton.types import CanonicalRequest, TextBlock, ToolUseBlock, text
+from volante.providers.anthropic import AnthropicProvider
+from volante.types import CanonicalRequest, TextBlock, ToolUseBlock, text
 
 
 class _Blk:
@@ -55,7 +55,7 @@ def _provider(monkeypatch, deltas, final):
             self.messages = _Msgs()
 
     monkeypatch.setattr(
-        "baton.providers.anthropic.anthropic.AsyncAnthropic", lambda **kw: _Client()
+        "volante.providers.anthropic.anthropic.AsyncAnthropic", lambda **kw: _Client()
     )
     return AnthropicProvider(api_key="k", model="claude-x")
 
@@ -87,7 +87,7 @@ async def test_stream_early_stop_returns_partial_without_final(monkeypatch) -> N
             self.messages = _Msgs()
 
     monkeypatch.setattr(
-        "baton.providers.anthropic.anthropic.AsyncAnthropic", lambda **kw: _Client()
+        "volante.providers.anthropic.anthropic.AsyncAnthropic", lambda **kw: _Client()
     )
     p = AnthropicProvider(api_key="k", model="claude-x")
     got: list[str] = []
@@ -100,21 +100,20 @@ async def test_stream_early_stop_returns_partial_without_final(monkeypatch) -> N
 
     assert got == ["aa"]  # hanya delta pertama diteruskan
     assert res.content[0].text == "aa"  # parsial dari akumulasi (bukan FULL-UNUSED)
-    assert res.stop_reason == "end_turn"
+    assert res.stop_reason == "early_stop"
     assert ctx.final_called is False  # get_final_message TAK dipanggil saat stop
     assert ctx.exited is True  # async with ditutup -> koneksi bersih
 
 
 @pytest.mark.asyncio
-async def test_stream_final_stop_reason_defaults_to_end_turn_when_missing(monkeypatch) -> None:
-    # CanonicalResponse.stop_reason is typed `str` (never None): a final message
-    # with stop_reason=None at the SDK boundary must still yield a str.
+async def test_stream_final_stop_reason_is_unknown_when_missing(monkeypatch) -> None:
+    # A final message without a terminal reason must remain visibly incomplete.
     final = _Final([_Blk(type="text", text="done")], stop_reason=None)
     p = _provider(monkeypatch, [], final)
     res = await p.stream(
         CanonicalRequest(messages=[text("user", "go")], max_tokens=16), lambda s: None
     )
-    assert res.stop_reason == "end_turn"
+    assert res.stop_reason == "unknown"
 
 
 @pytest.mark.asyncio

@@ -4,9 +4,9 @@ import pytest
 from eval.harness import run_suite
 from eval.tasks import EVAL_SUITE
 
-from baton.providers.fake import FakeProvider
-from baton.registry import Registry
-from baton.types import (
+from volante.providers.fake import FakeProvider
+from volante.registry import Registry
+from volante.types import (
     CanonicalResponse,
     ModelInfo,
     RunResult,
@@ -186,11 +186,19 @@ async def test_run_suite_respects_k():
     make_runtime, calls = _factory(lambda goal: STRONG)
     per_iter = [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
     provider = FakeProvider(responses=per_iter * 4)
-    await run_suite(
+    result = await run_suite(
         EVAL_SUITE[:2], make_runtime, provider, "strong-model", _registry(), k=2
     )
     # make_runtime dipanggil k kali per goal (2 goal * k=2).
     assert len(calls) == 4
+    # Aggregate cost includes every physical evaluation run, not only the final
+    # repetition for each goal.
+    assert result["aggregate"]["cost_total"]["baseline"] == pytest.approx(
+        4 * BASE_COST_EACH
+    )
+    assert result["aggregate"]["cost_total"]["orchestration"] == pytest.approx(
+        4 * ORCH_COST_EACH
+    )
 
 
 async def test_run_suite_any_estimated_flag():

@@ -9,14 +9,14 @@ import time
 
 import pytest
 
-from baton.providers.base import LLMProvider, ProviderError
-from baton.providers.cli_agent import (
+from volante.providers.base import LLMProvider, ProviderError
+from volante.providers.cli_agent import (
     CliAgentAdapter,
     CliAgentProvider,
     CliRunResult,
     subprocess_cli_runner,
 )
-from baton.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage, text
+from volante.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage, text
 
 
 async def test_runner_feeds_stdin_and_captures_stdout():
@@ -40,7 +40,7 @@ async def test_runner_runs_in_clean_temp_cwd():
         timeout=10.0,
     )
     lines = r.stdout.splitlines()
-    assert "baton-cli-" in lines[0]  # ran in a fresh temp dir, not the repo
+    assert "volante-cli-" in lines[0]  # ran in a fresh temp dir, not the repo
     assert lines[1] == "[]"          # temp cwd starts empty
 
 
@@ -178,6 +178,29 @@ async def test_stream_timeout_kills():
     assert r.returncode == -9
 
 
+async def test_stream_timeout_covers_process_wait_after_stdout_eof():
+    # The child can close stdout before it exits. A timeout around only the stdout
+    # pump returns from that pump immediately and then hangs forever in proc.wait().
+    # The deadline must cover both operations and the concurrent stderr drain.
+    start = time.monotonic()
+    r = await subprocess_cli_runner(
+        [
+            sys.executable,
+            "-c",
+            "import os, time; os.close(1); time.sleep(30)",
+        ],
+        stdin="",
+        env={"PATH": os.environ.get("PATH", "")},
+        timeout=0.2,
+        on_line=lambda _line: False,
+    )
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 2.0
+    assert r.timed_out is True
+    assert r.returncode == -9
+
+
 async def test_stream_cancel_kills_and_reraises():
     task = asyncio.ensure_future(
         subprocess_cli_runner(
@@ -224,7 +247,7 @@ class _FakeAdapter:
     def child_env(self, base, *, depth):
         env = dict(base)
         env.pop("OPENAI_API_KEY", None)  # scrub hook per adapter (§8.1)
-        env["BATON_CLI_AGENT_DEPTH"] = str(depth)
+        env["VOLANTE_CLI_AGENT_DEPTH"] = str(depth)
         return env
 
     def stdin(self, req):
@@ -314,7 +337,7 @@ def test_provider_is_llmprovider_with_adapter_name():
 
 
 async def test_complete_parses_usage_and_cost(monkeypatch):
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     runner = _RecordingRunner(_ok_result(total_cost_usd=0.01))
     provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner)
     resp = await provider.complete(_req())
@@ -324,7 +347,7 @@ async def test_complete_parses_usage_and_cost(monkeypatch):
 
 
 async def test_complete_ignores_req_temperature_and_max_tokens(monkeypatch):
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     adapter = _FakeAdapter()
     provider = CliAgentProvider(
         adapter, "opus", runner=_RecordingRunner(_ok_result()), max_output=4096
@@ -336,15 +359,15 @@ async def test_complete_ignores_req_temperature_and_max_tokens(monkeypatch):
 
 
 async def test_child_env_increments_depth(monkeypatch):
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     runner = _RecordingRunner(_ok_result())
     provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner)
     await provider.complete(_req())
-    assert runner.env["BATON_CLI_AGENT_DEPTH"] == "1"  # depth 0 -> child gets 1
+    assert runner.env["VOLANTE_CLI_AGENT_DEPTH"] == "1"  # depth 0 -> child gets 1
 
 
 async def test_child_env_scrubs_openai_api_key(monkeypatch):
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-should-not-leak")
     runner = _RecordingRunner(_ok_result())
     provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner)
@@ -352,8 +375,50 @@ async def test_child_env_scrubs_openai_api_key(monkeypatch):
     assert "OPENAI_API_KEY" not in runner.env  # adapter scrub hook honored
 
 
+async def test_child_env_does_not_inherit_unrelated_secret(monkeypatch):
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_PASSTHROUGH", raising=False)
+    monkeypatch.setenv("UNRELATED_DATABASE_PASSWORD", "must-not-leak")
+    monkeypatch.setenv("HOME", "/tmp/volante-home")
+    runner = _RecordingRunner(_ok_result())
+    provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner)
+    await provider.complete(_req())
+    assert runner.env["HOME"] == "/tmp/volante-home"
+    assert "UNRELATED_DATABASE_PASSWORD" not in runner.env
+
+
+async def test_child_env_explicit_passthrough(monkeypatch):
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.setenv("VOLANTE_CLI_AGENT_PASSTHROUGH", "HTTPS_PROXY")
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example")
+    runner = _RecordingRunner(_ok_result())
+    provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner)
+    await provider.complete(_req())
+    assert runner.env["HTTPS_PROXY"] == "http://proxy.example"
+
+
+def test_provider_can_be_reused_across_sequential_event_loops(monkeypatch):
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
+
+    async def delayed_runner(argv, *, stdin, env, timeout, on_line=None):
+        await asyncio.sleep(0.01)
+        return _ok_result()
+
+    provider = CliAgentProvider(
+        _FakeAdapter(), "opus", runner=delayed_runner, concurrency=1
+    )
+
+    async def run_contended_pair() -> None:
+        await asyncio.gather(provider.complete(_req()), provider.complete(_req()))
+
+    # Runtime.execute() creates a fresh event loop. The provider-level concurrency
+    # limiter must not remain bound to the first loop after it experiences contention.
+    asyncio.run(run_contended_pair())
+    asyncio.run(run_contended_pair())
+
+
 async def test_depth_guard_refuses_recursion(monkeypatch):
-    monkeypatch.setenv("BATON_CLI_AGENT_DEPTH", "1")
+    monkeypatch.setenv("VOLANTE_CLI_AGENT_DEPTH", "1")
     runner = _RecordingRunner(_ok_result())
     provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner, max_depth=1)
     with pytest.raises(ProviderError) as ei:
@@ -363,7 +428,7 @@ async def test_depth_guard_refuses_recursion(monkeypatch):
 
 
 async def test_complete_maps_not_logged_in_to_quota_exhausted(monkeypatch):
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     runner = _RecordingRunner(CliRunResult(stdout="", stderr="Error: not logged in", returncode=1))
     provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner)
     with pytest.raises(ProviderError) as ei:
@@ -373,7 +438,7 @@ async def test_complete_maps_not_logged_in_to_quota_exhausted(monkeypatch):
 
 
 async def test_complete_timed_out_result_is_classified(monkeypatch):
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     runner = _RecordingRunner(CliRunResult("", "hard limit reached", -9, timed_out=True))
     provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner)
     with pytest.raises(ProviderError) as ei:
@@ -385,7 +450,7 @@ async def test_complete_is_error_payload_with_zero_exit_is_classified(monkeypatc
     # claude -p can exit 0 while the JSON envelope carries is_error=true (max-turns /
     # mid-run execution error) -- the base provider can't parse JSON to detect this,
     # so the adapter's is_error hook must be consulted even when returncode == 0.
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     adapter = _FakeAdapter(is_error_result=True)
     runner = _RecordingRunner(_ok_result())  # returncode=0, well-formed JSON success shape
     provider = CliAgentProvider(adapter, "opus", runner=runner)
@@ -394,7 +459,7 @@ async def test_complete_is_error_payload_with_zero_exit_is_classified(monkeypatc
 
 
 async def test_stream_relays_deltas_and_early_stop(monkeypatch):
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     lines = [
         json.dumps({"type": "text", "text": "Hel"}) + "\n",
         json.dumps({"type": "text", "text": "lo"}) + "\n",
@@ -417,7 +482,7 @@ async def test_stream_relays_deltas_and_early_stop(monkeypatch):
 async def test_stream_surfaces_usage_and_cost_from_terminal_result_line(monkeypatch):
     # §5.3: cost_usd is the primary credit source -- a STREAMED subscription call
     # must not report Usage(0, 0) / no cost just because it went through .stream().
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     lines = [json.dumps({"type": "text", "text": "Hello"}) + "\n"]
     result_line = json.dumps(
         {
@@ -440,7 +505,7 @@ async def test_stream_early_stop_keeps_partial_even_with_result_line(monkeypatch
     # Early-stop (cooperative cancel) must NOT be overridden by a terminal result
     # line -- the accumulated partial is the correct answer when the caller asked
     # to stop early, even if the runner happens to hand back a result line.
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     lines = [
         json.dumps({"type": "text", "text": "Hel"}) + "\n",
         json.dumps({"type": "text", "text": "lo world"}) + "\n",
@@ -457,7 +522,7 @@ async def test_stream_early_stop_keeps_partial_even_with_result_line(monkeypatch
 
 
 async def test_stream_sets_stream_flag_true(monkeypatch):
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     adapter = _FakeAdapter()
     provider = CliAgentProvider(adapter, "opus", runner=_RecordingRunner(CliRunResult("", "", 0)))
     await provider.stream(_req(), lambda _d: False)
@@ -465,7 +530,7 @@ async def test_stream_sets_stream_flag_true(monkeypatch):
 
 
 async def test_concurrency_cap_serializes_spawns(monkeypatch):
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     inflight = 0
     max_seen = 0
 
@@ -483,7 +548,7 @@ async def test_concurrency_cap_serializes_spawns(monkeypatch):
 
 
 async def test_stream_depth_guard_refuses_recursion(monkeypatch):
-    monkeypatch.setenv("BATON_CLI_AGENT_DEPTH", "1")
+    monkeypatch.setenv("VOLANTE_CLI_AGENT_DEPTH", "1")
     runner = _RecordingRunner(CliRunResult("", "", 0))
     provider = CliAgentProvider(_FakeAdapter(), "opus", runner=runner, max_depth=1)
     with pytest.raises(ProviderError) as ei:
@@ -493,7 +558,7 @@ async def test_stream_depth_guard_refuses_recursion(monkeypatch):
 
 
 async def test_stream_concurrency_cap_serializes_spawns(monkeypatch):
-    monkeypatch.delenv("BATON_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
     inflight = 0
     max_seen = 0
 

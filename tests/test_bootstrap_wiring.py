@@ -2,19 +2,29 @@ from __future__ import annotations
 
 import pytest
 
-import baton.bootstrap as bootstrap
-from baton.bootstrap import (
+import volante.bootstrap as bootstrap
+from volante.bootstrap import (
+    _phase_model_ids,
     _planner_model_id,
     build_providers_from_env,
     make_runtime_factory,
+    make_verified_runtime_factory,
     verify_claude_plan_gate,
 )
-from baton.providers.fake import FakeProvider
-from baton.registry import Registry
-from baton.types import CanonicalResponse, ModelInfo, TextBlock, Usage
+from volante.providers.base import ProviderError
+from volante.providers.fake import FakeProvider
+from volante.registry import Registry
+from volante.types import CanonicalResponse, ModelInfo, TextBlock, Usage
 
 
-def _model(mid: str, *, billing: str = "card", tier: int = 2) -> ModelInfo:
+def _model(
+    mid: str,
+    *,
+    billing: str = "card",
+    tier: int = 2,
+    cost_in: float = 0.0,
+    cost_out: float = 0.0,
+) -> ModelInfo:
     return ModelInfo(
         id=mid,
         provider="fake",
@@ -22,8 +32,8 @@ def _model(mid: str, *, billing: str = "card", tier: int = 2) -> ModelInfo:
         context_window=128_000,
         max_output_tokens=4_096,
         supports_tools=True,
-        cost_per_1k_in=0.0,
-        cost_per_1k_out=0.0,
+        cost_per_1k_in=cost_in,
+        cost_per_1k_out=cost_out,
         tier=tier,
         billing=billing,
     )
@@ -103,7 +113,7 @@ def test_include_subscription_false_excludes_even_when_enabled(monkeypatch):
 def test_no_providers_message_mentions_subscription_when_included(monkeypatch):
     # CLI path (include_subscription=True): actionable, mentions CLAUDE_CODE_ENABLED,
     # and drops the stale "before running the eval" wording (this error also fires
-    # from the `baton` CLI, not just the eval suite).
+    # from the `volante` CLI, not just the eval suite).
     _clear_all_provider_env(monkeypatch)
     with pytest.raises(RuntimeError) as exc_info:
         build_providers_from_env(include_subscription=True)
@@ -129,7 +139,7 @@ def test_codex_requires_explicit_tier(monkeypatch):
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
     monkeypatch.setenv("CODEX_ENABLED", "1")
     monkeypatch.setenv("CODEX_MODEL", "gpt-5-codex")
-    monkeypatch.setattr("baton.providers.codex.codex_detected", lambda: True)
+    monkeypatch.setattr("volante.providers.codex.codex_detected", lambda: True)
     with pytest.raises(RuntimeError, match="CODEX_TIER"):
         build_providers_from_env(include_subscription=True)
 
@@ -144,7 +154,7 @@ def test_codex_gate_uses_codex_detected_not_bare_path_lookup(monkeypatch):
     monkeypatch.setenv("CODEX_ENABLED", "1")
     monkeypatch.setenv("CODEX_TIER", "3")
     monkeypatch.setattr(bootstrap, "_detect_cli", lambda binary: True)  # PATH says "found"
-    monkeypatch.setattr("baton.providers.codex.codex_detected", lambda: False)  # not logged in
+    monkeypatch.setattr("volante.providers.codex.codex_detected", lambda: False)  # not logged in
     _registry, providers, _baseline = build_providers_from_env(include_subscription=True)
     assert not any(mid.startswith("codex/") for mid in providers)
 
@@ -153,7 +163,7 @@ def test_codex_registered_when_enabled_and_login_ok(monkeypatch, capsys):
     _clear_all_provider_env(monkeypatch)
     monkeypatch.setenv("CODEX_ENABLED", "1")
     monkeypatch.setenv("CODEX_TIER", "3")
-    monkeypatch.setattr("baton.providers.codex.codex_detected", lambda: True)
+    monkeypatch.setattr("volante.providers.codex.codex_detected", lambda: True)
     registry, providers, _baseline = build_providers_from_env(include_subscription=True)
     assert "codex/default" in providers  # unset CODEX_MODEL -> sensible default id
     info = registry.get("codex/default")
@@ -168,7 +178,7 @@ def test_codex_id_follows_configured_model(monkeypatch):
     monkeypatch.setenv("CODEX_ENABLED", "1")
     monkeypatch.setenv("CODEX_TIER", "3")
     monkeypatch.setenv("CODEX_MODEL", "gpt-5-codex")
-    monkeypatch.setattr("baton.providers.codex.codex_detected", lambda: True)
+    monkeypatch.setattr("volante.providers.codex.codex_detected", lambda: True)
     _registry, providers, _baseline = build_providers_from_env(include_subscription=True)
     assert "codex/gpt-5-codex" in providers
     assert "codex/default" not in providers
@@ -189,15 +199,15 @@ def test_subscription_model_info_comes_from_shared_seed_helpers(monkeypatch):
     # what the existing single-source-of-truth seed helpers produce (drift regression
     # guard: claude_code_model_info's strengths include long_context; build_codex_model's
     # default context_window is 256_000, not a bootstrap-local 128_000).
-    from baton.providers.claude_code import claude_code_model_info
-    from baton.providers.codex import build_codex_model
+    from volante.providers.claude_code import claude_code_model_info
+    from volante.providers.codex import build_codex_model
 
     _clear_all_provider_env(monkeypatch)
     monkeypatch.setenv("CLAUDE_CODE_ENABLED", "1")
     monkeypatch.setenv("CODEX_ENABLED", "1")
     monkeypatch.setenv("CODEX_TIER", "3")
     monkeypatch.setattr(bootstrap, "_detect_cli", lambda binary: binary == "claude")
-    monkeypatch.setattr("baton.providers.codex.codex_detected", lambda: True)
+    monkeypatch.setattr("volante.providers.codex.codex_detected", lambda: True)
     registry, _providers, _baseline = build_providers_from_env(include_subscription=True)
 
     cc = registry.get("claude-code/opus")
@@ -258,6 +268,39 @@ def test_planner_falls_back_to_subscription_when_only_option():
     assert _planner_model_id(registry, providers, "sub/x") == "sub/x"
 
 
+def test_phase_fallbacks_use_quality_order_and_exclude_unverified_subscription() -> None:
+    registry = Registry(
+        [
+            _model("api/primary", billing="card", tier=2),
+            _model("api/frontier", billing="card", tier=4),
+            _model("api/small", billing="card", tier=1),
+            _model("sub/other", billing="plan_included", tier=4),
+        ]
+    )
+    providers = {
+        model_id: FakeProvider()
+        for model_id in (
+            "api/primary",
+            "api/frontier",
+            "api/small",
+            "sub/other",
+        )
+    }
+
+    assert _phase_model_ids(
+        registry,
+        providers,
+        "api/primary",
+        phase="planning",
+    ) == ["api/primary", "api/frontier", "api/small"]
+    assert _phase_model_ids(
+        registry,
+        providers,
+        "api/primary",
+        phase="synthesis",
+    ) == ["api/primary", "api/frontier", "api/small"]
+
+
 def test_make_runtime_factory_wires_card_planner_and_synth():
     registry = Registry([
         _model("sub/x", billing="plan_included", tier=4),
@@ -267,6 +310,8 @@ def test_make_runtime_factory_wires_card_planner_and_synth():
     runtime = make_runtime_factory(registry, providers, "sub/x", prefer="cash_protect_quota")()
     assert runtime.supervisor._model_id == "api/y"
     assert runtime.synthesizer._model_id == "api/y"
+    assert runtime._planning_model_ids == ("api/y",)
+    assert runtime._synthesis_model_ids == ("api/y",)
 
 
 def test_make_runtime_factory_threads_prefer_into_router():
@@ -288,10 +333,19 @@ def test_make_runtime_factory_default_prefer_is_quality():
     assert runtime.router._prefer == "quality"
 
 
-def _plan_resp(payload: str) -> CanonicalResponse:
+def test_sync_factory_rejects_ungated_subscription_only_planner():
+    registry = Registry([_model("sub/x", billing="plan_included", tier=4)])
+    providers = {"sub/x": FakeProvider()}
+    with pytest.raises(RuntimeError, match="make_verified_runtime_factory"):
+        make_runtime_factory(registry, providers, "sub/x")
+
+
+def _plan_resp(
+    payload: str, *, prompt: int = 0, completion: int = 0
+) -> CanonicalResponse:
     return CanonicalResponse(
         content=[TextBlock(text=payload)],
-        usage=Usage(prompt_tokens=0, completion_tokens=0),
+        usage=Usage(prompt_tokens=prompt, completion_tokens=completion),
         model="claude-code/opus",
         stop_reason="end_turn",
         latency_ms=0,
@@ -313,3 +367,228 @@ async def test_verify_claude_plan_gate_false_on_empty_plan():
     # An empty array parses as JSON but fails supervisor _validate ("plan is empty").
     provider = FakeProvider([_plan_resp("[]")])
     assert await verify_claude_plan_gate(provider, "claude-code/opus") is False
+
+
+async def test_verified_factory_skips_live_probe_for_card_planner():
+    class _MustNotRun:
+        async def complete(self, req):
+            raise ProviderError("must not be called", retryable=False)
+
+    registry = Registry([_model("api/y", billing="card", tier=3)])
+    providers = {"api/y": _MustNotRun()}
+    factory = await make_verified_runtime_factory(registry, providers, "api/y")
+    assert factory().supervisor._model_id == "api/y"
+
+
+async def test_verified_factory_accepts_subscription_planner_after_live_gate():
+    valid = '[{"id":"t1","description":"d","type":"code","mode":"one_shot","depends_on":[]}]'
+    registry = Registry([_model("sub/x", billing="plan_included", tier=4)])
+    providers = {
+        "sub/x": FakeProvider([_plan_resp(valid, prompt=11, completion=7)])
+    }
+    factory = await make_verified_runtime_factory(registry, providers, "sub/x")
+    first = factory()
+    second = factory()
+    assert first.supervisor._model_id == "sub/x"
+    assert first._initial_subscription_calls == 1
+    assert first.cost_meter.totals()["sub/x"] == Usage(
+        prompt_tokens=11, completion_tokens=7
+    )
+    assert second._initial_subscription_calls == 0
+    assert second.cost_meter.totals() == {}
+
+
+async def test_verified_factory_fails_closed_for_incompatible_subscription_planner():
+    registry = Registry([_model("sub/x", billing="plan_included", tier=4)])
+    providers = {"sub/x": FakeProvider([_plan_resp("not json")])}
+    with pytest.raises(RuntimeError, match="parse-plan gate"):
+        await make_verified_runtime_factory(registry, providers, "sub/x")
+
+
+async def test_verified_factory_preflight_obeys_subscription_cap(
+    monkeypatch,
+) -> None:
+    class _Counting(FakeProvider):
+        def __init__(self) -> None:
+            super().__init__([_plan_resp("not json")])
+            self.calls = 0
+
+        async def complete(self, req):
+            self.calls += 1
+            return await super().complete(req)
+
+    monkeypatch.setenv("VOLANTE_MAX_SUBSCRIPTION_CALLS", "0")
+    registry = Registry([_model("sub/x", billing="plan_included", tier=4)])
+    provider = _Counting()
+    with pytest.raises(RuntimeError, match="preflight is disabled"):
+        await make_verified_runtime_factory(
+            registry, {"sub/x": provider}, "sub/x"
+        )
+    assert provider.calls == 0
+
+
+async def test_preflight_is_in_first_run_result_and_not_double_charged() -> None:
+    valid = '[{"id":"t1","description":"d","type":"code","mode":"one_shot","depends_on":[]}]'
+    registry = Registry(
+        [
+            _model(
+                "sub/x",
+                billing="plan_included",
+                tier=4,
+                cost_in=0.01,
+                cost_out=0.02,
+            )
+        ]
+    )
+    provider = FakeProvider(
+        [
+            _plan_resp(valid, prompt=10, completion=5),  # one-time preflight
+            _plan_resp(valid, prompt=20, completion=10),  # first run plan
+            _plan_resp("artifact", prompt=30, completion=15),
+            _plan_resp("final", prompt=40, completion=20),
+            _plan_resp(valid, prompt=1, completion=1),  # second run plan
+            _plan_resp("artifact 2", prompt=1, completion=1),
+            _plan_resp("final 2", prompt=1, completion=1),
+        ]
+    )
+    factory = await make_verified_runtime_factory(
+        registry, {"sub/x": provider}, "sub/x"
+    )
+
+    first = await factory().aexecute("first goal")
+    second = await factory().aexecute("second goal")
+
+    assert first.status == "success"
+    assert first.subscription_calls == 4
+    assert first.usage_total["sub/x"] == Usage(100, 50)
+    assert first.credit_usd == pytest.approx(0.002)
+    assert second.status == "success"
+    assert second.subscription_calls == 3
+    assert second.usage_total["sub/x"] == Usage(3, 3)
+
+
+async def test_runtime_cap_includes_successful_preflight(monkeypatch) -> None:
+    valid = '[{"id":"t1","description":"d","type":"code","mode":"one_shot","depends_on":[]}]'
+    monkeypatch.setenv("VOLANTE_MAX_SUBSCRIPTION_CALLS", "1")
+    registry = Registry(
+        [_model("sub/x", billing="plan_included", tier=4, cost_in=0.01)]
+    )
+    provider = FakeProvider(
+        [
+            _plan_resp(valid, prompt=10, completion=0),
+            _plan_resp(valid, prompt=999, completion=999),
+        ]
+    )
+    factory = await make_verified_runtime_factory(
+        registry, {"sub/x": provider}, "sub/x"
+    )
+
+    result = await factory().aexecute("goal")
+
+    assert result.status == "failed"
+    assert result.failed_task == "__planning__"
+    assert result.error_code == "quota_exhausted"
+    assert result.subscription_calls == 1
+    assert result.usage_total["sub/x"] == Usage(10, 0)
+    assert provider._index == 1
+
+
+async def test_no_sandbox_withholds_code_execution_from_the_planner(
+    monkeypatch, capsys
+) -> None:
+    # Fail-closed end to end: with no isolating sandbox the planner must not be told it
+    # can execute code, so it cannot plan a task that would run unisolated.
+    from volante.tools import sandbox as sandbox_mod
+
+    monkeypatch.delenv("VOLANTE_SANDBOX", raising=False)
+    monkeypatch.delenv("AIORCH_SANDBOX", raising=False)
+    sandbox_mod.reset_docker_probe()
+    monkeypatch.setattr(sandbox_mod, "docker_available", lambda **_: False)
+
+    registry = Registry([_model("api/x")])
+    factory = await make_verified_runtime_factory(
+        registry, {"api/x": FakeProvider([])}, "api/x"
+    )
+
+    runtime = factory()
+
+    assert "run_python" not in runtime.available_tool_names
+    assert "disabled" in capsys.readouterr().err.lower()  # says so out loud
+
+
+async def test_available_docker_enables_code_execution(monkeypatch) -> None:
+    from volante.tools import sandbox as sandbox_mod
+
+    monkeypatch.delenv("VOLANTE_SANDBOX", raising=False)
+    monkeypatch.delenv("AIORCH_SANDBOX", raising=False)
+    sandbox_mod.reset_docker_probe()
+    monkeypatch.setattr(sandbox_mod, "docker_available", lambda **_: True)
+
+    registry = Registry([_model("api/x")])
+    factory = await make_verified_runtime_factory(
+        registry, {"api/x": FakeProvider([])}, "api/x"
+    )
+
+    assert "run_python" in factory().available_tool_names
+
+
+async def test_explicit_subprocess_opt_in_warns_loudly(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("VOLANTE_SANDBOX", "subprocess")
+
+    registry = Registry([_model("api/x")])
+    factory = await make_verified_runtime_factory(
+        registry, {"api/x": FakeProvider([])}, "api/x"
+    )
+
+    runtime = factory()
+
+    assert "run_python" in runtime.available_tool_names
+    assert "UNISOLATED" in capsys.readouterr().err
+
+
+async def test_withheld_code_execution_is_reported_in_band(monkeypatch) -> None:
+    # stderr is invisible to an IDE MCP client and to the Web UI, so the degraded
+    # capability must ride on the RunResult itself.
+    from volante.tools import sandbox as sandbox_mod
+
+    monkeypatch.delenv("VOLANTE_SANDBOX", raising=False)
+    monkeypatch.delenv("AIORCH_SANDBOX", raising=False)
+    sandbox_mod.reset_docker_probe()
+    monkeypatch.setattr(sandbox_mod, "docker_available", lambda **_: False)
+
+    registry = Registry([_model("api/x")])
+    factory = await make_verified_runtime_factory(
+        registry, {"api/x": FakeProvider([])}, "api/x"
+    )
+
+    notice = factory().capability_notice
+    assert notice and "disabled" in notice.lower()
+    assert "VOLANTE_SANDBOX=subprocess" in notice  # actionable
+
+
+async def test_unisolated_opt_in_is_reported_in_band(monkeypatch) -> None:
+    monkeypatch.setenv("VOLANTE_SANDBOX", "subprocess")
+
+    registry = Registry([_model("api/x")])
+    factory = await make_verified_runtime_factory(
+        registry, {"api/x": FakeProvider([])}, "api/x"
+    )
+
+    notice = factory().capability_notice
+    assert notice and "UNISOLATED" in notice
+
+
+async def test_docker_sandbox_leaves_no_capability_notice(monkeypatch) -> None:
+    from volante.tools import sandbox as sandbox_mod
+
+    monkeypatch.delenv("VOLANTE_SANDBOX", raising=False)
+    monkeypatch.delenv("AIORCH_SANDBOX", raising=False)
+    sandbox_mod.reset_docker_probe()
+    monkeypatch.setattr(sandbox_mod, "docker_available", lambda **_: True)
+
+    registry = Registry([_model("api/x")])
+    factory = await make_verified_runtime_factory(
+        registry, {"api/x": FakeProvider([])}, "api/x"
+    )
+
+    assert factory().capability_notice is None

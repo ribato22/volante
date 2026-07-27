@@ -1,30 +1,30 @@
 {
-  // Shared Baton tasks. Run via: Terminal > Run Task…  (or ⌘/Ctrl+Shift+B for the default).
+  // Shared Volante tasks. Run via: Terminal > Run Task…  (or ⌘/Ctrl+Shift+B for the default).
   // These wrap the same `uv` commands documented in the README — nothing VSCode-specific
-  // is required to use Baton; this is just one-keystroke convenience inside the editor.
+  // is required to use Volante; this is just one-keystroke convenience inside the editor.
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Baton: Run goal",
+      "label": "Volante: Run goal",
       "detail": "Prompt for a goal and orchestrate it end-to-end (plan → workers → synthesis).",
       "type": "shell",
       "command": "uv",
-      "args": ["run", "baton", "${input:batonGoal}"],
+      "args": ["run", "volante", "${input:volanteGoal}"],
       "problemMatcher": [],
       "group": { "kind": "build", "isDefault": true },
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
-      "label": "Baton: Run goal (JSON output)",
+      "label": "Volante: Run goal (JSON output)",
       "detail": "Same as above but emit a machine-readable JSON RunResult.",
       "type": "shell",
       "command": "uv",
-      "args": ["run", "baton", "--json", "${input:batonGoal}"],
+      "args": ["run", "volante", "--json", "${input:volanteGoal}"],
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
-      "label": "Baton: Web UI",
+      "label": "Volante: Web UI",
       "detail": "Serve the live streaming Web UI at http://127.0.0.1:8000 (Ctrl+C to stop).",
       "type": "shell",
       "command": "uv",
@@ -34,17 +34,17 @@
       "presentation": { "reveal": "always", "panel": "dedicated" }
     },
     {
-      "label": "Baton: MCP server (stdio)",
-      "detail": "Run the Model Context Protocol server so an IDE AI agent can call baton_run.",
+      "label": "Volante: MCP server (stdio)",
+      "detail": "Run the Model Context Protocol server so an IDE AI agent can call volante_run.",
       "type": "shell",
       "command": "uv",
-      "args": ["run", "--extra", "mcp", "python", "-m", "baton_mcp"],
+      "args": ["run", "--extra", "mcp", "python", "-m", "volante_mcp"],
       "isBackground": true,
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated" }
     },
     {
-      "label": "Baton: Test",
+      "label": "Volante: Test",
       "detail": "Run the test suite (no network; integration tests skipped by default).",
       "type": "shell",
       "command": "uv",
@@ -54,7 +54,7 @@
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
-      "label": "Baton: Lint",
+      "label": "Volante: Lint",
       "detail": "Ruff lint the whole project.",
       "type": "shell",
       "command": "uv",
@@ -65,9 +65,9 @@
   ],
   "inputs": [
     {
-      "id": "batonGoal",
+      "id": "volanteGoal",
       "type": "promptString",
-      "description": "Goal for Baton to orchestrate",
+      "description": "Goal for Volante to orchestrate",
       "default": "Write a short brief about concurrency in Python"
     }
   ]

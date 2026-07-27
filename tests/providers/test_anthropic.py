@@ -4,9 +4,9 @@ import anthropic
 import httpx
 import pytest
 
-from baton.providers.anthropic import AnthropicProvider
-from baton.providers.base import ProviderError
-from baton.types import CanonicalRequest, text
+from volante.providers.anthropic import AnthropicProvider
+from volante.providers.base import ProviderError
+from volante.types import CanonicalRequest, text
 
 
 # --------------------------------------------------------------------------- #
@@ -132,6 +132,7 @@ async def test_maps_401_to_non_retryable(monkeypatch):
         await provider.complete(_req())
     assert ei.value.retryable is False
     assert ei.value.status == 401
+    assert ei.value.provider_unavailable is True
 
 
 async def test_timeout_is_retryable(monkeypatch):
@@ -226,6 +227,22 @@ async def test_429_ambiguous_plan_defaults_quota_exhausted(monkeypatch):
     assert ei.value.retryable is False
 
 
+async def test_model_not_found_is_candidate_unavailable(monkeypatch):
+    exc = _status_error_msg(
+        anthropic.NotFoundError,
+        404,
+        "The requested model does not exist or you do not have access to it.",
+    )
+    provider = _provider_with(_FakeMessages(exc=exc), monkeypatch)
+
+    with pytest.raises(ProviderError) as raised:
+        await provider.complete(_req())
+
+    assert raised.value.candidate_unavailable is True
+    assert raised.value.retryable is False
+    assert raised.value.quota_exhausted is False
+
+
 # --------------------------------------------------------------------------- #
 # PATCH: usage fallback -> estimated True, never Usage(0, 0)                   #
 # --------------------------------------------------------------------------- #
@@ -290,13 +307,18 @@ async def test_response_fields_mapped(monkeypatch):
     assert [b.text for b in out.content] == ["pong"]
 
 
-async def test_stop_reason_defaults_to_end_turn_when_missing(monkeypatch):
-    # CanonicalResponse.stop_reason is typed `str` (never None): a resp with no
-    # stop_reason (or None) at the SDK boundary must still yield a str, not None.
+@pytest.mark.parametrize(
+    "wire_reason, expected",
+    [(None, "unknown"), ("pause_turn", "pause_turn")],
+)
+async def test_incomplete_stop_reason_is_not_disguised_as_end_turn(
+    monkeypatch, wire_reason, expected
+):
     resp = _FakeResponse(content=[_FakeTextBlock("hi")], usage=_FakeUsage(1, 1), stop_reason=None)
+    resp.stop_reason = wire_reason
     provider = _provider_with(_FakeMessages(result=resp), monkeypatch)
     out = await provider.complete(_req())
-    assert out.stop_reason == "end_turn"
+    assert out.stop_reason == expected
 
 
 # --------------------------------------------------------------------------- #
@@ -314,6 +336,7 @@ async def test_timeout_forwarded_to_client(monkeypatch):
     AnthropicProvider(api_key="k", model="claude-test", timeout=45.0)
     assert captured["timeout"] == 45.0
     assert captured["api_key"] == "k"
+    assert captured["max_retries"] == 0
 
 
 async def test_default_timeout_is_120(monkeypatch):

@@ -1,11 +1,11 @@
-# Contributing to Baton
+# Contributing to Volante
 
-Thanks for your interest! Baton is a study of multi-model orchestration, so clarity and
+Thanks for your interest! Volante is a study of multi-model orchestration, so clarity and
 correctness matter more than feature count.
 
 ## Development setup
 
-Requires **Python 3.12+** and [`uv`](https://docs.astral.sh/uv/).
+Requires **Python 3.11+** and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync --dev
@@ -44,7 +44,7 @@ subject that says what and why.
 
 ## Reporting bugs
 
-Open a [GitHub issue](https://github.com/ribato22/baton/issues) with a minimal reproduction. For
+Open a [GitHub issue](https://github.com/ribato22/volante/issues) with a minimal reproduction. For
 security issues, follow [SECURITY.md](SECURITY.md) instead.
 
 ## Code of Conduct

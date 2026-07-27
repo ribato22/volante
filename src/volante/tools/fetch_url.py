@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from urllib.parse import urlparse
+
+import httpx
+
+from volante.types import ToolSpec
+
+
+class FetchUrlTool:
+    """Tool web HOST-MEDIATED: orchestrator (tepercaya) fetch URL ter-allowlist dan
+    kembalikan teks. Kanal exfil dibatasi allowlist domain (+ no-redirect + size cap
+    + timeout).
+
+    PENTING soal ancaman: pengurungan prompt-injection (kode model tak bisa
+    mengeksfiltrasi via jaringan) hanya utuh saat sandbox = DockerSandbox
+    (VOLANTE_SANDBOX=docker, `--network none`). Di sandbox subprocess default,
+    kode model punya jaringan+disk host, jadi allowlist tool ini bukan satu-satunya
+    kanal keluar — ia membatasi eksfil LEWAT tool, bukan lewat sandbox."""
+
+    name = "fetch_url"
+
+    def __init__(
+        self, allowed_domains, max_bytes: int = 100_000, timeout_s: float = 10.0
+    ) -> None:
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be positive")
+        self.allowed_domains = {d.lower() for d in allowed_domains}
+        self.max_bytes = max_bytes
+        self.timeout_s = timeout_s
+        self.spec = ToolSpec(
+            name="fetch_url",
+            description="Fetch text from an allowlisted URL (host-mediated, no redirects).",
+            input_schema={
+                "type": "object",
+                "properties": {"url": {"type": "string"}},
+                "required": ["url"],
+            },
+        )
+
+    def _allowed(self, host: str) -> bool:
+        host = host.lower()
+        return any(host == d or host.endswith("." + d) for d in self.allowed_domains)
+
+    async def _read_limited(self, chunks: AsyncIterator[bytes]) -> bytes:
+        """Read at most ``max_bytes`` without buffering the full response body."""
+        data = bytearray()
+        async for chunk in chunks:
+            remaining = self.max_bytes - len(data)
+            if remaining <= 0:
+                break
+            data.extend(chunk[:remaining])
+            if len(data) >= self.max_bytes:
+                break
+        return bytes(data)
+
+    async def run(self, args: dict) -> str:
+        url = args.get("url")
+        if not isinstance(url, str):
+            return "error: 'url' (string) argument is required"
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return f"error: unsupported scheme: {parsed.scheme!r}"
+        host = parsed.hostname or ""
+        if not self._allowed(host):
+            return f"error: domain not in allowlist: {host!r}"
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=False, timeout=self.timeout_s
+            ) as client:
+                async with client.stream("GET", url) as resp:
+                    body = await self._read_limited(resp.aiter_bytes())
+        except httpx.HTTPError as exc:
+            return f"error: fetch failed: {exc}"
+        return f"status={resp.status_code}\n{body.decode(errors='replace')}"

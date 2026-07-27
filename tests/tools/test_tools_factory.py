@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from baton.tools.factory import build_agentic_tools
+from volante.tools.factory import build_agentic_tools
 
 
 def test_default_run_python_only(tmp_path: Path) -> None:
@@ -17,3 +17,15 @@ def test_adds_fetch_url_and_read_file(tmp_path: Path) -> None:
     assert set(tools) == {"run_python", "fetch_url", "read_file"}
     assert tools["fetch_url"].name == "fetch_url"
     assert tools["read_file"].name == "read_file"
+
+
+def test_omits_run_python_when_no_sandbox_is_available(tmp_path: Path) -> None:
+    # Fail closed: with no isolation the capability is withheld entirely, so the planner
+    # is never told it can execute code and nothing runs unisolated.
+    tools = build_agentic_tools(tmp_path, sandbox_mode="unavailable")
+    assert "run_python" not in tools
+
+
+def test_builds_run_python_for_an_available_sandbox(tmp_path: Path) -> None:
+    tools = build_agentic_tools(tmp_path, sandbox_mode="subprocess")
+    assert "run_python" in tools

@@ -1,12 +1,32 @@
 from __future__ import annotations
 
-from baton.tools.fetch_url import FetchUrlTool
+from volante.tools.fetch_url import FetchUrlTool
 
 
 class _FakeResp:
-    def __init__(self, text="page-body", status=200) -> None:
-        self.text = text
+    def __init__(
+        self,
+        text="page-body",
+        status=200,
+        *,
+        chunks: list[bytes] | None = None,
+        content_length: str | None = None,
+    ) -> None:
+        self._chunks = chunks if chunks is not None else [text.encode()]
         self.status_code = status
+        self.headers = {}
+        if content_length is not None:
+            self.headers["content-length"] = content_length
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def aiter_bytes(self):
+        for chunk in self._chunks:
+            yield chunk
 
 
 class _FakeClient:
@@ -20,13 +40,15 @@ class _FakeClient:
     async def __aexit__(self, *a):
         return False
 
-    async def get(self, url):
+    def stream(self, method, url):
+        self.method = method
+        self.url = url
         return self._resp
 
 
 def _patch(monkeypatch, resp, capture):
     monkeypatch.setattr(
-        "baton.tools.fetch_url.httpx.AsyncClient",
+        "volante.tools.fetch_url.httpx.AsyncClient",
         lambda **kw: _FakeClient(resp, capture, **kw),
     )
 
@@ -62,6 +84,34 @@ async def test_missing_url_errors() -> None:
 
 
 async def test_caps_size(monkeypatch) -> None:
-    _patch(monkeypatch, _FakeResp("A" * 5000, 200), {})
+    _patch(
+        monkeypatch,
+        _FakeResp(chunks=[b"A" * 60, b"A" * 60, b"A" * 5_000], status=200),
+        {},
+    )
     out = await FetchUrlTool({"example.com"}, max_bytes=100).run({"url": "https://example.com"})
     assert out.count("A") == 100
+
+
+async def test_stream_stops_reading_after_cap(monkeypatch) -> None:
+    reads: list[int] = []
+
+    class _TrackedResp(_FakeResp):
+        async def aiter_bytes(self):
+            for index, chunk in enumerate((b"A" * 80, b"B" * 80, b"C" * 80)):
+                reads.append(index)
+                yield chunk
+
+    _patch(monkeypatch, _TrackedResp(status=200), {})
+    out = await FetchUrlTool({"example.com"}, max_bytes=100).run(
+        {"url": "https://example.com"}
+    )
+    assert out.endswith("A" * 80 + "B" * 20)
+    assert reads == [0, 1]
+
+
+def test_rejects_non_positive_size_cap() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="max_bytes"):
+        FetchUrlTool({"example.com"}, max_bytes=0)

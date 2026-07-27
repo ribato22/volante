@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from baton.providers.fake import FakeProvider
-from baton.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage, text
+from volante.providers.fake import FakeProvider
+from volante.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage, text
 
 
 def _resp(txt: str) -> CanonicalResponse:

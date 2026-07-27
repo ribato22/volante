@@ -1,16 +1,26 @@
 from __future__ import annotations
 
+import asyncio
+import os
 from pathlib import Path
 
-import baton.tools.docker_sandbox as ds
-from baton.tools.docker_sandbox import DockerSandbox
-from baton.tools.sandbox import ExecResult
+import pytest
+
+import volante.tools.docker_sandbox as ds
+from volante.tools.docker_sandbox import DockerSandbox
+from volante.tools.sandbox import ExecResult
 
 
 class _FakeProc:
     def __init__(self, out=b"container-ok\n", err=b"", rc=0) -> None:
         self._out, self._err, self.returncode = out, err, rc
         self.killed = False
+        self.stdout = asyncio.StreamReader()
+        self.stdout.feed_data(out)
+        self.stdout.feed_eof()
+        self.stderr = asyncio.StreamReader()
+        self.stderr.feed_data(err)
+        self.stderr.feed_eof()
 
     async def communicate(self):
         return self._out, self._err
@@ -44,6 +54,8 @@ async def test_run_builds_isolated_argv_and_parses_result(tmp_path: Path, monkey
     assert "--cpus" in argv and "1.5" in argv
     assert "--pids-limit" in argv and "64" in argv
     assert "--cap-drop" in argv and "ALL" in argv
+    assert "--user" in argv
+    assert argv[argv.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
     assert "--read-only" in argv
     assert argv[-2:] == ["python", "_snippet.py"]
     assert (tmp_path / "_snippet.py").read_text() == "print('x')"
@@ -54,17 +66,30 @@ class _HangProc:
 
     def __init__(self) -> None:
         self.killed = False
+        self.stdout = asyncio.StreamReader()
+        self.stderr = asyncio.StreamReader()
+        self._done = asyncio.Event()
 
     async def communicate(self):
-        import asyncio
         await asyncio.sleep(10)
         return b"", b""
 
     async def wait(self):
-        return -9
+        await self._done.wait()
+        return self.returncode
 
     def kill(self) -> None:
         self.killed = True
+        self.returncode = -9
+        self.stdout.feed_eof()
+        self.stderr.feed_eof()
+        self._done.set()
+
+
+class _FloodProc(_HangProc):
+    def __init__(self) -> None:
+        super().__init__()
+        self.stdout.feed_data(b"x" * 65_536)
 
 
 async def test_timeout_kills_container(tmp_path: Path, monkeypatch) -> None:
@@ -80,7 +105,7 @@ async def test_timeout_kills_container(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(ds, "_spawn", fake_spawn)
     res = await DockerSandbox(tmp_path, timeout_s=0.2).run("import time; time.sleep(9)")
     assert res.timed_out is True
-    assert killed.get("name", "").startswith("baton_")
+    assert killed.get("name", "").startswith("volante_")
     # A2: klien `docker run` (proc) juga dibunuh, bukan cuma container by-name.
     assert hang.killed is True
 
@@ -102,4 +127,51 @@ async def test_timeout_terminates_even_if_container_kill_is_noop(
     monkeypatch.setattr(ds, "_spawn", fake_spawn)
     res = await DockerSandbox(tmp_path, timeout_s=0.2).run("while True: pass")
     assert res.timed_out is True
+    assert hang.killed is True
+
+
+async def test_flood_output_is_bounded_and_kills_container(
+    tmp_path: Path, monkeypatch
+) -> None:
+    killed: dict[str, str] = {}
+    flood = _FloodProc()
+
+    async def fake_spawn(*args, **kwargs):
+        if args[:2] == ("docker", "kill"):
+            killed["name"] = args[2]
+            return _FakeProc()
+        return flood
+
+    monkeypatch.setattr(ds, "_spawn", fake_spawn)
+    res = await DockerSandbox(
+        tmp_path,
+        timeout_s=5.0,
+        max_output_bytes=512,
+    ).run("print('x' * 1_000_000)")
+
+    assert res.output_limited is True
+    assert res.timed_out is False
+    assert len(res.stdout.encode()) <= 512
+    assert "sandbox output truncated" in res.stdout
+    assert flood.killed is True
+    assert killed.get("name", "").startswith("volante_")
+
+
+async def test_cancellation_kills_container(tmp_path: Path, monkeypatch) -> None:
+    hang = _HangProc()
+
+    async def fake_spawn(*args, **kwargs):
+        if args[:2] == ("docker", "kill"):
+            return _FakeProc()
+        return hang
+
+    monkeypatch.setattr(ds, "_spawn", fake_spawn)
+    task = asyncio.create_task(
+        DockerSandbox(tmp_path, timeout_s=30.0).run("while True: pass")
+    )
+    await asyncio.sleep(0)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
     assert hang.killed is True
