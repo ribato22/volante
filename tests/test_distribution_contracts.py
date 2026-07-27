@@ -299,3 +299,10 @@ def test_release_verifies_pypi_serves_the_built_artifacts() -> None:
     # Only real distributions are compared: the publish action writes
     # `*.publish.attestation` sidecars into dist/, which are not PyPI files.
     assert '.whl", ".tar.gz"' in workflow
+
+
+def test_registry_description_fits_the_registry_limit() -> None:
+    # The MCP Registry rejects a server.json whose description exceeds 100 characters
+    # (422 at publish time, after PyPI has already released). Catch it in CI instead.
+    description = _json("server.json")["description"]
+    assert 0 < len(description) <= 100, f"{len(description)} characters"
