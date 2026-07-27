@@ -1,0 +1,88 @@
+name: Retire an MCP Registry entry
+
+# Marks a published server version as deprecated (or deleted, or back to active) in the
+# official MCP Registry, using the same GitHub OIDC identity that publishes it — no token
+# stored. Kept separate from publish-mcp.yml so the release path stays single-purpose.
+#
+# The case this exists for: a rename leaves the old server name published. Retiring it is
+# only safe AFTER the replacement is live, so this is deliberately manual rather than
+# chained to a release.
+#
+# Every dispatch input reaches the shell through `env:` and quoted "$VAR" expansion, never
+# through `${{ }}` interpolation inside `run:`, so an input cannot inject shell commands.
+on:
+  workflow_dispatch:
+    inputs:
+      server:
+        description: Full server name, e.g. io.github.ribato22/baton
+        required: true
+        type: string
+      version:
+        description: Server version to update, e.g. 0.2.1
+        required: true
+        type: string
+      status:
+        description: New status
+        required: true
+        default: deprecated
+        type: choice
+        options: [deprecated, deleted, active]
+      message:
+        description: Reason recorded with the change
+        required: true
+        default: Renamed; use io.github.ribato22/volante instead.
+        type: string
+
+permissions:
+  id-token: write # OIDC token for MCP Registry auth
+  contents: read
+
+jobs:
+  retire:
+    name: Update registry status
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Install mcp-publisher
+        # Same pinned version + checksum-before-execute contract as publish-mcp.yml: this
+        # job holds an OIDC token, so an unverified binary would be a supply-chain hole.
+        run: |
+          version="1.7.9"
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          expected_sha256="ab128162b0616090b47cf245afe0a23f3ef08936fdce19074f5ba0a4469281ac"
+          url="https://github.com/modelcontextprotocol/registry/releases/download/v${version}/${archive}"
+          curl --fail --location --proto '=https' --tlsv1.2 "$url" --output "$archive"
+          printf '%s  %s\n' "$expected_sha256" "$archive" | sha256sum --check --strict
+          tar --extract --gzip --file "$archive" mcp-publisher
+          chmod 0755 mcp-publisher
+          ./mcp-publisher --version
+
+      - name: Authenticate to the MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Apply the status change
+        env:
+          SERVER: ${{ inputs.server }}
+          VERSION: ${{ inputs.version }}
+          STATUS: ${{ inputs.status }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          ./mcp-publisher status \
+            --status "$STATUS" \
+            --message "$MESSAGE" \
+            "$SERVER" "$VERSION"
+
+      - name: Show the resulting registry state
+        env:
+          SERVER: ${{ inputs.server }}
+        run: |
+          owner="${SERVER%%/*}"
+          curl -sf "https://registry.modelcontextprotocol.io/v0/servers?search=${owner}" \
+            | python3 -c "
+          import json, sys
+          for entry in json.load(sys.stdin).get('servers', []):
+              server = entry.get('server', entry)
+              meta = entry.get('_meta', {}).get('io.modelcontextprotocol.registry/official', {}) or {}
+              print(f\"{server.get('name')} v{server.get('version')} status={meta.get('status')}\")
+          "
