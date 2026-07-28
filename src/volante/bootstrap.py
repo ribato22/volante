@@ -707,9 +707,12 @@ def _runtime_factory(
     # withheld rather than run with full host access (§9 fail-closed).
     from volante.tools.sandbox import resolve_sandbox_mode
 
-    # A multi-part goal legitimately needs several tool turns; the no-progress guard
-    # already stops a loop that is repeating itself, so the cap only bounds real work.
-    raw_iters = os.environ.get("VOLANTE_AGENTIC_MAX_ITERS", "12").strip()
+    # Measured, not assumed: raising this from 8 to 16 across 45 eval runs made the
+    # agentic arm WORSE — terminal failures went 35% -> 53%, and json_flatten fell from
+    # 0.70 with no failures to 0.14 with four. Given more turns the model keeps editing
+    # a working solution until it breaks it, so the cap acts as a guardrail rather than
+    # a budget. Configurable because a different model or task shape may disagree.
+    raw_iters = os.environ.get("VOLANTE_AGENTIC_MAX_ITERS", "8").strip()
     try:
         agentic_max_iters = int(raw_iters)
     except ValueError as exc:

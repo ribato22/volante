@@ -81,6 +81,13 @@ class TurnRecord:
     model_id: str
 
 
+# Two warnings before giving up. One was too few: the nudge measurably rescues runs
+# (observed live on csv_stats and json_flatten), and 17 of 24 agentic failures at
+# max_iters=16 came from aborting after a single warning rather than from the model
+# genuinely being stuck.
+_MAX_STALL_NUDGES = 2
+
+
 @dataclass
 class AgenticResult:
     final_text: str
@@ -197,7 +204,7 @@ class AgenticWorker:
         # byte-identical call and gets a byte-identical result back, forever. Track the
         # last turn's (call, result) so the loop can notice it is not moving.
         last_exchange: tuple[tuple[str, ...], tuple[str, ...]] | None = None
-        nudged = False
+        stalls = 0
         effective_budget = self._effective_char_budget(req)
         tool_spec_chars = _estimate_tool_spec_chars(specs)
 
@@ -317,14 +324,15 @@ class AgenticWorker:
                 tuple(content for _, content in raw_results),
             )
             if last_exchange == exchange:
-                if nudged:
+                stalls += 1
+                if stalls > _MAX_STALL_NUDGES:
                     raise ProviderError(
                         "agentic loop made no progress: the same tool call returned the "
-                        "same result twice after being told so. Stopping instead of "
-                        f"spending the remaining {self.max_iters - i - 1} iteration(s).",
+                        f"same result {stalls + 1} times, through {_MAX_STALL_NUDGES} "
+                        "warning(s). Stopping instead of spending the remaining "
+                        f"{self.max_iters - i - 1} iteration(s).",
                         retryable=False,
                     )
-                nudged = True
                 # One chance to recover: name the repetition explicitly, because the model
                 # cannot see that its previous turn was identical.
                 messages = messages + [
@@ -337,13 +345,16 @@ class AgenticWorker:
                                     "the exact same result. Repeating it again will not "
                                     "help. Either change your approach, or stop calling "
                                     "tools and give your final answer now."
+                                    if stalls == 1
+                                    else "This is the second time. Stop calling tools and "
+                                    "answer with your best solution as it stands."
                                 )
                             )
                         ],
                     )
                 ]
             else:
-                nudged = False
+                stalls = 0
             last_exchange = exchange
 
         raise ProviderError(

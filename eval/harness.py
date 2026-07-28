@@ -396,9 +396,9 @@ async def run_agentic_single(
     """Arm agentic-single: 1 model + loop run_python, TANPA dekomposisi. Model diminta
     menulis solution.py + tests + README di workspace; skor diambil dari file itu."""
     meter = CostMeter()
-    # 8 was too tight: three goals hit the cap while still making genuinely different
-    # calls each turn (not a livelock — the no-progress guard catches those separately).
-    worker = AgenticWorker({model_id: provider}, meter, max_iters=16)
+    # 16 was tried and measured worse than 8 (failures 35% -> 53%); the engine default
+    # is the honest choice here, so the arm reports what a user would actually get.
+    worker = AgenticWorker({model_id: provider}, meter)
     mi = registry.get(model_id)
     start = time.perf_counter()
     error: str | None = None

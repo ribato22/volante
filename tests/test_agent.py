@@ -606,3 +606,38 @@ async def test_declared_requirements_are_still_enforced() -> None:
             _req(), "m1", {"run_python": _RecordingTool()},
             required_tools=frozenset({"run_python"}),
         )
+
+
+@pytest.mark.asyncio
+async def test_a_second_nudge_is_given_before_abandoning_the_run() -> None:
+    # The nudge demonstrably rescues runs (observed live on csv_stats and json_flatten:
+    # repeat -> nudge -> correct final answer). Killing the run after a single nudge
+    # threw away that recovery: 17 of 24 agentic failures at max_iters=16 came from this
+    # guard, not from the model running out of room.
+    tool = _StuckTool()
+    provider = FakeProvider(
+        responses=[
+            _same_tool_call(),
+            _same_tool_call(),  # repeat -> first nudge
+            _same_tool_call(),  # still stuck -> second, firmer nudge
+            _resp([TextBlock(text="recovered on the second warning")], "end_turn"),
+        ]
+    )
+    worker = AgenticWorker({"m1": provider}, CostMeter(), max_iters=12)
+
+    result = await worker.run(_req(), "m1", {"run_python": tool})
+
+    assert result.final_text == "recovered on the second warning"
+
+
+@pytest.mark.asyncio
+async def test_a_model_that_ignores_every_nudge_is_still_stopped_early() -> None:
+    tool = _StuckTool()
+    provider = FakeProvider(responses=[_same_tool_call() for _ in range(20)])
+    worker = AgenticWorker({"m1": provider}, CostMeter(), max_iters=20)
+
+    with pytest.raises(_PE, match="no progress"):
+        await worker.run(_req(), "m1", {"run_python": tool})
+
+    # Bounded: a few identical calls, not the full budget.
+    assert len(tool.calls) <= 5, f"burned {len(tool.calls)} identical calls"

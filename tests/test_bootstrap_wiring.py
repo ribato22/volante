@@ -608,7 +608,7 @@ async def test_agentic_iteration_cap_is_configurable(monkeypatch) -> None:
     assert factory().agentic_worker.max_iters == 20
 
 
-async def test_agentic_iteration_cap_defaults_above_the_old_limit(monkeypatch) -> None:
+async def test_agentic_iteration_cap_default_is_the_measured_one(monkeypatch) -> None:
     monkeypatch.delenv("VOLANTE_AGENTIC_MAX_ITERS", raising=False)
 
     registry = Registry([_model("api/x")])
@@ -616,7 +616,7 @@ async def test_agentic_iteration_cap_defaults_above_the_old_limit(monkeypatch) -
         registry, {"api/x": FakeProvider([])}, "api/x"
     )
 
-    assert factory().agentic_worker.max_iters == 12
+    assert factory().agentic_worker.max_iters == 8
 
 
 @pytest.mark.parametrize("bad", ["0", "-3", "many"])
