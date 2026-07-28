@@ -127,7 +127,7 @@ async def test_run_agentic_single_success_has_no_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_agentic_single_records_model_that_skips_required_tool() -> None:
+async def test_run_agentic_single_scores_a_tool_free_answer_instead_of_failing_it() -> None:
     provider = FakeProvider(
         responses=[_resp([TextBlock(text="claimed success")], "end_turn")]
     )
@@ -139,9 +139,11 @@ async def test_run_agentic_single_records_model_that_skips_required_tool() -> No
         Registry([_model("m1")]),
     )
 
-    assert res.error is not None
-    assert "CapabilityUnavailableError" in res.error
-    assert "without invoking any configured tool" in res.error
+    # This arm OFFERS tools; it does not require them. A model that answers in one
+    # turn has done the arm's job in the cheapest way, so the answer is scored and the
+    # empty tool list is recorded — failing it measured our contract, not the model.
+    assert res.error is None
+    assert res.tools_used == ()
 
 
 def test_score_agentic_good_vs_broken() -> None:

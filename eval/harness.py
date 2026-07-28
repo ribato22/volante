@@ -369,6 +369,9 @@ class AgenticArmResult:
     # ATAU loop-exhausted/over-budget). Membedakan "arm gagal dijalankan" dari
     # "solusi benar-benar buruk (0.0)"; disurface ke report agar verdict tak bias.
     error: str | None = None
+    # Tool names the loop actually invoked. Empty means the model answered without
+    # touching a tool — legitimate here, but worth seeing next to the score.
+    tools_used: tuple[str, ...] = ()
 
 
 def _scan_workspace(ws: Path) -> tuple[bool, bool]:
@@ -408,15 +411,21 @@ async def run_agentic_single(
             task_id="agentic",
         )
         try:
-            res = await worker.run(req, model_id, tools)
+            # Tools are OFFERED here, not required: this arm measures what one model
+            # achieves with a tool loop available. A model that solves the goal in a
+            # single turn without tools has done the arm's job in the cheapest possible
+            # way; scoring that as a terminal 0.0 measured our contract, not the model.
+            res = await worker.run(req, model_id, tools, required_tools=frozenset())
             final_text = res.final_text
             usage_total = res.usage_total
+            tools_used = res.tools_used
         except (ProviderError, CapabilityUnavailableError) as exc:
             # Jangan telan diam-diam: catat sebab. Solusi di disk (bila model sempat
             # menulisnya sebelum gagal) tetap dinilai; kalau tak ada, error yang
             # disurface membedakan kegagalan arm dari solusi 0.0 sungguhan.
             final_text = ""
             usage_total = meter.totals()
+            tools_used = ()
             error = f"{type(exc).__name__}: {exc}"
         sol = ws / "solution.py"
         if sol.exists():
@@ -433,6 +442,7 @@ async def run_agentic_single(
         cost_usd=meter.cost_usd(registry),
         duration_ms=duration_ms,
         error=error,
+        tools_used=tuple(tools_used),
     )
 
 

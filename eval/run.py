@@ -107,7 +107,18 @@ async def main(argv: list[str] | None = None) -> None:
             "back to the run that produced it"
         ),
     )
+    parser.add_argument(
+        "--k",
+        type=int,
+        default=EVAL_K,
+        help=(
+            f"runs per goal per arm (default {EVAL_K}). A small k cannot separate a real "
+            "difference from run-to-run noise; raise it before believing a narrow result"
+        ),
+    )
     args = parser.parse_args(argv)
+    if args.k < 1:
+        raise SystemExit("--k must be at least 1")
 
     # The agentic arm executes model-written code, so the suite cannot run without a
     # sandbox. Check BEFORE any provider call: failing here costs nothing, while failing
@@ -121,7 +132,7 @@ async def main(argv: list[str] | None = None) -> None:
     registry, providers, model_id = build_providers_from_env()
     make_runtime = make_runtime_factory(registry, providers, model_id)
     result = await run_suite(
-        EVAL_SUITE, make_runtime, providers[model_id], model_id, registry
+        EVAL_SUITE, make_runtime, providers[model_id], model_id, registry, k=args.k
     )
     print(format_report(result))
     if args.json:
@@ -133,7 +144,7 @@ async def main(argv: list[str] | None = None) -> None:
             "volante_version": __version__,
             "planner_model_id": model_id,
             "inventory": sorted(m.id for m in registry.all()),
-            "k": EVAL_K,
+            "k": args.k,
             "suite": [t.id for t in EVAL_SUITE],
             "result": result,
         }

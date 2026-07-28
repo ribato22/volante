@@ -237,7 +237,12 @@ class AgenticWorker:
                         "agentic model completed without invoking required tools: "
                         f"{sorted(missing)}"
                     )
-                if known_tool_calls == 0:
+                # Offering tools is not the same as requiring them. A caller that
+                # declares its requirements — even as an empty set — has said what it
+                # needs, so a model that solves the task in one turn is judged on its
+                # answer. Only a caller that declared NOTHING gets the strict reading,
+                # where an agentic turn that never touched a tool is unverified work.
+                if known_tool_calls == 0 and required_tools is None:
                     raise CapabilityUnavailableError(
                         "agentic model completed without invoking any configured tool"
                     )

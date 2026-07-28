@@ -567,3 +567,42 @@ async def test_genuine_progress_is_never_mistaken_for_a_stall() -> None:
 
     assert result.final_text == "all good"
     assert len(tool.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_no_tool_call_still_fails_when_the_caller_said_nothing() -> None:
+    # Unchanged default: a caller that did not declare its requirements gets the strict
+    # reading — an "agentic" turn that never touched a tool is treated as unverified.
+    provider = FakeProvider(responses=[_resp([TextBlock(text="claimed success")], "end_turn")])
+    worker = AgenticWorker({"m1": provider}, CostMeter())
+
+    with pytest.raises(CapabilityUnavailableError, match="without invoking any configured tool"):
+        await worker.run(_req(), "m1", {"run_python": _RecordingTool()})
+
+
+@pytest.mark.asyncio
+async def test_an_empty_requirement_set_permits_a_tool_free_answer() -> None:
+    # Offering tools is not the same as requiring them. A caller can now say so
+    # explicitly, so a model that solves the task in one turn is judged on its answer
+    # instead of being failed for being efficient.
+    provider = FakeProvider(responses=[_resp([TextBlock(text="solved it directly")], "end_turn")])
+    worker = AgenticWorker({"m1": provider}, CostMeter())
+
+    result = await worker.run(
+        _req(), "m1", {"run_python": _RecordingTool()}, required_tools=frozenset()
+    )
+
+    assert result.final_text == "solved it directly"
+    assert result.tools_used == ()
+
+
+@pytest.mark.asyncio
+async def test_declared_requirements_are_still_enforced() -> None:
+    provider = FakeProvider(responses=[_resp([TextBlock(text="claimed success")], "end_turn")])
+    worker = AgenticWorker({"m1": provider}, CostMeter())
+
+    with pytest.raises(CapabilityUnavailableError, match="required tools"):
+        await worker.run(
+            _req(), "m1", {"run_python": _RecordingTool()},
+            required_tools=frozenset({"run_python"}),
+        )

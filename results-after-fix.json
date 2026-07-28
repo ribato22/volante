@@ -1,0 +1,382 @@
+{
+  "generated_at": "2026-07-28T02:03:30+00:00",
+  "inventory": [
+    "openai/gpt-4o-mini"
+  ],
+  "k": 2,
+  "planner_model_id": "openai/gpt-4o-mini",
+  "result": {
+    "aggregate": {
+      "agentic_errors": 5,
+      "any_estimated": false,
+      "cost_total": {
+        "agentic": 0.0447081,
+        "baseline": 0.008570699999999999,
+        "orchestration": 0.06612585
+      },
+      "ties": 0,
+      "unmeasured_goals": [],
+      "verdict": "baseline",
+      "wins": {
+        "agentic": 0,
+        "baseline": 6,
+        "orchestration": 1
+      }
+    },
+    "per_goal": [
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.35,
+            "cost": 0.0053103,
+            "error_sample": "ProviderError: agentic loop exhausted after 8 iters",
+            "errors": 1,
+            "estimated": false,
+            "measured": true,
+            "ms": 34082
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.0009071999999999999,
+            "estimated": false,
+            "measured": true,
+            "ms": 8188
+          },
+          "orchestration": {
+            "composite": 1.0,
+            "cost": 0.009079049999999998,
+            "estimated": false,
+            "measured": true,
+            "ms": 58934
+          }
+        },
+        "id": "slugify",
+        "scores": {
+          "agentic": {
+            "code": 0.5,
+            "composite": 0.35,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          }
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.7,
+            "cost": 0.0084381,
+            "error_sample": null,
+            "errors": 0,
+            "estimated": false,
+            "measured": true,
+            "ms": 45044
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.0013616999999999998,
+            "estimated": false,
+            "measured": true,
+            "ms": 11990
+          },
+          "orchestration": {
+            "composite": 1.0,
+            "cost": 0.007720199999999999,
+            "estimated": false,
+            "measured": true,
+            "ms": 37874
+          }
+        },
+        "id": "roman",
+        "scores": {
+          "agentic": {
+            "code": 1.0,
+            "composite": 0.7,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          }
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.0,
+            "cost": 0.0063,
+            "error_sample": "ProviderError: agentic loop made no progress: the same tool call returned the same result twice after being told so. Stopping instead of spending the remaining 4 iteration(s).",
+            "errors": 2,
+            "estimated": false,
+            "measured": true,
+            "ms": 42626
+          },
+          "baseline": {
+            "composite": 0.9416666666666667,
+            "cost": 0.0013982999999999999,
+            "estimated": false,
+            "measured": true,
+            "ms": 10262
+          },
+          "orchestration": {
+            "composite": 1.0,
+            "cost": 0.013783949999999998,
+            "estimated": false,
+            "measured": true,
+            "ms": 76022
+          }
+        },
+        "id": "calc",
+        "scores": {
+          "agentic": {
+            "code": 0.0,
+            "composite": 0.0,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 0.9166666666666666,
+            "composite": 0.9416666666666667,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          }
+        },
+        "winner": "orchestration"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.5,
+            "cost": 0.00692715,
+            "error_sample": null,
+            "errors": 0,
+            "estimated": false,
+            "measured": true,
+            "ms": 39178
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.0014133000000000001,
+            "estimated": false,
+            "measured": true,
+            "ms": 12264
+          },
+          "orchestration": {
+            "composite": 1.0,
+            "cost": 0.010682099999999998,
+            "estimated": false,
+            "measured": true,
+            "ms": 73462
+          }
+        },
+        "id": "csv_stats",
+        "scores": {
+          "agentic": {
+            "code": 0.5,
+            "composite": 0.5,
+            "has_readme": 0.5,
+            "has_tests": 0.5
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          }
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.7,
+            "cost": 0.0045893999999999996,
+            "error_sample": null,
+            "errors": 0,
+            "estimated": false,
+            "measured": true,
+            "ms": 25258
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.0009248999999999998,
+            "estimated": false,
+            "measured": true,
+            "ms": 8234
+          },
+          "orchestration": {
+            "composite": 1.0,
+            "cost": 0.00927945,
+            "estimated": false,
+            "measured": true,
+            "ms": 57468
+          }
+        },
+        "id": "json_flatten",
+        "scores": {
+          "agentic": {
+            "code": 1.0,
+            "composite": 0.7,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          }
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.35,
+            "cost": 0.009483899999999998,
+            "error_sample": "ProviderError: agentic loop exhausted after 8 iters",
+            "errors": 1,
+            "estimated": false,
+            "measured": true,
+            "ms": 47910
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.0012263999999999999,
+            "estimated": false,
+            "measured": true,
+            "ms": 10776
+          },
+          "orchestration": {
+            "composite": 1.0,
+            "cost": 0.007809749999999999,
+            "estimated": false,
+            "measured": true,
+            "ms": 40434
+          }
+        },
+        "id": "textkit",
+        "scores": {
+          "agentic": {
+            "code": 0.5,
+            "composite": 0.35,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          }
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.5,
+            "cost": 0.0036592499999999997,
+            "error_sample": "ProviderError: agentic loop made no progress: the same tool call returned the same result twice after being told so. Stopping instead of spending the remaining 5 iteration(s).",
+            "errors": 1,
+            "estimated": false,
+            "measured": true,
+            "ms": 33654
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.0013388999999999999,
+            "estimated": false,
+            "measured": true,
+            "ms": 12692
+          },
+          "orchestration": {
+            "composite": 1.0,
+            "cost": 0.007771349999999999,
+            "estimated": false,
+            "measured": true,
+            "ms": 49344
+          }
+        },
+        "id": "ledger",
+        "scores": {
+          "agentic": {
+            "code": 0.5,
+            "composite": 0.5,
+            "has_readme": 0.5,
+            "has_tests": 0.5
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          }
+        },
+        "winner": "baseline"
+      }
+    ]
+  },
+  "suite": [
+    "slugify",
+    "roman",
+    "calc",
+    "csv_stats",
+    "json_flatten",
+    "textkit",
+    "ledger"
+  ],
+  "volante_version": "0.3.0"
+}
