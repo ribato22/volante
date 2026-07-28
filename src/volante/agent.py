@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -192,6 +193,11 @@ class AgenticWorker:
         turns: list[TurnRecord] = []
         known_tool_calls = 0
         used_tool_names: set[str] = set()
+        # A temperature-0 model that keeps "fixing" a bug the same way re-sends a
+        # byte-identical call and gets a byte-identical result back, forever. Track the
+        # last turn's (call, result) so the loop can notice it is not moving.
+        last_exchange: tuple[tuple[str, ...], tuple[str, ...]] | None = None
+        nudged = False
         effective_budget = self._effective_char_budget(req)
         tool_spec_chars = _estimate_tool_spec_chars(specs)
 
@@ -294,6 +300,46 @@ class AgenticWorker:
                 assistant_message,
                 CanonicalMessage(role="user", content=results),
             ]
+
+            # No-progress guard. Repeating an identical call for an identical result buys
+            # nothing and costs a full model call each turn; observed live burning every
+            # remaining iteration before failing with an unhelpful "exhausted".
+            exchange = (
+                tuple(
+                    f"{b.name}:{json.dumps(b.input, sort_keys=True, default=str)}"
+                    for b in tool_uses
+                ),
+                tuple(content for _, content in raw_results),
+            )
+            if last_exchange == exchange:
+                if nudged:
+                    raise ProviderError(
+                        "agentic loop made no progress: the same tool call returned the "
+                        "same result twice after being told so. Stopping instead of "
+                        f"spending the remaining {self.max_iters - i - 1} iteration(s).",
+                        retryable=False,
+                    )
+                nudged = True
+                # One chance to recover: name the repetition explicitly, because the model
+                # cannot see that its previous turn was identical.
+                messages = messages + [
+                    CanonicalMessage(
+                        role="user",
+                        content=[
+                            TextBlock(
+                                text=(
+                                    "You just repeated the exact same tool call and got "
+                                    "the exact same result. Repeating it again will not "
+                                    "help. Either change your approach, or stop calling "
+                                    "tools and give your final answer now."
+                                )
+                            )
+                        ],
+                    )
+                ]
+            else:
+                nudged = False
+            last_exchange = exchange
 
         raise ProviderError(
             f"agentic loop exhausted after {self.max_iters} iters", retryable=False

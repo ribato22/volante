@@ -226,12 +226,23 @@ async def test_input_messages_not_mutated() -> None:
 
 
 class _AlwaysToolUse:
-    """Provider yang selalu minta tool → memaksa loop mentok max_iters."""
+    """Provider yang selalu minta tool → memaksa loop mentok max_iters.
+
+    Tiap panggilan BERBEDA supaya yang diuji benar-benar batas iterasi, bukan guard
+    no-progress (yang menangkap pengulangan identik lebih dulu — lihat
+    test_repeating_the_same_tool_call_is_nudged_once_then_abandoned)."""
 
     name = "loopy"
 
+    def __init__(self) -> None:
+        self.n = 0
+
     async def complete(self, req):
-        return _resp([ToolUseBlock(id="u", name="run_python", input={"code": "1"})], "tool_use")
+        self.n += 1
+        return _resp(
+            [ToolUseBlock(id=f"u{self.n}", name="run_python", input={"code": str(self.n)})],
+            "tool_use",
+        )
 
 
 class _Flaky:
@@ -480,3 +491,79 @@ async def test_agentic_tool_results_are_trimmed_to_selected_model_context() -> N
         for block in message.content
     )
     assert total <= 272
+
+
+class _StuckTool:
+    """Always returns the same failure — the shape that triggers a deterministic livelock."""
+
+    name = "run_python"
+    spec = ToolSpec(name="run_python", description="x", input_schema={"type": "object"})
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def run(self, args: dict) -> str:
+        self.calls.append(args)
+        return "exit=1\nstdout:\nstderr:\nAssertionError"
+
+
+def _same_tool_call() -> CanonicalResponse:
+    # Byte-identical every turn: what a temperature-0 model does when it keeps
+    # "fixing" a bug the same way and getting the same error back.
+    return _resp(
+        [ToolUseBlock(id="u1", name="run_python", input={"code": "assert broken()"})],
+        "tool_use",
+    )
+
+
+@pytest.mark.asyncio
+async def test_repeating_the_same_tool_call_is_nudged_once_then_abandoned() -> None:
+    # Observed live with gpt-4o-mini: from turn 3 on it re-sent a byte-identical call and
+    # got a byte-identical error, burning every remaining iteration before failing with a
+    # generic "exhausted". The loop must notice it is making no progress.
+    tool = _StuckTool()
+    provider = FakeProvider(responses=[_same_tool_call() for _ in range(12)])
+    worker = AgenticWorker({"m1": provider}, CostMeter(), max_iters=12)
+
+    with pytest.raises(_PE, match="no progress"):
+        await worker.run(_req(), "m1", {"run_python": tool})
+
+    # Stops well before max_iters instead of paying for identical calls.
+    assert len(tool.calls) <= 4, f"burned {len(tool.calls)} identical calls"
+
+
+@pytest.mark.asyncio
+async def test_a_nudged_model_that_changes_course_still_succeeds() -> None:
+    # The nudge is a chance to recover, not just a kill switch.
+    tool = _StuckTool()
+    provider = FakeProvider(
+        responses=[
+            _same_tool_call(),
+            _same_tool_call(),  # repeat -> nudge
+            _resp([TextBlock(text="different approach, done")], "end_turn"),
+        ]
+    )
+    worker = AgenticWorker({"m1": provider}, CostMeter(), max_iters=8)
+
+    result = await worker.run(_req(), "m1", {"run_python": tool})
+
+    assert result.final_text == "different approach, done"
+
+
+@pytest.mark.asyncio
+async def test_genuine_progress_is_never_mistaken_for_a_stall() -> None:
+    tool = _RecordingTool()
+    provider = FakeProvider(
+        responses=[
+            _resp([ToolUseBlock(id="u1", name="run_python", input={"code": "step1"})], "tool_use"),
+            _resp([ToolUseBlock(id="u2", name="run_python", input={"code": "step2"})], "tool_use"),
+            _resp([ToolUseBlock(id="u3", name="run_python", input={"code": "step3"})], "tool_use"),
+            _resp([TextBlock(text="all good")], "end_turn"),
+        ]
+    )
+    worker = AgenticWorker({"m1": provider}, CostMeter(), max_iters=8)
+
+    result = await worker.run(_req(), "m1", {"run_python": tool})
+
+    assert result.final_text == "all good"
+    assert len(tool.calls) == 3
