@@ -707,6 +707,18 @@ def _runtime_factory(
     # withheld rather than run with full host access (§9 fail-closed).
     from volante.tools.sandbox import resolve_sandbox_mode
 
+    # A multi-part goal legitimately needs several tool turns; the no-progress guard
+    # already stops a loop that is repeating itself, so the cap only bounds real work.
+    raw_iters = os.environ.get("VOLANTE_AGENTIC_MAX_ITERS", "12").strip()
+    try:
+        agentic_max_iters = int(raw_iters)
+    except ValueError as exc:
+        raise ValueError(
+            "VOLANTE_AGENTIC_MAX_ITERS must be a positive integer"
+        ) from exc
+    if agentic_max_iters < 1:
+        raise ValueError("VOLANTE_AGENTIC_MAX_ITERS must be a positive integer")
+
     sandbox_mode, sandbox_reason = resolve_sandbox_mode()
     available_tool_names: set[str] = set()
     # The notice travels WITH the result (RunResult.capability_notice), because an IDE
@@ -773,7 +785,7 @@ def _runtime_factory(
             synthesizer=Synthesizer(providers[planner_id], planner_id, cost_meter),
             registry=registry,
             cost_meter=cost_meter,
-            agentic_worker=AgenticWorker(providers, cost_meter),
+            agentic_worker=AgenticWorker(providers, cost_meter, max_iters=agentic_max_iters),
             initial_subscription_calls=initial_subscription_calls,
             tools_factory=make_tools,
             available_tool_names=available_tool_names,

@@ -25,6 +25,7 @@ _PREFIX = "VOLANTE_"
 # absorbed into Volante's configuration.
 LEGACY_SETTINGS: frozenset[str] = frozenset(
     {
+        "AGENTIC_MAX_ITERS",
         "CLI_AGENT_DEPTH",
         "CLI_AGENT_PASSTHROUGH",
         "FETCH_ALLOWLIST",

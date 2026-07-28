@@ -660,3 +660,92 @@ sys.exit(0)
 '''
 
 EVAL_SUITE.append(EvalTask("toolbelt", TOOLBELT_GOAL, TOOLBELT_REFERENCE_TEST))
+
+
+# --- Goal yang menguntungkan eksekusi ------------------------------------------
+# `toolbelt` gagal memecah efek langit-langit: menaikkan KELUASAN tak menekan model
+# yang punya 8k token output. Yang membedakan bukan banyaknya bagian, melainkan
+# apakah jawabannya bisa DIKETAHUI tanpa menjalankan kode. Goal ini memberi
+# implementasi yang sudah ditanami bug halus: membacanya sekali biasanya menemukan
+# sebagian, menjalankannya menemukan semuanya. Arm baseline tak punya tool, jadi ia
+# harus bernalar statis — asimetri itulah yang menguji apakah tool benar-benar menolong.
+
+DEBUG_GAUNTLET_GOAL = (
+    'The function below is supposed to satisfy the specification, but it contains '
+    'several bugs. Rewrite it CORRECTLY in solution.py, keeping the name '
+    'session_minutes and the same signature.\n\n'
+    'SPECIFICATION. session_minutes(rows: list[tuple[str, str, str]]) -> dict[str, int] '
+    'takes rows of (user, start, end) where start and end are "HH:MM" 24-hour times. '
+    'For each row, compute the session length in whole minutes: if end is later than '
+    'start, that is simply end - start; if end is EARLIER than or equal to start, the '
+    'session crossed midnight and lasts until that time on the next day (add 24 hours). '
+    'Sum the minutes per user and return a dict mapping user to total minutes. A user '
+    'whose rows sum to zero minutes must still appear. Rows whose user name is empty '
+    'or whitespace-only must be ignored entirely.\n\n'
+    'BUGGY IMPLEMENTATION:\n'
+    'def session_minutes(rows):\n'
+    '    totals = {}\n'
+    '    for user, start, end in rows:\n'
+    '        if not user:\n'
+    '            continue\n'
+    '        sh, sm = start.split(":")\n'
+    '        eh, em = end.split(":")\n'
+    '        begin = int(sh) * 60 + int(sm)\n'
+    '        finish = int(eh) + int(em)\n'
+    '        if finish < begin:\n'
+    '            continue\n'
+    '        totals[user] = totals.get(user, 0) + (finish - begin)\n'
+    '    return totals\n\n'
+    'Also add a pytest test module (functions named test_*) covering the specification '
+    'including the midnight-crossing case, and a short README.'
+)
+
+DEBUG_GAUNTLET_REFERENCE_TEST: str = '''\
+from __future__ import annotations
+
+import json
+import sys
+
+CASES = [
+    # dasar
+    ([("a", "09:00", "10:30")], {"a": 90}),
+    # melewati tengah malam (end < start) -> tambah 24 jam
+    ([("a", "23:00", "01:00")], {"a": 120}),
+    # end == start -> sesi penuh 24 jam, bukan nol
+    ([("a", "08:00", "08:00")], {"a": 1440}),
+    # menit ikut dihitung (bug: int(eh) + int(em))
+    ([("a", "00:00", "00:45")], {"a": 45}),
+    # penjumlahan per user
+    ([("a", "01:00", "02:00"), ("a", "03:00", "03:30")], {"a": 90}),
+    # beberapa user
+    ([("a", "01:00", "02:00"), ("b", "05:00", "06:00")], {"a": 60, "b": 60}),
+    # nama kosong / spasi diabaikan
+    ([("", "01:00", "02:00"), ("   ", "01:00", "02:00"), ("a", "01:00", "02:00")], {"a": 60}),
+    # tak ada baris
+    ([], {}),
+    # campuran tengah malam + biasa
+    ([("a", "22:30", "00:30"), ("a", "10:00", "10:15")], {"a": 135}),
+    # jam dua digit dengan menit nol di depan
+    ([("a", "09:05", "09:07")], {"a": 2}),
+]
+
+
+def main() -> None:
+    total = len(CASES)
+    passed = 0
+    for rows, expected in CASES:
+        try:
+            if call_solution("session_minutes", rows) == expected:
+                passed += 1
+        except Exception:
+            pass
+    print(_TAG + json.dumps({"passed": passed, "total": total}))
+
+
+main()
+sys.exit(0)
+'''
+
+EVAL_SUITE.append(
+    EvalTask("debug_gauntlet", DEBUG_GAUNTLET_GOAL, DEBUG_GAUNTLET_REFERENCE_TEST)
+)

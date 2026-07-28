@@ -567,3 +567,41 @@ def run_length_encode(s):
 '''
 
 FIXTURES["toolbelt"] = (TOOLBELT_GOOD, TOOLBELT_BROKEN)
+
+
+DEBUG_GAUNTLET_GOOD = '''\
+def session_minutes(rows):
+    totals = {}
+    for user, start, end in rows:
+        if not user.strip():
+            continue
+        start_h, start_m = start.split(":")
+        end_h, end_m = end.split(":")
+        begin = int(start_h) * 60 + int(start_m)
+        finish = int(end_h) * 60 + int(end_m)
+        if finish <= begin:
+            finish += 24 * 60
+        totals[user] = totals.get(user, 0) + (finish - begin)
+    return totals
+'''
+
+# The buggy implementation handed to the model in the goal itself: minutes added to
+# hours instead of scaled, midnight crossings skipped, whitespace names kept. Copying
+# it without finding the bugs must score well below 1.0 (measured: 0.2).
+DEBUG_GAUNTLET_BROKEN = '''\
+def session_minutes(rows):
+    totals = {}
+    for user, start, end in rows:
+        if not user:
+            continue
+        start_h, start_m = start.split(":")
+        end_h, end_m = end.split(":")
+        begin = int(start_h) * 60 + int(start_m)
+        finish = int(end_h) + int(end_m)
+        if finish < begin:
+            continue
+        totals[user] = totals.get(user, 0) + (finish - begin)
+    return totals
+'''
+
+FIXTURES["debug_gauntlet"] = (DEBUG_GAUNTLET_GOOD, DEBUG_GAUNTLET_BROKEN)

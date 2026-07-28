@@ -592,3 +592,39 @@ async def test_docker_sandbox_leaves_no_capability_notice(monkeypatch) -> None:
     )
 
     assert factory().capability_notice is None
+
+
+async def test_agentic_iteration_cap_is_configurable(monkeypatch) -> None:
+    # Three eval goals hit the old cap of 8 while still making genuinely different calls
+    # each turn. The cap has to be tunable, because it bounds real work — a loop that is
+    # merely repeating itself is stopped by the no-progress guard, not by this number.
+    monkeypatch.setenv("VOLANTE_AGENTIC_MAX_ITERS", "20")
+
+    registry = Registry([_model("api/x")])
+    factory = await make_verified_runtime_factory(
+        registry, {"api/x": FakeProvider([])}, "api/x"
+    )
+
+    assert factory().agentic_worker.max_iters == 20
+
+
+async def test_agentic_iteration_cap_defaults_above_the_old_limit(monkeypatch) -> None:
+    monkeypatch.delenv("VOLANTE_AGENTIC_MAX_ITERS", raising=False)
+
+    registry = Registry([_model("api/x")])
+    factory = await make_verified_runtime_factory(
+        registry, {"api/x": FakeProvider([])}, "api/x"
+    )
+
+    assert factory().agentic_worker.max_iters == 12
+
+
+@pytest.mark.parametrize("bad", ["0", "-3", "many"])
+async def test_an_unusable_iteration_cap_fails_fast(monkeypatch, bad: str) -> None:
+    monkeypatch.setenv("VOLANTE_AGENTIC_MAX_ITERS", bad)
+
+    registry = Registry([_model("api/x")])
+    with pytest.raises(ValueError, match="VOLANTE_AGENTIC_MAX_ITERS"):
+        await make_verified_runtime_factory(
+            registry, {"api/x": FakeProvider([])}, "api/x"
+        )
