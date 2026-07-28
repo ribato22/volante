@@ -710,9 +710,11 @@ class Runtime:
             for candidate_index, model_id in enumerate(model_ids):
                 last_model = model_id
                 # RE-PROYEKSI WAJIB per kandidat: req lama ter-scope ke
-                # context_window/max_output model sebelumnya -> overflow di model
-                # lebih kecil (opus 200k -> kimi 128k -> llama 8k). Proyeksi ulang
-                # menjaga budget input & req.max_tokens benar untuk kandidat ini.
+                # context_window/max_output model sebelumnya, dan langkah reroute
+                # bisa mendarat di model dengan jendela jauh lebih kecil (tier 4 ke
+                # model lokal turun beberapa orde). Proyeksi ulang menjaga budget
+                # input & req.max_tokens benar untuk kandidat ini.
+                # Sengaja tanpa angka: angka model berubah, komentar tidak.
                 req = self.projector.project(task, model_id, bb)
                 req.run_id = run_id
                 req.task_id = task.id
@@ -872,8 +874,8 @@ class Runtime:
         async with sem:
             for candidate_index, model_id in enumerate(model_ids):
                 # RE-PROJEKSI WAJIB per kandidat: context_window/max_output berbeda
-                # antar-model (opus 200k -> kimi 128k -> llama 8k); req kandidat lama
-                # akan overflow di model lebih kecil bila tak diproyeksi ulang.
+                # antar-model, dan bisa berbeda beberapa orde; req kandidat lama akan
+                # overflow di model lebih kecil bila tak diproyeksi ulang.
                 req = self.projector.project(task, model_id, bb)
                 req.run_id = run_id
                 req.task_id = task.id

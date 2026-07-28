@@ -116,7 +116,9 @@ startCommand:
 
         MOONSHOT_API_KEY: config.moonshotApiKey ?? '',
         MOONSHOT_BASE_URL: config.moonshotBaseUrl ?? '',
-        MOONSHOT_MODELS: config.moonshotModels ?? 'kimi-k2-0711-preview',
+        # No default here on purpose: bootstrap owns it, so a retired wire id
+        # cannot outlive the fix in exactly one distribution surface.
+        ...(config.moonshotModels ? { MOONSHOT_MODELS: config.moonshotModels } : {}),
         ...(config.moonshotNames ? { MOONSHOT_NAMES: config.moonshotNames } : {}),
         MOONSHOT_STRENGTHS: config.moonshotStrengths ?? '',
         MOONSHOT_CONTEXT: String(config.moonshotContext ?? ''),

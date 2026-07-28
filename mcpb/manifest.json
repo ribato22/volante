@@ -127,7 +127,7 @@
 
     "moonshot_api_key": { "type": "string", "title": "Moonshot API key", "description": "Moonshot/Kimi API key.", "sensitive": true, "required": false },
     "moonshot_base_url": { "type": "string", "title": "Moonshot base URL", "description": "Optional OpenAI-compatible Moonshot endpoint.", "default": "https://api.moonshot.ai/v1", "required": false },
-    "moonshot_models": { "type": "string", "title": "Moonshot models", "description": "Comma-separated wire model ids.", "default": "kimi-k2-0711-preview", "required": false },
+    "moonshot_models": { "type": "string", "title": "Moonshot models", "description": "Comma-separated wire model ids. Leave blank to use the current default.", "required": false },
     "moonshot_names": { "type": "string", "title": "Moonshot canonical names", "description": "Optional comma-separated canonical ids.", "required": false },
     "moonshot_strengths": { "type": "string", "title": "Moonshot strengths", "description": "Shared comma-separated strengths.", "required": false },
     "moonshot_context": { "type": "string", "title": "Moonshot context window", "description": "Shared context-window tokens.", "required": false },

@@ -174,37 +174,54 @@ the join gathers all.
 cost: $0.001834
 ```
 
-`demo.py eval` prints the 3-arm table (`format_report`); read the `VERDICT` with the warnings
-(illustrative numbers):
+`demo.py eval` prints the 3-arm table (`format_report`). Here is what it actually printed on the
+last full run — **orchestration lost**:
 
 ```text
-GOAL          WINNER            BASE   ORCH   AGEN
--------------------------------------------------
-slugify       —                 0.xx   0.xx   0.xx
-roman         —                 0.xx   0.xx   0.xx
-calc          —                 0.xx   0.xx   0.xx
-csv_stats     —                 0.xx   0.xx   0.xx
-json_flatten  —                 0.xx   0.xx   0.xx
--------------------------------------------------
-wins: baseline=?  orchestration=?  agentic=?  ties=?
-totals: baseline $?  orchestration $?  agentic $?
-VERDICT: (whatever your models actually produce)
+GOAL            WINNER          BASE   ORCH   AGEN
+--------------------------------------------------
+slugify         baseline        1.00   1.00   0.48
+roman           baseline        1.00   0.80   0.70
+calc            baseline        0.99   0.86   0.27
+csv_stats       baseline        1.00   0.84   0.88
+json_flatten    baseline        1.00   0.80   0.70
+textkit         baseline        1.00   1.00   0.42
+ledger          baseline        1.00   1.00   0.88
+toolbelt        baseline        1.00   1.00   0.70
+debug_gauntlet  orchestration   0.93   0.97   0.63
+--------------------------------------------------
+wins: baseline=8  orchestration=1  agentic=0  ties=0
+totals: baseline $0.029908  orchestration $0.218879  agentic $0.135432
+VERDICT: BASELINE
 ```
 
-Run it yourself — it needs your keys and **spends real money** (7 goals × 3 arms × k runs):
+`openai/gpt-4o-mini`, 9 goals x 3 arms x k=5 = 135 real runs against a Docker sandbox.
+Orchestration cost **7.3x** baseline and took **4.7x** as long, and tied or lost everywhere but one
+goal. Those numbers were read from `results-nudge2.json`, the self-describing artifact the run
+writes (models, k, per-goal scores, costs).
+
+Reproduce it — this needs your keys and **spends real money**:
 
 ```bash
-uv run python -m eval.run --json results.json   # artifact records models, k, per-goal scores, costs
+uv run python -m eval.run --k 5 --json results.json
 ```
 
-**Those are placeholders, not results.** Volante publishes no benchmark numbers, and this table is
-only the output *format*. The five original goals are single-function katas, which decomposition cannot
-plausibly improve — orchestration pays a mandatory planning + synthesis call on top of the work, so
-on tasks that small it should be expected to lose on cost and latency. Two goals (`textkit`,
-`ledger`) are deliberately multi-part — three separable components each, one set independent and one
-with internal dependencies — because fan-out can only pay off when there is something to fan out. Whether orchestration beats one strong model on realistic, genuinely
-multi-part work is **an open question in this project, not a settled claim.** Run it against your own
-models and task distribution before believing either answer.
+**Read that verdict with its limits, because they are large.** Baseline scored a perfect 1.00 on 7
+of the 9 goals, so on most of this suite there was no headroom to win at all: what the run
+establishes is *"orchestration does not help on tasks one model already solves in a single turn"* —
+much narrower than the claim the idea rests on. The one orchestration win, `debug_gauntlet`, is the
+one goal written so the answer is easier to find by **running** code than by reading it, and its
+margin is 0.04 on a single goal at k=5 — directional, not proof. The agentic arm still failed 3 of
+its 45 runs. All of it is one model on one class of small coding tasks; whether orchestration pays
+off for a stronger model, a larger task, or work that genuinely exceeds one context window is
+**unmeasured, and this project does not claim it.**
+
+The benchmark's most useful output so far was not the score. It found three real engine bugs — a
+deterministic livelock in the agentic loop, an eval arm that failed a model for answering correctly
+without calling a tool, and a stall guard that gave up after one warning when a second one recovers
+the run — and fixing those took agentic terminal failures from 79% to 7%. It also refuted two of
+the author's own hypotheses (that a wider goal would break the ceiling effect; that raising the
+iteration cap would help). That is what the suite is for.
 
 ## Usage
 
@@ -478,7 +495,7 @@ Instead, the routing inventory is explicit and auditable:
 # Comma-separated lists; the singular forms remain backward compatible.
 export ANTHROPIC_MODELS=claude-opus-4-8,claude-sonnet-4-5
 export ANTHROPIC_NAMES=anthropic/opus,anthropic/sonnet
-export MOONSHOT_MODELS=kimi-k2-0711-preview,kimi-k2-turbo-preview
+export MOONSHOT_MODELS=kimi-k3,kimi-k2.6
 export OLLAMA_MODELS=qwen2.5-coder:14b,llama3.2
 export CLAUDE_CODE_MODELS=opus,sonnet
 export CODEX_MODELS=gpt-5-codex,gpt-5-codex-mini
@@ -583,19 +600,19 @@ in a second strict JSON file:
   "anthropic/haiku": {
     "strengths": ["reasoning"],
     "context_window": 200000,
-    "max_output_tokens": 4096,
+    "max_output_tokens": 64000,
     "supports_tools": true,
-    "cost_per_1k_in": 0.0008,
-    "cost_per_1k_out": 0.004,
+    "cost_per_1k_in": 0.001,
+    "cost_per_1k_out": 0.005,
     "tier": 2
   },
   "anthropic/opus": {
     "strengths": ["coding", "reasoning", "long_context"],
-    "context_window": 200000,
-    "max_output_tokens": 8192,
+    "context_window": 1000000,
+    "max_output_tokens": 128000,
     "supports_tools": true,
-    "cost_per_1k_in": 0.015,
-    "cost_per_1k_out": 0.075,
+    "cost_per_1k_in": 0.005,
+    "cost_per_1k_out": 0.025,
     "tier": 4
   }
 }

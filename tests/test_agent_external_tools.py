@@ -44,7 +44,7 @@ class _FakeClient:
     async def __aexit__(self, *a):
         return False
 
-    def stream(self, method, url):
+    def stream(self, method, url, **kwargs):
         return self._resp
 
 
@@ -65,11 +65,18 @@ def _req() -> CanonicalRequest:
 
 
 async def test_agentic_loop_fetch_url_then_run_python(tmp_path: Path, monkeypatch) -> None:
-    # fetch_url is host-mediated: patch httpx so NO network is touched.
+    # fetch_url is host-mediated: patch httpx so NO network is touched, and pin
+    # the resolver too — the tool now validates every resolved address before it
+    # connects, so an unpatched lookup would make this test need DNS.
     monkeypatch.setattr(
         "volante.tools.fetch_url.httpx.AsyncClient",
         lambda **kw: _FakeClient(_FakeResp("PAGE-BODY", 200), **kw),
     )
+
+    async def _fake_resolve(host, port):
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr("volante.tools.fetch_url._resolve", _fake_resolve)
     tools = {
         "fetch_url": FetchUrlTool({"example.com"}),
         "run_python": RunPythonTool(Sandbox(tmp_path)),  # real local subprocess sandbox

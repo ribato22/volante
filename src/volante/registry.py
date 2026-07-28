@@ -152,43 +152,95 @@ class Registry:
 
 
 def default_models() -> list[ModelInfo]:
+    """Seed inventory.
+
+    Two kinds of number live in a ModelInfo and they are NOT interchangeable.
+    `context_window`, `max_output_tokens` and the two prices are FACTS a vendor
+    publishes: every one carries the URL it was read from and the date it was read,
+    because a stale one is silent and expensive. `tier`, `strengths` and `billing`
+    are OUR policy — argue with them, don't cite them.
+
+    That distinction is not decorative. Every field below was wrong on 2026-07-28:
+    the Anthropic row had been carried forward from the Opus 4.1 generation, so it
+    priced every run 3x too high and budgeted context against a fifth of the real
+    window; the Kimi row pointed at a series the vendor had already retired.
+    """
     return [
         ModelInfo(
             id="anthropic/claude-opus-4-8",
             provider="anthropic",
             strengths={"coding", "reasoning"},
-            context_window=200_000,
-            max_output_tokens=8_192,
+            # Verified 2026-07-28 against platform.claude.com:
+            #   /docs/en/build-with-claude/context-windows — 1M context, and a
+            #     single request on a 1M model may generate up to 128k output.
+            #   /docs/en/about-claude/pricing — $5 / MTok in, $25 / MTok out.
+            #     MTok is a MILLION tokens; this field is per THOUSAND, so the
+            #     divisor is 1000: 5/1000 = 0.005, 25/1000 = 0.025. Getting that
+            #     conversion wrong is what produced the previous 3x error.
+            # A single scalar cannot express fast mode, batch (-50%), cache reads
+            # (0.1x) or partner pricing on Bedrock/Vertex; this is the list rate.
+            # GET /v1/models/{id} serves max_input_tokens and max_tokens live and
+            # is the better source for those two. It does NOT serve prices.
+            context_window=1_000_000,
+            max_output_tokens=128_000,
             supports_tools=True,
-            cost_per_1k_in=0.015,
-            cost_per_1k_out=0.075,
+            cost_per_1k_in=0.005,
+            cost_per_1k_out=0.025,
             tier=4,
             billing="card",
         ),
         ModelInfo(
-            id="kimi/kimi-k2",
+            id="kimi/kimi-k3",
             provider="openai_compat",
-            # Catch-all {coding, reasoning}: router bisa mengarahkan SEMUA jenis task
-            # (code/research/write/analyze) ke model ini bila ia satu-satunya provider.
+            # Catch-all {coding, reasoning}: the router can send EVERY task type
+            # here when this is the only configured provider.
             strengths={"coding", "reasoning"},
-            context_window=128_000,
-            max_output_tokens=4_096,
+            # Verified 2026-07-28 against platform.kimi.ai:
+            #   /docs/models — the kimi-k2 SERIES was discontinued 2026-05-25 and
+            #     all five k2 wire ids sit in the Deprecated table. This entry used
+            #     to name that dead series, so the default wire id would have
+            #     failed against the live API — worse than a wrong number.
+            #   /docs/pricing/chat-k3 — context 1,048,576; input $0.30/1M on a
+            #     cache hit and $3.00/1M on a miss; output $15.00/1M.
+            #   /docs/api/chat — max_completion_tokens defaults to 131,072.
+            # Moonshot prices input at two rates and this schema holds one, so the
+            # CACHE-MISS rate is stored: it is the safe direction for an estimator,
+            # since assuming hits would understate cold traffic tenfold.
+            # Currency caveat, recorded rather than hidden: the pricing page uses a
+            # bare "$" and never writes "USD". Very likely USD, but unsourced.
+            context_window=1_048_576,
+            max_output_tokens=131_072,
             supports_tools=True,
-            cost_per_1k_in=0.0012,
-            cost_per_1k_out=0.0012,
+            cost_per_1k_in=0.003,
+            cost_per_1k_out=0.015,
             tier=3,
             billing="card",
         ),
         ModelInfo(
             id="ollama/llama3.2",
             provider="openai_compat",
-            # Catch-all agar konfigurasi Ollama-saja (gratis) bisa menjalankan orkestrasi
-            # penuh. supports_tools=False -> task agentic tak dirutekan ke sini (jujur:
-            # llama3.2 default tak selalu patuh tool-calling).
+            # Catch-all so an Ollama-only (free) setup can still run a full
+            # orchestration. supports_tools=False -> agentic tasks are not routed
+            # here, because llama3.2 does not reliably obey tool-calling.
             strengths={"coding", "reasoning"},
-            context_window=8_192,
-            max_output_tokens=2_048,
+            # These two are a DEPLOYMENT FLOOR we chose, not a vendor fact, and the
+            # difference matters. Llama 3.2 the model declares 131,072 tokens, but
+            # this registry records what a running Ollama actually grants: since
+            # v0.15.5 that is VRAM-tiered (4k under 24 GiB, 32k to 48 GiB, 256k
+            # above — github.com/ollama/ollama/blob/main/docs/context-length.mdx,
+            # read 2026-07-28), and the OpenAI-compatible shim exposes no num_ctx
+            # knob, so a client CANNOT raise it. Over-claiming fails silently:
+            # Ollama drops the oldest messages to fit and never raises. 4096 is the
+            # bottom tier — what an out-of-the-box install gives on most machines.
+            # Raise it with OLLAMA_CONTEXT only to match the server's own
+            # OLLAMA_CONTEXT_LENGTH. max_output is ours too (Ollama's num_predict
+            # defaults to unlimited); it is sized against a real 4096 window,
+            # because input and output share one budget.
+            context_window=4_096,
+            max_output_tokens=1_024,
             supports_tools=False,
+            # Genuinely free: inference runs on the user's own hardware, so there
+            # is no vendor rate to convert.
             cost_per_1k_in=0.0,
             cost_per_1k_out=0.0,
             tier=1,

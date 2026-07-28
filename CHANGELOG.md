@@ -6,6 +6,77 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+- **Anthropic model metadata was a generation out of date, and it cost users money.** The seeded
+  `anthropic/claude-opus-4-8` row — and the byte-identical env defaults on the live bootstrap path —
+  carried 200k context, 8,192 output tokens and $0.015/$0.075 per 1k. The published figures are 1M
+  context, 128k output and $5/$25 per MTok, i.e. $0.005/$0.025 per 1k. Every `billed_usd` reported
+  for that model, on the CLI, in `--json`, in the MCP footer and in `~/.volante/usage.jsonl`, was
+  therefore exactly **3x too high**; routing scored `context_headroom` and `output_capacity` against
+  a fifth of the real window, and the agentic loop budgeted context the same way. The old row
+  back-converts to $15/$75 per MTok — still Anthropic's published price for Opus 4.1 — so it was
+  carried forward from an older generation rather than re-derived.
+- **The seeded Moonshot model no longer exists.** The `kimi-k2` series was discontinued on
+  2026-05-25 and all five wire ids sit in the vendor's deprecated table, so the bootstrap default
+  `kimi-k2-0711-preview` would fail against the live API. Replaced with `kimi/kimi-k3`
+  (1,048,576 context, 131,072 output, $3/MTok cache-miss input, $15/MTok output). The stored input
+  price is the cache-MISS rate: this schema holds one input price, and assuming cache hits would
+  understate cold traffic tenfold.
+- **The Ollama context window was a number no Ollama has ever defaulted to.** 8,192 matched no
+  release; Ollama has been VRAM-tiered since v0.15.5, with 4k as the bottom tier, and the
+  OpenAI-compatible shim cannot raise it from the client. Now 4,096 with a 1,024 output cap, and
+  labelled in-code as a deployment floor we chose — not a vendor fact. Over-claiming here failed
+  silently, because Ollama drops the oldest messages to fit rather than raising.
+- **`fetch_url` could be pointed at internal addresses.** It checked the scheme and a domain
+  allowlist, then let httpx do the rest — so an allowlisted name resolving to 169.254.169.254
+  reached the cloud metadata service. This matters more since the sandbox began blocking its own
+  egress, which leaves this tool as the only remaining way out. Now: `trust_env=False` (an ambient
+  `HTTP_PROXY`/`ALL_PROXY` otherwise routed the connection to an unvalidated proxy and made every
+  address check dead code), ports restricted to 80/443, every resolved address validated with the
+  request failing closed if any single one is non-public, and the connection pinned to the address
+  that was actually checked — with the `Host` header and TLS SNI still bound to the original
+  hostname, so certificate verification is unchanged.
+
+### Changed
+- **The README now publishes the benchmark instead of describing its format.** It previously
+  printed a placeholder table and stated that no numbers were published, while five real result
+  artifacts sat in the repo. It now carries the actual run — `VERDICT: BASELINE`, orchestration
+  winning 1 goal of 9 at 7.3x the cost and 4.7x the latency — together with the limits that make
+  it a narrow result rather than a settled one.
+- **Tests now guard vendor facts, not relations.** Every numeric assertion about a model used to be
+  a bound or a comparison (`context_window >= 100_000`, `kimi.cost < opus.cost`), which infinitely
+  many wrong numbers satisfy — the suite stayed green through all of the above. Vendor facts are
+  now pinned to exact values in a table carrying its sources, separated from project policy, with a
+  unit-conversion test that fails on a per-MTok/per-1k slip and a coverage test that fails when a
+  seeded model records no source.
+- **`requires-python` is now `>=3.11.10`** (was `>=3.11`). The `ipaddress` `is_private`/`is_global`
+  correctness fix (gh-113171) landed in 3.11.10, and the new address checks depend on it, so this
+  floor is a security boundary rather than a packaging preference.
+- **Anthropic defaults are per wire model, not per family.** `ANTHROPIC_MODELS` can register Opus
+  and Haiku side by side, so one shared default over-claimed a 200k model's window by 5x — and
+  over-claiming context fails silently. Facts are now keyed by exact wire name, with an unknown
+  model falling back to a floor that is deliberately wrong in the safe direction on both axes:
+  capability below every listed model, price above every listed model.
+
+### Security
+- Beyond the `fetch_url` hardening above, an adversarial review of that hardening found three more
+  holes in it, all now closed: IPv6 site-local `fec0::/10` passed every arm of the address policy
+  (CPython reports it `is_private=False` **and** `is_global=True`, and Windows still ships
+  `fec0:0:0:ffff::1` as a default DNS server); pinning to the first resolved address discarded the
+  failover that connecting by name used to provide, so one dead `AAAA` record broke every fetch to
+  a domain; and `httpx.InvalidURL` is not an `httpx.HTTPError`, so a model-supplied URL containing
+  a tab or newline escaped the tool uncaught and aborted the run.
+- **Retired model ids no longer ship in the install surfaces.** `smithery.yaml` and
+  `mcpb/manifest.json` each pinned `kimi-k2-0711-preview` as an always-set default, so correcting
+  `bootstrap.py` alone left the dead id live in two install paths whose source a user never sees;
+  `.env.example` and the README's copy-pasteable override block carried the old Anthropic numbers,
+  which would have silently reverted the pricing fix through a documented, supported mechanism.
+  A test now fails if any of those four surfaces mentions a retired id.
+- The synthesizer's output budget is clamped the way the supervisor's already was. With the real
+  128k output cap now in the registry, half of a 1M window no longer bounded it, so a synthesis
+  could request 128k tokens on a non-streaming call and cross the client timeout — failing after
+  the tokens were generated and billed.
+
 ## [0.3.0] - 2026-07-27
 
 ### Added

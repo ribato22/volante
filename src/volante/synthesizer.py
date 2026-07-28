@@ -66,8 +66,17 @@ class Synthesizer:
         self._max_output_tokens = max_output_tokens
 
     def _build_prompt(self, goal: str, bb: Blackboard) -> tuple[str, int]:
+        # The _DEFAULT_MAX_OUTPUT_TOKENS arm is what Supervisor._build_request
+        # already applies, and it matters more since the registry started carrying
+        # the real 128k output cap: half of a 1M window is 500k, so the model's own
+        # ceiling was the only bound left and a synthesis could be asked for 128k
+        # tokens on a NON-STREAMING request. Long before that finished it would
+        # cross the client timeout and fail — after the tokens were generated and
+        # billed. A synthesis is a summary; it does not need the model's ceiling.
         output_tokens = min(
-            self._max_output_tokens, max(1, self._context_window // 2)
+            self._max_output_tokens,
+            _DEFAULT_MAX_OUTPUT_TOKENS,
+            max(1, self._context_window // 2),
         )
         char_budget = model_input_char_budget(
             self._context_window, output_tokens

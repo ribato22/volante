@@ -103,7 +103,42 @@ def _canonical_names(
     return names
 
 
+# Per-model Anthropic facts, read 2026-07-28 from platform.claude.com
+# (/docs/en/about-claude/pricing, /docs/en/about-claude/models/overview,
+# /docs/en/build-with-claude/context-windows). Prices are published per MTok — a
+# MILLION tokens — and these fields are per THOUSAND, so every entry is the
+# published figure divided by 1000. That division is the whole bug this table
+# exists to prevent.
+#
+# Keyed by EXACT wire name on purpose. Guessing by prefix is precisely how the
+# previous row went wrong: an older generation's numbers were inherited by a
+# renamed model instead of being re-derived. A model that is not listed gets the
+# conservative fallback below rather than a neighbour's numbers.
+_ANTHROPIC_FACTS: dict[str, tuple[int, int, float, float]] = {
+    # wire name: (context_window, max_output_tokens, cost_per_1k_in, cost_per_1k_out)
+    "claude-fable-5": (1_000_000, 128_000, 0.010, 0.050),
+    "claude-mythos-5": (1_000_000, 128_000, 0.010, 0.050),
+    "claude-opus-5": (1_000_000, 128_000, 0.005, 0.025),
+    "claude-opus-4-8": (1_000_000, 128_000, 0.005, 0.025),
+    "claude-opus-4-7": (1_000_000, 128_000, 0.005, 0.025),
+    "claude-opus-4-6": (1_000_000, 128_000, 0.005, 0.025),
+    # Sonnet 5 has a lower introductory rate that expires; the standard rate is
+    # stored so the estimate can never come in under the real bill.
+    "claude-sonnet-5": (1_000_000, 128_000, 0.003, 0.015),
+    "claude-sonnet-4-6": (1_000_000, 128_000, 0.003, 0.015),
+    "claude-haiku-4-5": (200_000, 64_000, 0.001, 0.005),
+}
+
+# For a wire name we have no sourced numbers for. Deliberately wrong in the SAFE
+# direction on both axes: the capability floor is smaller than every model above,
+# so a prompt is never silently over-packed, and the price is the highest in the
+# table, so a bill is never under-reported. Set ANTHROPIC_CONTEXT / _MAX_OUTPUT /
+# _COST_IN / _COST_OUT to replace guesses with facts.
+_ANTHROPIC_UNKNOWN = (200_000, 8_192, 0.010, 0.050)
+
+
 def _anthropic_model_info(wire: str, model_id: str, env: dict[str, str]) -> ModelInfo:
+    context, max_output, cost_in, cost_out = _ANTHROPIC_FACTS.get(wire, _ANTHROPIC_UNKNOWN)
     return ModelInfo(
         id=model_id,
         provider="anthropic",
@@ -112,11 +147,14 @@ def _anthropic_model_info(wire: str, model_id: str, env: dict[str, str]) -> Mode
             "ANTHROPIC_STRENGTHS",
             {"coding", "reasoning", "long_context"},
         ),
-        context_window=int(_metadata_value(env, "ANTHROPIC_CONTEXT", "200000")),
-        max_output_tokens=int(_metadata_value(env, "ANTHROPIC_MAX_OUTPUT", "8192")),
+        # Per-wire-model, not one size for the whole family: ANTHROPIC_MODELS can
+        # register Opus and Haiku side by side, and a single shared default
+        # over-claims a 200k model's window by 5x — which fails silently.
+        context_window=int(_metadata_value(env, "ANTHROPIC_CONTEXT", str(context))),
+        max_output_tokens=int(_metadata_value(env, "ANTHROPIC_MAX_OUTPUT", str(max_output))),
         supports_tools=_bool_from_env(env, "ANTHROPIC_TOOLS", True),
-        cost_per_1k_in=float(_metadata_value(env, "ANTHROPIC_COST_IN", "0.015")),
-        cost_per_1k_out=float(_metadata_value(env, "ANTHROPIC_COST_OUT", "0.075")),
+        cost_per_1k_in=float(_metadata_value(env, "ANTHROPIC_COST_IN", str(cost_in))),
+        cost_per_1k_out=float(_metadata_value(env, "ANTHROPIC_COST_OUT", str(cost_out))),
         tier=int(_metadata_value(env, "ANTHROPIC_TIER", "4")),
         billing="card",
     )
@@ -449,7 +487,9 @@ def build_providers_from_env(
             env,
             "MOONSHOT_MODELS",
             "MOONSHOT_MODEL",
-            default="kimi-k2-0711-preview",
+            # The kimi-k2 series was discontinued 2026-05-25; k3 is the live
+            # flagship (platform.kimi.ai/docs/models, read 2026-07-28).
+            default="kimi-k3",
         )
         names = _canonical_names(
             env,
@@ -457,8 +497,8 @@ def build_providers_from_env(
             singular_key="MOONSHOT_NAME",
             models=models,
             default_name=lambda wire, index: (
-                "kimi/kimi-k2"
-                if len(models) == 1 and wire == "kimi-k2-0711-preview"
+                "kimi/kimi-k3"
+                if len(models) == 1 and wire == "kimi-k3"
                 else f"kimi/{wire}"
             ),
         )
@@ -474,11 +514,16 @@ def build_providers_from_env(
                     provider="openai_compat",
                     prefix="MOONSHOT",
                     env=env,
-                    context=128_000,
-                    max_output=4_096,
+                    # Verified 2026-07-28, platform.kimi.ai/docs/pricing/chat-k3:
+                    # context 1,048,576; input $3.00/1M on a cache MISS (the safe
+                    # rate to store when the schema holds one); output $15.00/1M.
+                    # The previous 0.0012/0.0012 was symmetric, which no Kimi page
+                    # has ever been, and priced a series already retired.
+                    context=1_048_576,
+                    max_output=131_072,
                     tools=True,
-                    cost_in=0.0012,
-                    cost_out=0.0012,
+                    cost_in=0.003,
+                    cost_out=0.015,
                     tier=3,
                 )
             )
@@ -511,8 +556,13 @@ def build_providers_from_env(
                     provider="ollama",
                     prefix="OLLAMA",
                     env=env,
-                    context=8_192,
-                    max_output=2_048,
+                    # A floor we chose, not a vendor fact: Ollama's own default is
+                    # VRAM-tiered since v0.15.5 and 4k is the bottom tier, while the
+                    # OpenAI-compatible shim cannot raise it from the client. Set
+                    # OLLAMA_CONTEXT only to match the server's OLLAMA_CONTEXT_LENGTH
+                    # — over-claiming makes Ollama silently drop the oldest messages.
+                    context=4_096,
+                    max_output=1_024,
                     tools=False,
                     cost_in=0.0,
                     cost_out=0.0,

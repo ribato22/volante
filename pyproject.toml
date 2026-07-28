@@ -4,7 +4,11 @@ name = "volante"
 dynamic = ["version"]
 description = "Volante — a transparent, user-owned model router and orchestration control plane."
 readme = "README.md"
-requires-python = ">=3.11"
+# 3.11.10, not 3.11: the ipaddress is_private/is_global fix (gh-113171) landed
+# there, and tools/fetch_url.py leans on those properties to refuse internal
+# addresses. On 3.11.0-3.11.9 that check is subtly wrong, so the floor is a
+# security boundary rather than a packaging preference.
+requires-python = ">=3.11.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "ribato" }]
