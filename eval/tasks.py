@@ -553,3 +553,110 @@ EVAL_SUITE.extend(
         EvalTask("ledger", LEDGER_GOAL, LEDGER_REFERENCE_TEST),
     ]
 )
+
+
+# --- Goal berskala luas (menghindari efek langit-langit) -----------------------
+# Tujuh goal di atas semuanya dijawab sempurna (1.00) oleh baseline satu panggilan
+# pada gpt-4o-mini: tak ada ruang bagi arm mana pun untuk menang, sehingga suite tak
+# bisa menguji tesisnya. Goal berikut menaikkan LUAS-nya, bukan kesulitan tiap bagian:
+# lima fungsi independen dengan total ~30 kasus tepi. Satu respons harus memuat semua
+# implementasi + tes + README dalam satu anggaran output, sementara dekomposisi bisa
+# memberi tiap bagian panggilannya sendiri. Skornya bergradasi (kasus lolos / total),
+# jadi selisih kecil pun terukur — bukan lulus/gagal.
+
+TOOLBELT_GOAL = (
+    'Implement five INDEPENDENT functions in solution.py. None may call another. '
+    '(1) wrap_text(s: str, width: int) -> list[str] performs greedy word wrapping: '
+    'split the text on whitespace, then fill lines with as many words as fit without '
+    'exceeding width characters (words are joined by a single space, and a word longer '
+    'than width goes on a line of its own, never split). Empty or whitespace-only input '
+    'returns an empty list — wrap_text("a bb ccc", 6) == ["a bb", "ccc"]. '
+    '(2) merge_intervals(pairs: list[tuple[int, int]]) -> list[tuple[int, int]] sorts and '
+    'merges intervals that overlap OR merely touch, returning them ascending — '
+    'merge_intervals([(3, 5), (1, 2), (2, 4)]) == [(1, 5)]; an empty list returns []. '
+    '(3) base_convert(n: int, base: int) -> str renders n in the given base from 2 to 36 '
+    'using digits 0-9 then lowercase a-z, with a leading "-" for negatives and "0" for '
+    'zero — base_convert(255, 16) == "ff", base_convert(-10, 2) == "-1010". '
+    '(4) parse_semver(s: str) -> dict parses "MAJOR.MINOR.PATCH" with an optional '
+    '"-PRERELEASE" suffix into {"major": int, "minor": int, "patch": int, '
+    '"prerelease": str | None} — parse_semver("1.2.3-rc.1") == {"major": 1, "minor": 2, '
+    '"patch": 3, "prerelease": "rc.1"}; without a suffix prerelease is None. '
+    '(5) run_length_encode(s: str) -> str collapses runs of the same character into the '
+    'character followed by its count ONLY when the run is longer than one — '
+    'run_length_encode("aaabbc") == "a3b2c"; an empty string returns "". '
+    'Also add a pytest test module (functions named test_*) covering all five, and a '
+    'short README describing each function.'
+)
+
+TOOLBELT_REFERENCE_TEST: str = '''\
+from __future__ import annotations
+
+import json
+import sys
+
+WRAP = [
+    (("a bb ccc", 6), ["a bb", "ccc"]),
+    (("", 5), []),
+    (("   ", 5), []),
+    (("supercalifragilistic", 5), ["supercalifragilistic"]),
+    (("one two three four", 9), ["one two", "three", "four"]),
+    (("a  b   c", 3), ["a b", "c"]),
+]
+MERGE = [
+    (([(3, 5), (1, 2), (2, 4)],), [(1, 5)]),
+    (([],), []),
+    (([(1, 2), (4, 5)],), [(1, 2), (4, 5)]),
+    (([(1, 10), (2, 3)],), [(1, 10)]),
+    (([(5, 6), (1, 5)],), [(1, 6)]),
+]
+BASE = [
+    ((255, 16), "ff"),
+    ((-10, 2), "-1010"),
+    ((0, 8), "0"),
+    ((35, 36), "z"),
+    ((7, 2), "111"),
+    ((1295, 36), "zz"),
+]
+SEMVER = [
+    (("1.2.3-rc.1",), {"major": 1, "minor": 2, "patch": 3, "prerelease": "rc.1"}),
+    (("0.0.0",), {"major": 0, "minor": 0, "patch": 0, "prerelease": None}),
+    (("10.20.30-beta",), {"major": 10, "minor": 20, "patch": 30, "prerelease": "beta"}),
+    (("2.0.1",), {"major": 2, "minor": 0, "patch": 1, "prerelease": None}),
+]
+RLE = [
+    (("aaabbc",), "a3b2c"),
+    (("",), ""),
+    (("abc",), "abc"),
+    (("aaaaaaaaaaaa",), "a12"),
+    (("aabbaa",), "a2b2a2"),
+]
+
+
+def main() -> None:
+    groups = [
+        ("wrap_text", WRAP),
+        ("merge_intervals", MERGE),
+        ("base_convert", BASE),
+        ("parse_semver", SEMVER),
+        ("run_length_encode", RLE),
+    ]
+    total = sum(len(cases) for _, cases in groups)
+    passed = 0
+    for name, cases in groups:
+        for args, expected in cases:
+            try:
+                got = call_solution(name, *args)
+                if name == "merge_intervals":
+                    got = [tuple(x) for x in got]
+                if got == expected:
+                    passed += 1
+            except Exception:
+                pass
+    print(_TAG + json.dumps({"passed": passed, "total": total}))
+
+
+main()
+sys.exit(0)
+'''
+
+EVAL_SUITE.append(EvalTask("toolbelt", TOOLBELT_GOAL, TOOLBELT_REFERENCE_TEST))

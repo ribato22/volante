@@ -442,3 +442,128 @@ def summarize(lines, rate):
 
 FIXTURES["textkit"] = (TEXTKIT_GOOD, TEXTKIT_BROKEN)
 FIXTURES["ledger"] = (LEDGER_GOOD, LEDGER_BROKEN)
+
+
+TOOLBELT_GOOD = '''\
+def wrap_text(s, width):
+    words = s.split()
+    if not words:
+        return []
+    lines, cur = [], words[0]
+    for w in words[1:]:
+        if len(cur) + 1 + len(w) <= width:
+            cur += " " + w
+        else:
+            lines.append(cur)
+            cur = w
+    lines.append(cur)
+    return lines
+
+
+def merge_intervals(pairs):
+    if not pairs:
+        return []
+    out = []
+    for lo, hi in sorted(pairs):
+        if out and lo <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], hi))
+        else:
+            out.append((lo, hi))
+    return out
+
+
+def base_convert(n, base):
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    if n == 0:
+        return "0"
+    sign = "-" if n < 0 else ""
+    n = abs(n)
+    out = ""
+    while n:
+        n, r = divmod(n, base)
+        out = digits[r] + out
+    return sign + out
+
+
+def parse_semver(s):
+    core, _, pre = s.partition("-")
+    major, minor, patch = (int(x) for x in core.split("."))
+    return {"major": major, "minor": minor, "patch": patch, "prerelease": pre or None}
+
+
+def run_length_encode(s):
+    if not s:
+        return ""
+    out, prev, count = "", s[0], 1
+    for ch in s[1:]:
+        if ch == prev:
+            count += 1
+        else:
+            out += prev + (str(count) if count > 1 else "")
+            prev, count = ch, 1
+    return out + prev + (str(count) if count > 1 else "")
+'''
+
+# BUG: wrap lupa memperhitungkan spasi pemisah, dan RLE menempelkan hitungan
+# bahkan untuk run tunggal -> sebagian kasus gagal, bukan semuanya (skor bergradasi).
+TOOLBELT_BROKEN = '''\
+def wrap_text(s, width):
+    words = s.split()
+    if not words:
+        return []
+    lines, cur = [], words[0]
+    for w in words[1:]:
+        if len(cur) + len(w) <= width:
+            cur += " " + w
+        else:
+            lines.append(cur)
+            cur = w
+    lines.append(cur)
+    return lines
+
+
+def merge_intervals(pairs):
+    if not pairs:
+        return []
+    out = []
+    for lo, hi in sorted(pairs):
+        if out and lo <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], hi))
+        else:
+            out.append((lo, hi))
+    return out
+
+
+def base_convert(n, base):
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    if n == 0:
+        return "0"
+    sign = "-" if n < 0 else ""
+    n = abs(n)
+    out = ""
+    while n:
+        n, r = divmod(n, base)
+        out = digits[r] + out
+    return sign + out
+
+
+def parse_semver(s):
+    core, _, pre = s.partition("-")
+    major, minor, patch = (int(x) for x in core.split("."))
+    return {"major": major, "minor": minor, "patch": patch, "prerelease": pre or None}
+
+
+def run_length_encode(s):
+    if not s:
+        return ""
+    out, prev, count = "", s[0], 1
+    for ch in s[1:]:
+        if ch == prev:
+            count += 1
+        else:
+            out += prev + (str(count) if count >= 1 else "")
+            prev, count = ch, 1
+    return out + prev + (str(count) if count >= 1 else "")
+'''
+
+FIXTURES["toolbelt"] = (TOOLBELT_GOOD, TOOLBELT_BROKEN)
