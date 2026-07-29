@@ -179,6 +179,13 @@ jobs:
       - name: Create or refresh the release
         env:
           GH_TOKEN: ${{ github.token }}
+          # This job never checks the repo out — it only downloads artifacts — so
+          # `gh` has no git remote to infer the repository from and dies with
+          # "fatal: not a git repository" before it reaches the API. Naming the
+          # repo explicitly is cheaper than a checkout we do not otherwise need.
+          # Reached for the first time on v0.3.1: earlier releases failed further
+          # up the pipeline, so this line had never been exercised.
+          GH_REPO: ${{ github.repository }}
         run: |
           version="${GITHUB_REF_NAME#v}"
           assets=(artifacts/dist/* "artifacts/volante-${version}.mcpb")
