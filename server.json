@@ -7,16 +7,16 @@
     "url": "https://github.com/ribato22/volante",
     "source": "github"
   },
-  "version": "0.3.0",
+  "version": "0.3.1",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "volante",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "runtimeHint": "uvx",
       "runtimeArguments": [
-        { "type": "named", "name": "--from", "value": "volante[mcp]==0.3.0" },
+        { "type": "named", "name": "--from", "value": "volante[mcp]==0.3.1" },
         { "type": "positional", "value": "volante-mcp" }
       ],
       "transport": { "type": "stdio" },

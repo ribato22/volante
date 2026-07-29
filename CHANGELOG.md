@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-29
+
+A correctness release. 0.3.0 reported Anthropic costs three times too high and
+defaulted to a Moonshot model the vendor had already retired; anyone running that
+version should upgrade.
+
 ### Fixed
 - **Anthropic model metadata was a generation out of date, and it cost users money.** The seeded
   `anthropic/claude-opus-4-8` row — and the byte-identical env defaults on the live bootstrap path —
