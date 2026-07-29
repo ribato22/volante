@@ -1,7 +1,6 @@
 {
   "openai/gpt-4.1": {
     "confidence": 0.9,
-    "overall_score": 1.0,
     "source": "eval suite, baseline arm, 9 coding goals x k=3, measured 2026-07-29",
     "task_scores": {
       "code": 1.0
@@ -9,7 +8,6 @@
   },
   "openai/gpt-4.1-nano": {
     "confidence": 0.9,
-    "overall_score": 0.9506,
     "source": "eval suite, baseline arm, 9 coding goals x k=3, measured 2026-07-29",
     "task_scores": {
       "code": 0.9506
@@ -17,7 +15,6 @@
   },
   "openai/gpt-4o-mini": {
     "confidence": 0.9,
-    "overall_score": 0.9901,
     "source": "eval suite, baseline arm, 9 coding goals x k=3, measured 2026-07-29",
     "task_scores": {
       "code": 0.9901

@@ -110,10 +110,6 @@ def build_profiles(
             failed_total += failures
         profile: dict[str, Any] = {
             "task_scores": task_scores,
-            # Macro-average across task types: pooling raw runs would let an unbalanced
-            # sample (30 code runs, 1 write run) make overall_score describe the sampling
-            # rather than the model.
-            "overall_score": round(sum(task_scores.values()) / len(task_scores), 4),
             "source": source,
             # The router applies ONE confidence to every task type, so it must be the
             # confidence of the WEAKEST-sampled one. Pooling would let 30 unrelated code
@@ -126,6 +122,21 @@ def build_profiles(
                 4,
             ),
         }
+        # overall_score is a claim about the model IN GENERAL, and the router applies it
+        # to every task type — including ones nothing has measured. Deriving it from a
+        # partial sample therefore launders evidence: measure only `code`, and the
+        # router quietly treats coding ability as the model's research ability too. So
+        # it is emitted ONLY when every task type was measured. With partial coverage
+        # the field is omitted, the router falls back to the coarse declared tier, and
+        # its trace says exactly that instead of citing a profile that never looked.
+        #
+        # The macro-average (rather than pooling raw runs) still matters when coverage
+        # IS complete: 30 code runs and one write run would otherwise make overall_score
+        # describe the sampling rather than the model.
+        if set(task_scores) == TASK_TYPES:
+            profile["overall_score"] = round(
+                sum(task_scores.values()) / len(task_scores), 4
+            )
         # Only claim reliability when failures were actually recorded (a `null` run).
         # Deriving it from quality scores would double-count the same evidence.
         if failed_total:

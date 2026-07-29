@@ -17,8 +17,10 @@ def test_profiles_average_scores_and_scale_confidence_with_evidence() -> None:
     profile = profiles["a/model"]
 
     assert profile["task_scores"] == {"code": 0.8, "analyze": 0.5}
-    # Macro-average across task types, so an unbalanced sample cannot drive it.
-    assert profile["overall_score"] == pytest.approx(0.65)
+    # Two of four task types measured -> NO general claim. overall_score is applied by
+    # the router to every task type, so deriving it here would let coding evidence
+    # stand in for research ability nobody looked at.
+    assert "overall_score" not in profile
     assert profile["source"] == "team-eval"
     # Confidence follows the WEAKEST-sampled task type (analyze, n=1 -> 1/4), because the
     # router applies one confidence to every task type.
@@ -193,3 +195,33 @@ def test_a_model_id_the_loader_would_reject_fails_before_claiming_success(
 
     assert exit_code == 2
     assert "calibration failed" in capsys.readouterr().err
+
+
+def test_a_general_claim_needs_every_task_type_measured() -> None:
+    # The router applies overall_score to EVERY task type, including ones the
+    # measurements never touched, so a partial sample must not produce one.
+    partial = build_profiles({"m": {"code": [1.0, 1.0]}}, source="s")["m"]
+    assert "overall_score" not in partial
+
+    complete = build_profiles(
+        {
+            "m": {
+                "code": [1.0, 1.0],
+                "research": [0.8, 0.8],
+                "write": [0.6, 0.6],
+                "analyze": [0.4, 0.4],
+            }
+        },
+        source="s",
+    )["m"]
+    # Macro-average across the four means, so an unbalanced sample cannot drive it.
+    assert complete["overall_score"] == pytest.approx(0.7)
+
+
+def test_partial_coverage_still_keeps_the_evidence_it_does_have() -> None:
+    # Withholding the general claim must not throw away the per-task measurement:
+    # the router still uses task_scores for the type that WAS measured.
+    profile = build_profiles({"m": {"code": [0.9, 0.7]}}, source="s")["m"]
+
+    assert profile["task_scores"] == {"code": 0.8}
+    assert profile["confidence"] > 0.0

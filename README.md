@@ -548,8 +548,13 @@ uv run volante --calibrate measurements.json --calibrate-out quality-profiles.js
 export VOLANTE_QUALITY_PROFILES_FILE=$PWD/quality-profiles.json
 ```
 
-`--calibrate` averages per task type and macro-averages those means into `overall_score`, so an
-unbalanced sample (30 `code` runs, one `write` run) describes the model rather than your sampling.
+`--calibrate` averages per task type. It emits `overall_score` **only when every task type was
+measured**, because the router applies that field to every task type — including ones your
+measurements never touched — so deriving it from a partial sample would let your coding evidence
+stand in for research ability nobody looked at. With partial coverage the field is omitted, the
+router falls back to the coarse declared tier, and its trace says so instead of citing a profile
+that never looked. When coverage IS complete it macro-averages the per-type means, so an unbalanced
+sample (30 `code` runs, one `write` run) describes the model rather than your sampling.
 `confidence` follows the **weakest-sampled** task type and is capped below `1.0` — the router
 applies one confidence to every task type, so unrelated runs must not make a single observation
 read as certain. `reliability_score` is emitted **only** when you recorded `null` runs: deriving it
@@ -582,12 +587,12 @@ Two limits worth knowing before you trust a profile of your own:
   the gradient is compressed into the top 5%. At `k=1` the *weakest* model scored a perfect 1.000
   by luck; only `k=3` separated them. Calibrate at `k>=3`, and expect a task set that everything
   passes to tell you nothing.
-- **One task type carries all four.** Every goal in the suite is a coding task, so only `code` is
-  measured. `task_fit` correctly falls back to your declared strengths for the other three — but
-  `overall_score` is a macro-average of *measured* types, so with one type measured it is your
-  coding evidence, and the router applies it to every task type at the same `confidence`. The
-  profile records its `source`, so this is traceable rather than hidden; it is still an
-  extrapolation. Measure `research`, `write` and `analyze` before leaning on a profile for them.
+- **One task type carries all four.** Every goal in the coding suite is a coding task, so a
+  code-only run measures only `code`. That used to leak: `overall_score` was derived from whatever
+  was measured and then applied to every task type, so coding evidence silently became a research
+  claim. It no longer does — a general claim now requires complete coverage — and the effect is
+  visible in the scores: with a code-only profile loaded, `research` ranks exactly as it does with
+  no profile at all, while `code` moves. `eval/tasks_text.py` adds goals for the other types.
 
 The profile file format is the same one you can write by hand:
 
