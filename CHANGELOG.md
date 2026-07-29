@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Breaking
+- **`CliAgentAdapter.argv()` takes a `scratch_dir` keyword.** The provider creates a directory
+  that lives exactly as long as one spawn and passes it in, so an adapter with prompt text to hand
+  over has somewhere private to put it instead of putting it in argv (see the goal-in-argv fix
+  below). Both shipped adapters take it; `CodexAdapter` ignores it. A third-party adapter written
+  against the old signature raises `TypeError` at the first call rather than failing quietly.
+
 ### Security
 - **The user's goal travelled to `claude -p` as a command-line argument.** Projector puts the goal
   in the system message, and that message was handed to the CLI as an argv element — where

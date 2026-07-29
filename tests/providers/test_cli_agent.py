@@ -747,7 +747,9 @@ async def test_stream_retention_is_bounded_and_says_so(monkeypatch):
 
     resp = await provider.stream(_req(), lambda _d: None)
 
-    assert len(resp.content[0].text) <= 1000 + 200  # bounded, plus the chunk in flight
+    # AT the ceiling, not one line past it: checking the running total before adding
+    # lets the line that breaches the limit through, and a line may be 8 MiB.
+    assert len(resp.content[0].text) <= 1000
     assert resp.stop_reason == "output_limit"
     with pytest.raises(IncompleteOutputError):
         # Half an answer is not an answer: the guard has to see this, or Runtime

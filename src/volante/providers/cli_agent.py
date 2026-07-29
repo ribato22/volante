@@ -444,7 +444,11 @@ class CliAgentProvider:
             # What is dropped is the COPY kept for the final response, once holding it
             # stops being a bounded cost. Dropping quietly would hand back an answer
             # missing its middle, so `overflowed` travels out as a refusal below.
-            if retained > _STREAM_RETENTION_LIMIT:
+            # Checked BEFORE adding. Testing the running total after the fact lets
+            # the line that breaches the ceiling through, and a line may be as large
+            # as _STREAM_LIMIT — so a 16 MiB bound would really have been 24 MiB, a
+            # number the comment above does not say.
+            if retained + len(line) > _STREAM_RETENTION_LIMIT:
                 overflowed = True
             else:
                 retained += len(line)
