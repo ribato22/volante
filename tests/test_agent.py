@@ -608,6 +608,89 @@ async def test_declared_requirements_are_still_enforced() -> None:
         )
 
 
+class _RefusingTool:
+    """A tool that runs but refuses the job — the shape a policy denial, a bad
+    argument or an I/O failure takes on every built-in tool."""
+
+    def __init__(self, name: str = "read_file") -> None:
+        self.name = name
+        self.spec = ToolSpec(name=name, description="x", input_schema={"type": "object"})
+        self.calls = 0
+
+    async def run(self, args: dict) -> str:
+        self.calls += 1
+        return "error: path escapes allowed root: '../../etc/passwd'"
+
+
+class _RefusesOnceThenWorks:
+    """First call is denied, the second succeeds — an ordinary self-correction."""
+
+    def __init__(self, name: str = "read_file") -> None:
+        self.name = name
+        self.spec = ToolSpec(name=name, description="x", input_schema={"type": "object"})
+        self.calls = 0
+
+    async def run(self, args: dict) -> str:
+        self.calls += 1
+        if self.calls == 1:
+            return "error: not a file: 'typo.txt'"
+        return "the file said 42"
+
+
+@pytest.mark.asyncio
+async def test_a_required_tool_that_only_errored_does_not_satisfy_the_requirement() -> None:
+    # required_tools is how a planner says a task genuinely NEEDS a capability.
+    # Counting a denied, malformed or failed call as having used it lets a task that
+    # required trusted file evidence report success without ever obtaining any.
+    tool = _RefusingTool()
+    provider = FakeProvider(responses=[
+        _resp([ToolUseBlock(id="u1", name="read_file", input={"path": "../../etc/passwd"})],
+              "tool_use"),
+        _resp([TextBlock(text="Per the file, the answer is 42.")], "end_turn"),
+    ])
+    worker = AgenticWorker({"m1": provider}, CostMeter())
+
+    with pytest.raises(CapabilityUnavailableError, match="every call returned an error"):
+        await worker.run(
+            _req(), "m1", {"read_file": tool}, required_tools=frozenset({"read_file"})
+        )
+    assert tool.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_a_requirement_never_invoked_still_says_so() -> None:
+    # The two failures need different words: one model never tried, the other tried
+    # and was refused. A single message for both loses the only useful distinction.
+    provider = FakeProvider(responses=[_resp([TextBlock(text="claimed success")], "end_turn")])
+    worker = AgenticWorker({"m1": provider}, CostMeter())
+
+    with pytest.raises(CapabilityUnavailableError, match="never invoked"):
+        await worker.run(
+            _req(), "m1", {"read_file": _RefusingTool()},
+            required_tools=frozenset({"read_file"}),
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_required_tool_that_recovers_after_an_error_is_satisfied() -> None:
+    # The boundary of the change: refusing to count a FAILED call must not refuse to
+    # count the successful retry that follows it.
+    tool = _RefusesOnceThenWorks()
+    provider = FakeProvider(responses=[
+        _resp([ToolUseBlock(id="u1", name="read_file", input={"path": "typo.txt"})], "tool_use"),
+        _resp([ToolUseBlock(id="u2", name="read_file", input={"path": "real.txt"})], "tool_use"),
+        _resp([TextBlock(text="The file says 42.")], "end_turn"),
+    ])
+    worker = AgenticWorker({"m1": provider}, CostMeter())
+
+    result = await worker.run(
+        _req(), "m1", {"read_file": tool}, required_tools=frozenset({"read_file"})
+    )
+
+    assert result.final_text == "The file says 42."
+    assert result.tools_used == ("read_file",)
+
+
 @pytest.mark.asyncio
 async def test_a_second_nudge_is_given_before_abandoning_the_run() -> None:
     # The nudge demonstrably rescues runs (observed live on csv_stats and json_flatten:

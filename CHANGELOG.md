@@ -21,6 +21,19 @@ All notable changes to this project are documented here. The format is based on
   allocation. Nine new tests cover the read side; the seven added in 0.3.2 only covered writes.
 
 ### Fixed
+- **A required tool that only ever failed counted as having been used.** `required_tools` is how a
+  planner states that a task genuinely NEEDS a capability — read this file, fetch this page — and
+  the agentic loop recorded the tool name the instant `run()` returned, without looking at what it
+  returned. Built-in tools report a policy denial, a malformed argument or an I/O failure as an
+  `error: ...` string rather than raising, precisely so one bad call cannot abort the loop; the
+  enforcement check could not tell those from real output. A task requiring trusted file evidence
+  whose every `read_file` call was refused for escaping the read root therefore completed as a
+  success, with `tools_used=('read_file',)` next to an answer that claimed to have read the file.
+  Invoked and satisfied are now tracked separately: `tools_used` still reports what the loop
+  touched, and the requirement check asks whether the capability was actually obtained. The two
+  failures also read differently now — "never invoked" is a prompting problem, "every call returned
+  an error" is a configuration one, and one message for both threw away the only useful signal.
+
 - **A subscription CLI could report a truncated answer as a complete one.** `ensure_complete_response`
   exists so token exhaustion, refusals and partial output are never persisted as an artifact merely
   because they contain some text — and every path into the CLI-agent providers walked past it, because

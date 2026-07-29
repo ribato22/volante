@@ -14,7 +14,7 @@ from volante.providers.base import (
     call_provider,
     ensure_complete_response,
 )
-from volante.tools.base import ToolRegistry
+from volante.tools.base import ToolRegistry, is_tool_error
 from volante.types import (
     CanonicalMessage,
     CanonicalRequest,
@@ -199,7 +199,12 @@ class AgenticWorker:
         local = CostMeter()
         turns: list[TurnRecord] = []
         known_tool_calls = 0
+        # INVOKED vs SATISFIED, kept apart on purpose. `tools_used` reports what the
+        # loop touched, which is what a reader of a run wants to see. Required-tool
+        # enforcement asks a stricter question — did the task actually OBTAIN the
+        # capability it declared it needed — and a denied or failed call answers no.
         used_tool_names: set[str] = set()
+        satisfied_tool_names: set[str] = set()
         # A temperature-0 model that keeps "fixing" a bug the same way re-sends a
         # byte-identical call and gets a byte-identical result back, forever. Track the
         # last turn's (call, result) so the loop can notice it is not moving.
@@ -234,15 +239,25 @@ class AgenticWorker:
             if resp.stop_reason != "tool_use":
                 ensure_complete_response(resp, phase="agentic worker")
                 final = _text_of(resp.content)
-                missing = (
-                    required_tools - used_tool_names
+                unsatisfied = (
+                    required_tools - satisfied_tool_names
                     if required_tools is not None
                     else frozenset()
                 )
-                if missing:
+                if unsatisfied:
+                    # Two different failures, and the difference is the whole
+                    # diagnosis: a model that never tried is a prompting problem, a
+                    # model refused by policy every time is a configuration one.
+                    never = sorted(unsatisfied - used_tool_names)
+                    errored = sorted(unsatisfied & used_tool_names)
+                    detail = []
+                    if never:
+                        detail.append(f"never invoked: {never}")
+                    if errored:
+                        detail.append(f"every call returned an error: {errored}")
                     raise CapabilityUnavailableError(
-                        "agentic model completed without invoking required tools: "
-                        f"{sorted(missing)}"
+                        "agentic model completed without satisfying its required "
+                        f"tools — {'; '.join(detail)}"
                     )
                 # Offering tools is not the same as requiring them. A caller that
                 # declares its requirements — even as an empty set — has said what it
@@ -278,6 +293,8 @@ class AgenticWorker:
                     content = await tools[b.name].run(b.input)
                     known_tool_calls += 1
                     used_tool_names.add(b.name)
+                    if not is_tool_error(content):
+                        satisfied_tool_names.add(b.name)
                 else:
                     content = f"error: unknown tool {b.name!r}"
                 raw_results.append((b.id, content))
