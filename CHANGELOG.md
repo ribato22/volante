@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Security
+- **0.3.2 guarded writing model code to the workspace; reading it back was still unguarded.**
+  The escape that release fixed was not "a write follows a symlink", it was "the workspace is
+  storage the model controls" — and the eval harness then read `solution.py` and `test_*.py`
+  straight back out of that same bind mount with `exists()` / `is_file()` / `read_text()`, every
+  one of which follows a link. Model code could name any host file the host user can read as its
+  own solution and have the trusted evaluator pull the contents into the scored result and the
+  reported artifacts, in the read direction, past the same `--network none` / `--read-only`
+  container that never saw the write. A `read_model_file` helper now sits beside
+  `write_model_code`: `O_NOFOLLOW` so a link is refused, `O_NONBLOCK` plus a regular-file check
+  so a planted FIFO cannot block the evaluator forever with no timeout anywhere near the call,
+  and a byte cap so an unbounded read on a model-chosen path is no longer a model-chosen
+  allocation. Nine new tests cover the read side; the seven added in 0.3.2 only covered writes.
+
 ### Fixed
 - **A cancelled CLI-agent call left the `claude`/`codex` child running, and the provider's own
   timeout had not started.** Both runner paths wrote the whole prompt and awaited

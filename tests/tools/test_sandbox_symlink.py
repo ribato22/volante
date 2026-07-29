@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from volante.tools.sandbox import write_model_code
+from volante.tools.sandbox import read_model_file, write_model_code
 
 
 def test_a_planted_symlink_does_not_redirect_the_write(tmp_path: Path) -> None:
@@ -103,3 +103,62 @@ def test_helper_uses_nofollow() -> None:
     import inspect
 
     assert "O_NOFOLLOW" in inspect.getsource(write_model_code)
+
+
+# --- the read side ---------------------------------------------------------- #
+# Guarding the WRITE and then reading the same workspace with `read_text()` only
+# reverses the direction of the same escape: the host process resolves the link and
+# pulls its contents back into trusted output.
+
+
+def test_reading_a_planted_symlink_returns_nothing(tmp_path: Path) -> None:
+    victim = tmp_path / "outside"
+    victim.write_text("private host content")
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / "solution.py").symlink_to(victim.resolve())
+
+    assert read_model_file(workspace / "solution.py", max_bytes=1000) is None
+
+
+def test_a_relative_link_is_refused_too(tmp_path: Path) -> None:
+    (tmp_path / "outside").write_text("private host content")
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / "solution.py").symlink_to("../outside")
+
+    assert read_model_file(workspace / "solution.py", max_bytes=1000) is None
+
+
+def test_an_ordinary_file_is_read(tmp_path: Path) -> None:
+    path = tmp_path / "solution.py"
+    path.write_text("def slugify(t):\n    return t\n")
+
+    assert read_model_file(path, max_bytes=1000) == "def slugify(t):\n    return t\n"
+
+
+def test_a_missing_file_is_absent_not_an_error(tmp_path: Path) -> None:
+    assert read_model_file(tmp_path / "nope.py", max_bytes=1000) is None
+
+
+def test_reading_is_capped(tmp_path: Path) -> None:
+    path = tmp_path / "solution.py"
+    path.write_text("x" * 5000)
+
+    assert read_model_file(path, max_bytes=100) == "x" * 100
+
+
+def test_a_fifo_is_refused_rather_than_blocking_forever(tmp_path: Path) -> None:
+    # The dangerous case is not just the wrong CONTENT: opening a model-created
+    # FIFO for reading blocks until someone writes to it, hanging the evaluator
+    # with no timeout anywhere around the read.
+    fifo = tmp_path / "solution.py"
+    os.mkfifo(fifo)
+
+    assert read_model_file(fifo, max_bytes=1000) is None
+
+
+def test_a_directory_is_refused(tmp_path: Path) -> None:
+    (tmp_path / "solution.py").mkdir()
+
+    assert read_model_file(tmp_path / "solution.py", max_bytes=1000) is None

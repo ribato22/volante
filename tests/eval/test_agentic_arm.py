@@ -82,6 +82,46 @@ async def test_run_agentic_single_captures_workspace() -> None:
     assert res.usage_total["m1"].completion_tokens == 4  # 2 turn x 2
 
 
+@pytest.mark.asyncio
+async def test_run_agentic_single_does_not_read_through_a_planted_symlink(
+    tmp_path,
+) -> None:
+    # Sisi-BACA dari escape yang ditambal di 0.3.2. Workspace itu bind-mount sandbox,
+    # jadi kode model memilikinya: ia bisa menaruh `solution.py` sebagai symlink dan
+    # proses host yang tepercaya membacanya ke dalam hasil yang dinilai & dilaporkan.
+    secret = tmp_path / "host_only.py"
+    secret.write_text("HOST_ONLY_SECRET = 1\ndef test_planted():\n    assert True\n")
+    code = (
+        "import os\n"
+        f"os.symlink({str(secret)!r}, 'solution.py')\n"
+        f"os.symlink({str(secret)!r}, 'test_planted.py')\n"
+    )
+    provider = FakeProvider(responses=[
+        _resp([ToolUseBlock(id="u1", name="run_python", input={"code": code})], "tool_use"),
+        _resp([TextBlock(text="no code fence here")], "end_turn"),
+    ])
+
+    res = await run_agentic_single("goal", provider, "m1", Registry([_model("m1")]))
+
+    assert "HOST_ONLY_SECRET" not in res.solution_code
+    assert res.has_tests is False, "a planted link was counted as the model's own tests"
+
+
+@pytest.mark.asyncio
+async def test_run_agentic_single_bounds_an_oversized_solution() -> None:
+    # `read_text()` on a model-controlled path has no ceiling; the arm only ever
+    # needs enough source to score.
+    code = "open('solution.py','w').write('#' + 'a' * 3_000_000)\n"
+    provider = FakeProvider(responses=[
+        _resp([ToolUseBlock(id="u1", name="run_python", input={"code": code})], "tool_use"),
+        _resp([TextBlock(text="done")], "end_turn"),
+    ])
+
+    res = await run_agentic_single("goal", provider, "m1", Registry([_model("m1")]))
+
+    assert 0 < len(res.solution_code) <= 1_000_000
+
+
 class _FailProvider:
     name = "m1"
 

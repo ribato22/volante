@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import stat
 import sys
 from asyncio import create_subprocess_exec as _spawn
 from collections.abc import Awaitable, Callable
@@ -39,6 +40,47 @@ def write_model_code(path: os.PathLike[str] | str, code: str) -> None:
         os.write(fd, code.encode("utf-8"))
     finally:
         os.close(fd)
+
+
+def read_model_file(
+    path: os.PathLike[str] | str, *, max_bytes: int
+) -> str | None:
+    """Read a model-authored workspace file, or ``None`` if it is not one.
+
+    The read side of ``write_model_code``. Guarding only the write reverses the
+    direction of the same escape rather than closing it: the workspace is a bind
+    mount the model owns, so it can plant ``solution.py`` as a symlink and a
+    trusted host process calling ``read_text()`` resolves it and pulls host
+    content into its own output.
+
+    Three refusals, each for a distinct failure:
+    * ``O_NOFOLLOW`` — a symlink is not read, in place or through a parent name.
+    * ``O_NONBLOCK`` + a regular-file check — a FIFO would otherwise BLOCK the
+      opener until something writes to it, with no timeout anywhere near this
+      call; a device or directory would return something that is not source.
+    * ``max_bytes`` — an unbounded ``read_text()`` on a path the model chooses is
+      an allocation the model chooses.
+
+    ``None`` means "no model-authored file here", which callers already handle:
+    absent and refused deserve the same fallback, and raising would turn a
+    hostile workspace into a crashed run.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        fd = os.open(os.fspath(path), flags)
+    except OSError:
+        # Missing, a symlink (ELOOP/EMLINK — BSD and Linux disagree on which),
+        # a directory, or unreadable. All mean the same thing to the caller.
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        data = os.read(fd, max_bytes)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    return data.decode("utf-8", errors="ignore")
 
 # The wrapper runs INSIDE the child process: it sets RLIMIT_CPU before running the
 # snippet. This avoids preexec_fn (fork-unsafe & not safe inside an asyncio event

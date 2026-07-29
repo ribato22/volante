@@ -18,7 +18,7 @@ from volante.agent import AgenticWorker
 from volante.cost import CostMeter
 from volante.providers.base import ProviderError
 from volante.tools.run_python import RunPythonTool
-from volante.tools.sandbox import sandbox_for
+from volante.tools.sandbox import read_model_file, sandbox_for
 from volante.types import (
     CanonicalRequest,
     CapabilityUnavailableError,
@@ -38,6 +38,11 @@ if TYPE_CHECKING:
 
 EVAL_TEMPERATURE: float = 0.0
 EVAL_K: int = 2
+
+# Batas byte untuk artefak yang ditulis MODEL di workspace (solution.py, test_*.py).
+# `read_text()` tanpa plafon pada path yang dipilih model = alokasi yang dipilih
+# model. 1 MB jauh di atas solusi mana pun yang masuk akal untuk tugas eval ini.
+_MAX_ARTIFACT_BYTES: int = 1_000_000
 
 # Timeout wall-clock subprocess score_code (kontrak PATCH v2.1 = 15s). Modul-level
 # agar test bisa memangkasnya untuk kasus while-True tanpa menunggu 15 detik.
@@ -412,14 +417,16 @@ def _scan_workspace(ws: Path) -> tuple[bool, bool]:
     has_readme = False
     for p in ws.iterdir():
         name = p.name.lower()
-        if p.is_file() and (name.startswith("test_") or name.endswith("_test.py")):
-            try:
-                if "def test_" in p.read_text(encoding="utf-8", errors="ignore"):
-                    has_tests = True
-            except OSError:
-                pass
-        if p.is_file() and name.startswith("readme"):
-            has_readme = True
+        # `is_file()` + `read_text()` FOLLOW symlinks, and this workspace is the
+        # sandbox bind mount — the model can name any host file `test_x.py` and be
+        # credited for it. read_model_file refuses anything that is not a regular
+        # file the model itself wrote here.
+        if name.startswith("test_") or name.endswith("_test.py"):
+            body = read_model_file(p, max_bytes=_MAX_ARTIFACT_BYTES)
+            if body is not None and "def test_" in body:
+                has_tests = True
+        if name.startswith("readme"):
+            has_readme = read_model_file(p, max_bytes=1) is not None or has_readme
     return has_tests, has_readme
 
 
@@ -462,10 +469,10 @@ async def run_agentic_single(
             usage_total = meter.totals()
             tools_used = ()
             error = f"{type(exc).__name__}: {exc}"
-        sol = ws / "solution.py"
-        if sol.exists():
-            solution_code = sol.read_text(encoding="utf-8", errors="ignore")
-        else:
+        solution_code = read_model_file(
+            ws / "solution.py", max_bytes=_MAX_ARTIFACT_BYTES
+        )
+        if solution_code is None:
             solution_code = extract_python(final_text)
         has_tests, has_readme = _scan_workspace(ws)
     duration_ms = int((time.perf_counter() - start) * 1000)
