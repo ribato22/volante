@@ -43,6 +43,8 @@ from volante.types import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from volante.providers.cli_agent import CliRunResult
 
 _SCRUB_KEYS = ("OPENAI_API_KEY", "CODEX_API_KEY")
@@ -70,7 +72,26 @@ def _prompt_text(req: CanonicalRequest) -> str:
 
 
 class CodexAdapter:
-    """Implements the CliAgentAdapter Protocol for `codex exec --json`."""
+    """Implements the CliAgentAdapter Protocol for `codex exec --json`.
+
+    ASYMMETRY WITH ClaudeCodeAdapter, stated because it is easy to miss in the argv
+    below. That adapter removes the child's tools outright (``--tools ""`` plus
+    ``--disallowedTools LSP``). `codex exec` has no such flag as of codex-cli 0.145:
+    ``--sandbox read-only`` selects, per the CLI's own help, the policy "when
+    executing model-generated shell commands". It stops writes; it does not make
+    reads root-confined, and the child inherits HOME and CODEX_HOME (needed for OAuth)
+    so it knows where a user's files live. `--ephemeral`, `--ignore-user-config` and
+    `--ignore-rules` isolate it from the user's Codex configuration; none of them
+    close the read path.
+
+    So an injected or hostile prompt reaching this provider can ask the underlying
+    agent to read files outside the `read_file` root and fold the contents into its
+    reply. Registration prints a warning saying so (`_warn_codex_host_tools`), and
+    SECURITY.md carries it in the table rather than leaving the guarantee overstated.
+    NOT verified: whether `-c sandbox_permissions=[]` narrows the read policy — that
+    needs a live spawn against the real CLI, and an unverified guess in this position
+    would be worse than the documented limitation.
+    """
 
     name = "codex"
 
@@ -82,6 +103,7 @@ class CodexAdapter:
         max_output: int,
         system_prompt_mode: str,
         stream: bool,
+        scratch_dir: Path,  # unused: codex takes its whole prompt on stdin already
     ) -> list[str]:
         # `codex exec --json` always emits JSONL; `stream` does not change argv.
         # max_output / system_prompt_mode have no codex exec flag (documented §8.3).

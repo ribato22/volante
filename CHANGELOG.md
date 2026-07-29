@@ -7,6 +7,23 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Security
+- **The user's goal travelled to `claude -p` as a command-line argument.** Projector puts the goal
+  in the system message, and that message was handed to the CLI as an argv element — where
+  `/proc/<pid>/cmdline` is world-readable by default on Linux and any process inspection can read
+  it. Goal text is not a credential, but it is the user's business problem, and it was legible to
+  anyone who could run `ps`. It now travels through a 0600 file in a scratch directory that exists
+  only for the duration of the spawn, via `--system-prompt-file` / `--append-system-prompt-file`.
+  (Those flags are undocumented in `claude --help`'s option list; they were verified to exist
+  against CLI 2.1.220 before being relied on.)
+- **`CODEX_ENABLED=1` quietly widened the file-access boundary, and SECURITY.md said otherwise.**
+  `ClaudeCodeAdapter` strips its child's tools outright (`--tools ""`, `--disallowedTools LSP`).
+  `codex exec` has no equivalent: `--sandbox read-only` selects, in the CLI's own words, the policy
+  for "executing model-generated shell commands" — it stops writes, not reads, and the child
+  inherits `HOME`/`CODEX_HOME` because OAuth needs them. So an injected prompt on that path can
+  ask the underlying agent to read files outside `read_file`'s root. There is no flag to close it
+  in codex-cli 0.145, so it is now stated instead of implied: a warning naming the gap at
+  registration, the asymmetry documented on the adapter, and a SECURITY.md row that no longer
+  claims a boundary this path does not have.
 - **The Web UI accepted a remote bind and then served the bearer token over plain HTTP.**
   `_webui_settings` refused a non-loopback host without `VOLANTE_UI_AUTH_TOKEN` — and then `main`
   printed an `http://` URL and called `uvicorn.run` with no certificate. The browser sends that

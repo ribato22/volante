@@ -29,7 +29,7 @@ def test_name_is_claude_code() -> None:
     assert ClaudeCodeAdapter().name == "claude_code"
 
 
-def test_argv_json_append_is_canonical_no_bare() -> None:
+def test_argv_json_append_is_canonical_no_bare(tmp_path) -> None:
     a = ClaudeCodeAdapter()
     argv = a.argv(
         _req("SYS", "hello"),
@@ -37,6 +37,7 @@ def test_argv_json_append_is_canonical_no_bare() -> None:
         max_output=4096,
         system_prompt_mode="append",
         stream=False,
+        scratch_dir=tmp_path,
     )
     assert argv == [
         "claude", "-p",
@@ -50,17 +51,22 @@ def test_argv_json_append_is_canonical_no_bare() -> None:
         "--disable-slash-commands",
         "--no-chrome",
         "--disallowedTools", "LSP",
-        "--append-system-prompt", "SYS",
+        "--append-system-prompt-file", str(tmp_path / "system-prompt.txt"),
     ]
     # OAuth langganan HARUS hidup + tak boleh skip permission (§8.1).
     assert "--bare" not in argv
     assert "--dangerously-skip-permissions" not in argv
 
 
-def test_argv_stream_switches_output_format() -> None:
+def test_argv_stream_switches_output_format(tmp_path) -> None:
+    # Two scratch dirs: each argv() writes its own prompt file with O_EXCL, so a
+    # shared directory would (correctly) refuse the second call.
+    stream_dir, json_dir = tmp_path / "stream", tmp_path / "json"
+    stream_dir.mkdir()
+    json_dir.mkdir()
     argv = ClaudeCodeAdapter().argv(
         _req("SYS", "hi"), model="opus", max_output=4096,
-        system_prompt_mode="append", stream=True,
+        system_prompt_mode="append", stream=True, scratch_dir=stream_dir,
     )
     assert "--output-format" in argv
     assert argv[argv.index("--output-format") + 1] == "stream-json"
@@ -69,12 +75,12 @@ def test_argv_stream_switches_output_format() -> None:
     assert "--verbose" in argv
     json_argv = ClaudeCodeAdapter().argv(
         _req("SYS", "hi"), model="opus", max_output=4096,
-        system_prompt_mode="append", stream=False,
+        system_prompt_mode="append", stream=False, scratch_dir=json_dir,
     )
     assert "--verbose" not in json_argv
 
 
-def test_argv_disallows_lsp_explicitly_stream_and_nonstream() -> None:
+def test_argv_disallows_lsp_explicitly_stream_and_nonstream(tmp_path) -> None:
     # §13 gate finding (live-verified 2026-07-23): `--tools ""` removed Read/Bash/etc,
     # but the built-in LSP tool SURVIVED availability-wise (it was only
     # permission-DENIED at runtime, safe but not removed). Belt-and-suspenders:
@@ -83,8 +89,8 @@ def test_argv_disallows_lsp_explicitly_stream_and_nonstream() -> None:
     for stream in (False, True):
         argv = ClaudeCodeAdapter().argv(
             _req(None, "hi"), model="opus", max_output=4096,
-            system_prompt_mode="append", stream=stream,
-        )
+            system_prompt_mode="append", stream=stream, scratch_dir=tmp_path,
+        )  # no system message here, so no prompt file is written
         assert "--disallowedTools" in argv
         assert argv[argv.index("--disallowedTools") + 1] == "LSP"
         # Belt-and-suspenders is additive, not a replacement for the primary guard.
@@ -94,27 +100,60 @@ def test_argv_disallows_lsp_explicitly_stream_and_nonstream() -> None:
         assert "--dangerously-skip-permissions" not in argv
 
 
-def test_argv_replace_mode_uses_system_prompt_flag() -> None:
+def test_argv_replace_mode_uses_system_prompt_flag(tmp_path) -> None:
     argv = ClaudeCodeAdapter().argv(
         _req("SYS", "hi"), model="opus", max_output=4096,
-        system_prompt_mode="replace", stream=False,
+        system_prompt_mode="replace", stream=False, scratch_dir=tmp_path,
     )
-    assert "--system-prompt" in argv
-    assert "--append-system-prompt" not in argv
+    assert "--system-prompt-file" in argv
+    assert "--append-system-prompt-file" not in argv
 
 
-def test_argv_omits_system_flag_when_no_system_message() -> None:
+def test_argv_omits_system_flag_when_no_system_message(tmp_path) -> None:
     argv = ClaudeCodeAdapter().argv(
         _req(None, "hi"), model="opus", max_output=4096,
-        system_prompt_mode="append", stream=False,
+        system_prompt_mode="append", stream=False, scratch_dir=tmp_path,
     )
-    assert "--append-system-prompt" not in argv
-    assert "--system-prompt" not in argv
+    assert "--append-system-prompt-file" not in argv
+    assert "--system-prompt-file" not in argv
     assert argv[-2:] == ["--disallowedTools", "LSP"]  # trailing flags when no sys prompt
 
 
+def test_the_goal_never_reaches_the_process_table(tmp_path) -> None:
+    # Projector puts the user's goal in the system message ("Overall goal: ..."), and
+    # that message used to be handed to the CLI as an argv element. Process arguments
+    # are readable by other local accounts on Linux (/proc/<pid>/cmdline is 0444), and
+    # by anything doing process inspection anywhere. Goal text is not a credential,
+    # but it is the user's business problem.
+    goal = "CONFIDENTIAL-acquisition-target-valuation"
+    argv = ClaudeCodeAdapter().argv(
+        _req(f"You are a worker. Overall goal: {goal}", "do it"),
+        model="opus", max_output=4096, system_prompt_mode="replace",
+        stream=False, scratch_dir=tmp_path,
+    )
+
+    assert not any(goal in element for element in argv), "goal is visible in argv"
+    prompt_file = Path(argv[argv.index("--system-prompt-file") + 1])
+    assert goal in prompt_file.read_text()
+
+
+def test_the_system_prompt_file_is_owner_only(tmp_path) -> None:
+    # Moving the text out of argv and into a world-readable file would relocate the
+    # exposure rather than remove it.
+    import stat as _stat
+
+    argv = ClaudeCodeAdapter().argv(
+        _req("SYS", "hi"), model="opus", max_output=4096,
+        system_prompt_mode="replace", stream=False, scratch_dir=tmp_path,
+    )
+
+    written = Path(argv[argv.index("--system-prompt-file") + 1])
+    assert _stat.S_IMODE(written.stat().st_mode) == 0o600
+
+
 def test_stdin_is_user_text_only() -> None:
-    # --input-format text: prompt user lewat stdin; sistem lewat argv (Task 1).
+    # --input-format text: the user prompt goes over stdin. The system prompt used to
+    # travel in argv and now travels in a 0600 file; neither belongs in stdin.
     a = ClaudeCodeAdapter()
     assert a.stdin(_req("SYS", "hello world")) == "hello world"
     assert a.stdin(_req(None, "just user")) == "just user"

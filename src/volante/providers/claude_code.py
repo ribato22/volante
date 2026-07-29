@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 
 from volante.providers.base import ProviderError
 from volante.providers.cli_agent import CliRunResult
@@ -64,6 +66,7 @@ class ClaudeCodeAdapter:
         max_output: int,  # deliberately unused: the CLI ignores the length cap (§8.3)
         system_prompt_mode: str,
         stream: bool,
+        scratch_dir: Path,
     ) -> list[str]:
         out = [
             "claude", "-p",
@@ -90,16 +93,29 @@ class ClaudeCodeAdapter:
             out.append("--verbose")
         sys_text = _system_text(req)
         if sys_text:
+            # Through a FILE, not an argv element. Projector puts the user's goal in
+            # this system message ("Overall goal: ..."), and argv is public: on Linux
+            # /proc/<pid>/cmdline is world-readable by default, and process inspection
+            # reads it everywhere. Goal text is not a credential — SECURITY.md is
+            # clear that secrets must not enter model context at all — but it is the
+            # user's business problem, and it was legible to anyone who could run
+            # `ps`. 0600, inside a scratch directory the provider deletes when the
+            # call returns. The user message already travelled by stdin.
+            prompt_file = scratch_dir / "system-prompt.txt"
+            fd = os.open(prompt_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(sys_text)
             flag = (
-                "--append-system-prompt"
+                "--append-system-prompt-file"
                 if system_prompt_mode == "append"
-                else "--system-prompt"
+                else "--system-prompt-file"
             )
-            out += [flag, sys_text]
+            out += [flag, str(prompt_file)]
         return out
 
     def stdin(self, req: CanonicalRequest) -> str:
-        # user prompt via stdin (--input-format text); the system prompt is already in argv.
+        # user prompt via stdin (--input-format text); the system prompt travels
+        # through a 0600 file, never argv (see `argv`).
         return _user_text(req)
 
     def child_env(self, base: dict[str, str], *, depth: int) -> dict[str, str]:

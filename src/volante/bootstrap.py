@@ -290,6 +290,28 @@ def _warn_subscription(label: str) -> None:
     )
 
 
+def _warn_codex_host_tools() -> None:
+    """Print the one place Volante's file-access boundary does not hold.
+
+    ClaudeCodeAdapter strips every built-in tool (``--tools ""``, ``--disallowedTools
+    LSP``) so its child really is text-only. ``codex exec`` offers no equivalent:
+    ``--sandbox read-only`` selects, in the CLI's own words, the policy for "executing
+    model-generated shell commands" — it stops WRITES and leaves host-wide READS
+    available, and the child inherits HOME and CODEX_HOME so it knows where to look.
+
+    SECURITY.md advertises `read_file`'s root as the boundary for file access. Enabling
+    this provider adds a second, wider path that the boundary does not cover, and the
+    user opting in should hear that from Volante rather than infer it from an argv list.
+    """
+    print(
+        "WARNING: codex runs its OWN tools. `codex exec --sandbox read-only` blocks "
+        "writes but still lets the model read files anywhere your account can, "
+        "outside Volante's root-confined read_file boundary. Prefer claude-code, "
+        "which is launched with its tools removed, for untrusted or injected input.",
+        file=sys.stderr,
+    )
+
+
 def _register_subscription_providers(
     providers: dict[str, LLMProvider],
     extra_models: list[ModelInfo],
@@ -392,6 +414,7 @@ def _register_subscription_providers(
             if baseline_model_id is None:
                 baseline_model_id = mid
         _warn_subscription("codex")
+        _warn_codex_host_tools()
 
     return baseline_model_id
 

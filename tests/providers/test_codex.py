@@ -25,10 +25,10 @@ def test_name_is_codex() -> None:
     assert CodexAdapter().name == "codex"
 
 
-def test_argv_has_exec_json_skip_git_and_model() -> None:
+def test_argv_has_exec_json_skip_git_and_model(tmp_path) -> None:
     argv = CodexAdapter().argv(
         _req(), model="gpt-5-codex", max_output=4096,
-        system_prompt_mode="append", stream=False,
+        system_prompt_mode="append", stream=False, scratch_dir=tmp_path,
     )
     assert argv == [
         "codex", "exec", "--json", "--skip-git-repo-check",
@@ -40,18 +40,22 @@ def test_argv_has_exec_json_skip_git_and_model() -> None:
     ]
 
 
-def test_argv_identical_when_stream_true() -> None:
-    common = dict(model="gpt-5-codex", max_output=4096, system_prompt_mode="append")
+def test_argv_identical_when_stream_true(tmp_path) -> None:
+    common = dict(
+        model="gpt-5-codex", max_output=4096, system_prompt_mode="append",
+        scratch_dir=tmp_path,
+    )
     assert CodexAdapter().argv(_req(), stream=False, **common) == CodexAdapter().argv(
         _req(), stream=True, **common
     )
 
 
-def test_argv_omits_config_model_pair_when_model_empty() -> None:
+def test_argv_omits_config_model_pair_when_model_empty(tmp_path) -> None:
     # Empty model (CODEX_MODEL unset) -> codex exec must fall back to the user's OWN
     # configured default, not an explicit `--config model=` (empty value breaks a real spawn).
     argv = CodexAdapter().argv(
         _req(), model="", max_output=4096, system_prompt_mode="append", stream=False,
+        scratch_dir=tmp_path,
     )
     assert argv == [
         "codex", "exec", "--json", "--skip-git-repo-check",
@@ -63,10 +67,10 @@ def test_argv_omits_config_model_pair_when_model_empty() -> None:
     assert "--config" not in argv
 
 
-def test_argv_includes_config_model_pair_when_model_set() -> None:
+def test_argv_includes_config_model_pair_when_model_set(tmp_path) -> None:
     argv = CodexAdapter().argv(
         _req(), model="gpt-5-codex", max_output=4096,
-        system_prompt_mode="append", stream=False,
+        system_prompt_mode="append", stream=False, scratch_dir=tmp_path,
     )
     assert "--config" in argv
     assert "model=gpt-5-codex" in argv

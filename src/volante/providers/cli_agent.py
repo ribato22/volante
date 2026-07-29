@@ -9,6 +9,7 @@ import tempfile
 import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from volante.providers.base import OnText, ProviderError
@@ -290,7 +291,13 @@ async def _stream_lines(
 
 @runtime_checkable
 class CliAgentAdapter(Protocol):
-    """Claude Code vs Codex differences behind one interface."""
+    """Claude Code vs Codex differences behind one interface.
+
+    ``argv`` receives a ``scratch_dir`` that lives exactly as long as the call. It
+    exists because argv is a PUBLIC channel — other local accounts read
+    ``/proc/<pid>/cmdline`` on Linux, and process inspection reads it everywhere — so
+    an adapter with prompt text to pass needs somewhere private to put it.
+    """
 
     name: str  # "claude_code" | "codex"
 
@@ -302,6 +309,7 @@ class CliAgentAdapter(Protocol):
         max_output: int,
         system_prompt_mode: str,
         stream: bool,
+        scratch_dir: Path,
     ) -> list[str]: ...
 
     def child_env(self, base: dict[str, str], *, depth: int) -> dict[str, str]: ...
@@ -390,29 +398,28 @@ class CliAgentProvider:
 
     async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
         env = self._child_env()
-        argv = self.adapter.argv(
-            req,
-            model=self.model,
-            max_output=self.max_output,
-            system_prompt_mode=self.system_prompt_mode,
-            stream=False,
-        )
         prompt = self.adapter.stdin(req)
-        async with self._semaphore():
-            result = await self._runner(argv, stdin=prompt, env=env, timeout=self.timeout)
+        # The scratch dir outlives the spawn and nothing else: whatever the adapter
+        # put there instead of in argv is gone the moment the call returns.
+        with tempfile.TemporaryDirectory(prefix="volante-prompt-") as scratch:
+            argv = self.adapter.argv(
+                req,
+                model=self.model,
+                max_output=self.max_output,
+                system_prompt_mode=self.system_prompt_mode,
+                stream=False,
+                scratch_dir=Path(scratch),
+            )
+            async with self._semaphore():
+                result = await self._runner(
+                    argv, stdin=prompt, env=env, timeout=self.timeout
+                )
         if result.timed_out or result.returncode != 0 or self.adapter.is_error(result):
             raise self.adapter.classify_error(result)
         return self.adapter.parse(result, req)
 
     async def stream(self, req: CanonicalRequest, on_text: OnText) -> CanonicalResponse:
         env = self._child_env()
-        argv = self.adapter.argv(
-            req,
-            model=self.model,
-            max_output=self.max_output,
-            system_prompt_mode=self.system_prompt_mode,
-            stream=True,
-        )
         prompt = self.adapter.stdin(req)
         parts: list[str] = []
         lines: list[str] = []
@@ -441,10 +448,19 @@ class CliAgentProvider:
                 return True
             return False
 
-        async with self._semaphore():
-            result = await self._runner(
-                argv, stdin=prompt, env=env, timeout=self.timeout, on_line=_on_line
+        with tempfile.TemporaryDirectory(prefix="volante-prompt-") as scratch:
+            argv = self.adapter.argv(
+                req,
+                model=self.model,
+                max_output=self.max_output,
+                system_prompt_mode=self.system_prompt_mode,
+                stream=True,
+                scratch_dir=Path(scratch),
             )
+            async with self._semaphore():
+                result = await self._runner(
+                    argv, stdin=prompt, env=env, timeout=self.timeout, on_line=_on_line
+                )
         if not stopped and (
             result.timed_out or result.returncode != 0 or self.adapter.is_error(result)
         ):

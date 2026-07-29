@@ -372,7 +372,7 @@ class _FakeAdapter:
         self._is_error_result = is_error_result
         self._stream_result_line_value = stream_result_line_value
 
-    def argv(self, req, *, model, max_output, system_prompt_mode, stream):
+    def argv(self, req, *, model, max_output, system_prompt_mode, stream, scratch_dir):
         self.argv_calls.append(
             {
                 "model": model,

@@ -173,6 +173,38 @@ def test_codex_registered_when_enabled_and_login_ok(monkeypatch, capsys):
     assert "interactive" in err and "quota" in err
 
 
+def test_enabling_codex_warns_that_it_brings_its_own_host_tools(monkeypatch, capsys):
+    # ClaudeCodeAdapter strips every built-in tool with `--tools ""` and
+    # `--disallowedTools LSP`. `codex exec` has no equivalent: `--sandbox read-only`
+    # selects the policy for "executing model-generated shell commands", which blocks
+    # WRITES and leaves host-wide READS available. SECURITY.md says file access is
+    # host-mediated and root-confined; on this path it is not, so the user opting in
+    # has to be told rather than left to infer it from an argv list.
+    _clear_all_provider_env(monkeypatch)
+    monkeypatch.setenv("CODEX_ENABLED", "1")
+    monkeypatch.setenv("CODEX_TIER", "3")
+    monkeypatch.setattr("volante.providers.codex.codex_detected", lambda: True)
+
+    build_providers_from_env(include_subscription=True)
+
+    err = capsys.readouterr().err.lower()
+    assert "read" in err
+    assert "read_file" in err  # names the boundary that does not apply here
+
+
+def test_claude_code_makes_no_such_warning(monkeypatch, capsys):
+    # The asymmetry is the point: that adapter really does remove the tools, so
+    # attaching the same warning to it would train people to ignore it.
+    _clear_all_provider_env(monkeypatch)
+    monkeypatch.setenv("CLAUDE_CODE_ENABLED", "1")
+    monkeypatch.setenv("CLAUDE_CODE_TIER", "4")
+    monkeypatch.setattr(bootstrap, "_detect_cli", lambda binary: True)
+
+    build_providers_from_env(include_subscription=True)
+
+    assert "read_file" not in capsys.readouterr().err.lower()
+
+
 def test_codex_id_follows_configured_model(monkeypatch):
     _clear_all_provider_env(monkeypatch)
     monkeypatch.setenv("CODEX_ENABLED", "1")
