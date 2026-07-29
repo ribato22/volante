@@ -101,35 +101,64 @@ async def _drain(
         capture.add(chunk)
 
 
+async def _feed_stdin(proc: asyncio.subprocess.Process, stdin: str) -> None:
+    """Write the prompt and close stdin, as a task the deadline can cover.
+
+    Feeding INLINE (write; await drain) before the timeout region looked harmless
+    because a CLI normally reads its prompt at once. It is not: `drain()` blocks
+    once the prompt exceeds the ~64 KB pipe buffer and the child has not started
+    reading, and canonical prompts are routinely far larger than that. Sitting
+    outside the deadline meant the configured timeout had not started yet, and
+    sitting outside the killpg handlers meant an outer cancellation left the child
+    running and unreaped. Running the feed CONCURRENTLY with the stdout/stderr
+    drains also removes the reverse deadlock, where the child fills its stdout pipe
+    while nobody is draining it because we are still filling its stdin pipe.
+
+    A child that exits or closes stdin early is an ordinary outcome — its
+    returncode is what decides the call — so a broken pipe here must not fail it.
+    """
+    assert proc.stdin is not None
+    try:
+        proc.stdin.write(stdin.encode())
+        await proc.stdin.drain()
+    except (BrokenPipeError, ConnectionResetError):
+        pass
+    finally:
+        # Also on cancellation: a child blocked reading stdin needs the EOF.
+        proc.stdin.close()
+
+
 async def _communicate_bounded(
     proc: asyncio.subprocess.Process,
     stdin: str,
     timeout: float,
 ) -> CliRunResult:
-    assert proc.stdin is not None
-    proc.stdin.write(stdin.encode())
-    await proc.stdin.drain()
-    proc.stdin.close()
     stdout = _BoundedCapture()
     stderr = _BoundedCapture()
     tasks = [
+        asyncio.create_task(_feed_stdin(proc, stdin)),
         asyncio.create_task(_drain(proc.stdout, stdout)),
         asyncio.create_task(_drain(proc.stderr, stderr)),
         asyncio.create_task(proc.wait()),
     ]
+    # `combined` is named rather than inlined so the cleanup below can retrieve
+    # ITS CancelledError too. Draining only the member tasks leaves the gather
+    # wrapper holding an unretrieved exception, which asyncio prints to stderr when
+    # it is collected — on a path Runtime takes for every outer timeout.
+    combined = asyncio.gather(*tasks)
     try:
-        await asyncio.wait_for(asyncio.gather(*tasks), timeout=timeout)
+        await asyncio.wait_for(combined, timeout=timeout)
     except TimeoutError:
         _killpg(proc)
         await proc.wait()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(combined, *tasks, return_exceptions=True)
         return CliRunResult(
             stdout.text(), stderr.text(), -9, timed_out=True
         )
     except asyncio.CancelledError:
         _killpg(proc)
         await proc.wait()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(combined, *tasks, return_exceptions=True)
         raise
     return CliRunResult(
         stdout.text(),
@@ -191,9 +220,6 @@ async def _stream_lines(
     (e.g. on_line raising, or a line that still overruns _STREAM_LIMIT) must not
     leave the child orphaned -- reap it before the exception propagates."""
     assert proc.stdin is not None and proc.stdout is not None
-    proc.stdin.write(stdin.encode())
-    await proc.stdin.drain()
-    proc.stdin.close()
     stdout = _BoundedCapture()
     stderr = _BoundedCapture()
     stopped = False
@@ -208,9 +234,15 @@ async def _stream_lines(
                 return
 
     async def _run_to_completion() -> None:
-        await _pump()
-        if stopped:
-            _killpg(proc)  # early-stop: kill the remaining producer
+        # Inside the deadline, and concurrent with the pump: see _feed_stdin.
+        feed = asyncio.create_task(_feed_stdin(proc, stdin))
+        try:
+            await _pump()
+            if stopped:
+                _killpg(proc)  # early-stop: kill the remaining producer
+        finally:
+            feed.cancel()
+            await asyncio.gather(feed, return_exceptions=True)
         await proc.wait()
         await stderr_task
 

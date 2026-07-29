@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
 import os
 import sys
@@ -11,6 +12,8 @@ import pytest
 
 from volante.providers.base import LLMProvider, ProviderError
 from volante.providers.cli_agent import (
+    _CAPTURE_LIMIT,
+    _TRUNCATION_MARKER,
     CliAgentAdapter,
     CliAgentProvider,
     CliRunResult,
@@ -215,6 +218,136 @@ async def test_stream_cancel_kills_and_reraises():
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+# --- stdin backpressure ---------------------------------------------------- #
+# A CLI that stalls before reading stdin (auth prompt, hung update check) plus a
+# prompt larger than the 64 KB pipe buffer blocks the runner inside
+# `stdin.drain()`. Canonical prompts are routinely hundreds of kilobytes, so this
+# is reachable without an out-of-contract request. Both the deadline and the
+# killpg cleanup must cover the feed, not start after it.
+
+_STALLS_BEFORE_READING_STDIN = "import time; time.sleep(10)"
+_LARGER_THAN_PIPE_BUFFER = "x" * (4 * 1024 * 1024)
+
+_REPORTS_PID_THEN_STALLS = (
+    "import os, sys, time\n"
+    "open(sys.argv[1], 'w').write(str(os.getpid()))\n"
+    "time.sleep(10)\n"
+)
+
+
+async def _child_pid(pid_file) -> int:
+    """Wait for the spawned child to publish its pid, then return it."""
+    for _ in range(200):
+        await asyncio.sleep(0.02)
+        if pid_file.exists() and pid_file.read_text().strip():
+            return int(pid_file.read_text())
+    raise AssertionError("child never reported its pid")
+
+
+def _is_running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+@pytest.mark.parametrize("on_line", [None, lambda _line: False], ids=["complete", "stream"])
+async def test_runner_timeout_covers_stdin_backpressure(on_line):
+    start = time.monotonic()
+    r = await asyncio.wait_for(
+        subprocess_cli_runner(
+            [sys.executable, "-c", _STALLS_BEFORE_READING_STDIN],
+            stdin=_LARGER_THAN_PIPE_BUFFER,
+            env={"PATH": os.environ.get("PATH", "")},
+            timeout=0.5,
+            on_line=on_line,
+        ),
+        timeout=8.0,  # a hang here means the runner's own deadline never started
+    )
+    assert time.monotonic() - start < 5.0
+    assert r.timed_out is True
+    assert r.returncode == -9
+
+
+@pytest.mark.parametrize("on_line", [None, lambda _line: False], ids=["complete", "stream"])
+async def test_runner_cancellation_during_stdin_backpressure_kills_child(
+    tmp_path, on_line
+):
+    pid_file = tmp_path / "child.pid"
+    task = asyncio.ensure_future(
+        subprocess_cli_runner(
+            [sys.executable, "-c", _REPORTS_PID_THEN_STALLS, str(pid_file)],
+            stdin=_LARGER_THAN_PIPE_BUFFER,
+            env={"PATH": os.environ.get("PATH", "")},
+            timeout=30.0,
+            on_line=on_line,
+        )
+    )
+    pid = await _child_pid(pid_file)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert not _is_running(pid), "cancelled runner left the CLI child orphaned"
+
+
+async def test_runner_cancellation_retrieves_every_future_it_cancelled(tmp_path):
+    # Runtime cancels this runner on every outer timeout, so anything asyncio logs
+    # here is logged on an ordinary code path. Cleaning up the member tasks but not
+    # the gather wrapping them leaves that wrapper holding an unretrieved
+    # CancelledError, which asyncio reports to stderr when it is collected.
+    loop = asyncio.get_running_loop()
+    reported: list[dict] = []
+    previous = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: reported.append(context))
+    try:
+        task = asyncio.ensure_future(
+            subprocess_cli_runner(
+                [sys.executable, "-c", _STALLS_BEFORE_READING_STDIN],
+                stdin=_LARGER_THAN_PIPE_BUFFER,
+                env={"PATH": os.environ.get("PATH", "")},
+                timeout=30.0,
+            )
+        )
+        await asyncio.sleep(0.3)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        del task
+        gc.collect()
+        await asyncio.sleep(0.05)
+        gc.collect()
+    finally:
+        loop.set_exception_handler(previous)
+
+    assert reported == [], f"cancellation logged to asyncio: {reported}"
+
+
+async def test_runner_feed_does_not_deadlock_against_a_chatty_child():
+    # Writing the whole prompt before draining stdout deadlocks once the child
+    # fills the stdout pipe while the runner is still filling the stdin one.
+    chatty = (
+        "import sys\n"
+        "sys.stdout.write('y' * 24_000_000)\n"
+        "sys.stdout.flush()\n"
+        "sys.stdin.read()\n"
+    )
+    r = await asyncio.wait_for(
+        subprocess_cli_runner(
+            [sys.executable, "-c", chatty],
+            stdin=_LARGER_THAN_PIPE_BUFFER,
+            env={"PATH": os.environ.get("PATH", "")},
+            timeout=20.0,
+        ),
+        timeout=25.0,
+    )
+    assert r.timed_out is False
+    assert r.returncode == 0
+    # Drained throughout instead of deadlocking; the capture ceiling still applies.
+    assert len(r.stdout) == _CAPTURE_LIMIT + len(_TRUNCATION_MARKER.decode())
 
 
 class _FakeAdapter:

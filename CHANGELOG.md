@@ -7,6 +7,20 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Fixed
+- **A cancelled CLI-agent call left the `claude`/`codex` child running, and the provider's own
+  timeout had not started.** Both runner paths wrote the whole prompt and awaited
+  `stdin.drain()` BEFORE entering the region that installs the deadline and the `killpg`
+  cleanup. `drain()` blocks as soon as the prompt exceeds the ~64 KB pipe buffer and the child
+  has not begun reading — and canonical prompts run to hundreds of kilobytes under the
+  configured context budgets, so this needs no oversized request. An outer Runtime timeout then
+  cancelled a coroutine whose only `finally` removed the temp workdir: the child was neither
+  killed nor reaped, one leaked process per cancellation. The feed is now a task inside the
+  deadline, so `timeout` covers it and both the timeout and cancellation handlers kill the
+  process group. Running it CONCURRENTLY with the stdout/stderr drains also closes the mirror
+  deadlock, where a child filling its stdout pipe blocks forever because nothing drains it while
+  the runner is still filling stdin — reproduced at 24 MB of child output, above the point where
+  the stream reader pauses its transport. Six tests now cover the feed: none did before.
+
 - **The 3x Opus price the 0.3.1 release was named for was still live on the Claude Code path.**
   `claude_code_model_info` valued plan consumption at $0.015/$0.075 per 1k, so a subscription user
   reading `credit_usd` saw three times the value they had actually consumed. Worse, a test asserted
