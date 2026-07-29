@@ -141,6 +141,42 @@ async def test_synthesize_prompt_includes_goal_and_artifacts() -> None:
     assert "DRAFT-TWO" in prompt
 
 
+async def test_the_instruction_does_not_sit_beside_the_artifacts_it_governs() -> None:
+    # Artifacts are worker output, and a worker's text can come from a fetched page,
+    # a read file or a tool result. Concatenating "combine these results" and that
+    # content into ONE user turn gives an injected instruction the same standing as
+    # the real one. Synthesis holds no tools, so the worst case is a corrupted final
+    # answer rather than an action — worth separating anyway, since it costs nothing.
+    provider = _CapturingProvider(_resp("ok"))
+    synth = Synthesizer(provider=provider, model_id="synth-model", cost_meter=CostMeter())
+
+    await synth.synthesize("Write a report", _bb_with_artifacts())
+
+    assert provider.last_req is not None
+    roles = [m.role for m in provider.last_req.messages]
+    assert roles == ["system", "user"]
+    system = provider.last_req.messages[0].content[0].text
+    user = provider.last_req.messages[1].content[0].text
+    assert "Combine them" in system
+    assert "FACT-ONE" not in system, "artifact content leaked into the instruction turn"
+    assert "FACT-ONE" in user
+
+
+async def test_the_instruction_says_the_artifacts_are_data() -> None:
+    # Naming the boundary is the only mitigation available at this layer: there is no
+    # unforgeable delimiter, and a determined injection can still persuade a model.
+    # Saying nothing at all leaves the model no reason to treat the two differently.
+    provider = _CapturingProvider(_resp("ok"))
+    synth = Synthesizer(provider=provider, model_id="synth-model", cost_meter=CostMeter())
+
+    await synth.synthesize("Write a report", _bb_with_artifacts())
+
+    assert provider.last_req is not None
+    system = provider.last_req.messages[0].content[0].text.lower()
+    assert "data" in system
+    assert "instruction" in system
+
+
 async def test_synthesize_handles_empty_artifacts() -> None:
     meter = CostMeter()
     provider = FakeProvider(responses=[_resp("EMPTY-FINAL")])
@@ -228,9 +264,11 @@ async def test_synthesis_prompt_is_bounded_by_selected_model_context() -> None:
     await synth.synthesize("G" * 10_000, bb)
 
     assert provider.last_req is not None
-    prompt = provider.last_req.messages[0].content[0].text
+    # The instruction now travels as a system message, but it is still context: the
+    # budget covers what is SENT, not what sits in one particular turn.
+    sent = sum(len(m.content[0].text) for m in provider.last_req.messages)
     # (200 - 40) * 0.85 * 4 = 544 conservative input characters.
-    assert len(prompt) <= 544
+    assert sent <= 544
     assert provider.last_req.max_tokens == 40
     assert provider.last_req.context_window == 200
 

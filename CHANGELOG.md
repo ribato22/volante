@@ -196,6 +196,21 @@ All notable changes to this project are documented here. The format is based on
   inference runs on the user's own hardware and there is no vendor rate to convert.
 
 ### Changed
+- **The synthesis instruction no longer shares a turn with the artifacts it governs.** Artifacts
+  are worker output, and a worker's text can have come from a fetched page, a read file or a tool
+  result — so concatenating "combine these results" with that content into one user message gave
+  an injected instruction the same standing as the real one. The instruction is now a system
+  message and says explicitly that everything under `Artifacts:` is data to be summarized, not
+  directives to be obeyed. Stated at its real weight: synthesis is offered no tools, so the worst
+  case was always a corrupted final answer rather than an action, and a determined injection can
+  still talk a model round. There is no unforgeable delimiter available at this layer.
+- **SECURITY.md's eval-scorer guarantee said more than the design gives.** "A solution cannot fake
+  a passing score" describes the RESULT CHANNEL, which really is nonce-authenticated and
+  process-separated. It does not describe the benchmark: the same table says `score_code` is not a
+  sandbox for hostile code, and a solution that reads `eval/tasks.py` out of the repository can
+  hard-code the expected answers — verified by doing it. The row now separates the two claims. The
+  Docker row gained the image-tag caveat for the same reason: `python:3.12-slim` is mutable, and
+  "requires a trusted Docker daemon" quietly assumed a trusted image too.
 - **The package's comments and docstrings are now English** — 100 of them across 21 files, proven
   comment-only by comparing normalised ASTs before and after. The Indonesian sat on exactly the
   surfaces an outside contributor reads first: the provider contract, the runtime, the cost ledger.
