@@ -294,6 +294,39 @@ def _score_reference(model_output: str, reference_test: str) -> tuple[float, boo
     return (max(0.0, min(1.0, passed / total)), True)
 
 
+def score_text(output: str, checks) -> float:
+    """Pass fraction over a text goal's checks.
+
+    A check that raises counts as FAILED rather than crashing the run: a rubric bug
+    must not be able to abort a measurement campaign, and silently treating it as a
+    pass would inflate every score. Negative checks (`must be absent`) are inverted
+    here, so the arithmetic stays a plain fraction of satisfied requirements.
+    """
+    if not checks:
+        return 0.0
+    satisfied = 0
+    for check in checks:
+        try:
+            hit = bool(check.passes(output))
+        except Exception:
+            hit = check.negative  # -> counts as unsatisfied either way
+        if hit != check.negative:
+            satisfied += 1
+    return satisfied / len(checks)
+
+
+def score_for(task, output: str) -> float:
+    """Score any goal, dispatching on its task type.
+
+    Code goals run the model's program against hidden cases; every other type runs
+    a mechanical rubric over its prose. Both return 0..1, so a calibration file can
+    mix them without the caller knowing which is which.
+    """
+    if task.task_type == "code":
+        return score_code(output, task.reference_test)
+    return score_text(output, task.checks)
+
+
 def score_task(output: str, reference_test: str) -> dict[str, float]:
     """Skor komposit berbobot: code .7 / has_tests .15 / has_readme .15.
 

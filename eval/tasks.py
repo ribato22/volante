@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 SLUGIFY_GOAL: str = (
@@ -62,17 +63,53 @@ if __name__ == "__main__":
 
 
 @dataclass(frozen=True)
+class TextCheck:
+    """One pass/fail check over a model's prose answer.
+
+    Text goals cannot be graded the way code goals are: there is no program to run
+    against hidden cases. They are graded by a stack of independent mechanical
+    checks, so a score is still a pass fraction rather than an opinion — no LLM
+    judge, which would cost money per grade and drift between runs.
+
+    The threat model differs too. A wrong program fails its tests; a lazy model can
+    SHOTGUN prose — emit every plausible answer, hedge in all directions, pad with
+    whatever a checker might look for — and score well without doing the work. That
+    is why `negative` exists: a check that must be ABSENT punishes the model for
+    covering every option, which no purely positive rubric can do.
+    """
+
+    id: str
+    passes: Callable[[str], bool]
+    negative: bool = False
+
+
+@dataclass(frozen=True)
 class EvalTask:
     """Satu goal eval: instruksi komposit + runner referensi tersembunyi.
 
     reference_test adalah SUMBER Python (stdlib saja) yang mengimpor nama
     yang diharapkan dari `solution`, menjalankan sekumpulan case, dan mencetak
     satu baris `_TAG + json({"passed": int, "total": int})`. `_TAG` di-inject
-    score_code (kanal ber-nonce); runner tak dijalankan standalone."""
+    score_code (kanal ber-nonce); runner tak dijalankan standalone.
+
+    `task_type` names which of the router's four task types this goal exercises.
+    A `code` goal carries a reference_test; every other type carries `checks`
+    instead, because there is nothing to execute."""
 
     id: str
     goal: str
-    reference_test: str
+    reference_test: str = ""
+    task_type: str = "code"
+    checks: tuple[TextCheck, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.task_type == "code":
+            if not self.reference_test:
+                raise ValueError(f"{self.id}: a code goal needs a reference_test")
+        elif not self.checks:
+            # Silently scoring 0.0 for a goal nobody wrote checks for would look
+            # exactly like a model that failed it.
+            raise ValueError(f"{self.id}: a {self.task_type} goal needs checks")
 
 
 # Suite 5 goal komposit (Fase eval-suite). slugify dipertahankan sebagai

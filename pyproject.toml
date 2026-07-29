@@ -126,6 +126,11 @@ select = ["E", "F", "I", "UP", "B"]
 # CSS declarations legitimately run past the line limit; wrapping them would hurt
 # readability without any code-quality gain. Line-length is not enforced here.
 "webui/app.py" = ["E501"]
+# eval/tasks_text.py holds prompt text VERBATIM — the exact string a model is sent,
+# line breaks included. The model sees those breaks, so rewrapping them to satisfy a
+# linter would change the measurement, and a goal that drifts from the artifact it
+# was validated against is worse than a long line.
+"eval/tasks_text.py" = ["E501"]
 
 [tool.mypy]
 # Pragmatic lenient baseline (deliberately NOT --strict): enforces the shipped
