@@ -56,7 +56,7 @@ _STREAM_MESSAGE_KEY = "_volante_stream_message"
 
 
 def _est(s: str) -> int:
-    """Cheap token estimate; never 0 (contract: JANGAN Usage(0, 0))."""
+    """Cheap token estimate; never 0 (contract: NEVER Usage(0, 0))."""
     return max(1, len(s) // 4)
 
 

@@ -6,8 +6,8 @@ from volante.types import ToolSpec
 
 
 class ReadFileTool:
-    """Baca file HOST-MEDIATED hanya di bawah `root` (no traversal / simlink keluar).
-    Bukan host-FS arbitrer; batas kepercayaan = `root`."""
+    """HOST-MEDIATED file read, only under `root` (no traversal / symlink escape).
+    Not arbitrary host FS access; the trust boundary is `root`."""
 
     name = "read_file"
 

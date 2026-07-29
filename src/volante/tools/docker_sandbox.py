@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from asyncio import create_subprocess_exec as _spawn  # alias: hindari substring terlarang hook
+from asyncio import create_subprocess_exec as _spawn  # alias: avoid the substring a hook forbids
 from pathlib import Path
 
 from volante.tools.sandbox import (
@@ -15,9 +15,9 @@ from volante.tools.sandbox import (
 
 
 class DockerSandbox:
-    """Sandbox terisolasi container (interface sama dgn Sandbox). Memperbaiki batas
-    jujur subprocess-sandbox macOS: --network none (jaringan), mount hanya workspace
-    (disk), cgroup limits (memori). Opt-in via sandbox_for()."""
+    """Container-isolated sandbox (same interface as Sandbox). Fixes the honest limits
+    of the macOS subprocess sandbox: --network none (network), mounts only the workspace
+    (disk), cgroup limits (memory). Opt-in via sandbox_for()."""
 
     def __init__(
         self,
@@ -79,10 +79,10 @@ class DockerSandbox:
             pass
 
     async def _terminate(self, proc: asyncio.subprocess.Process, name: str) -> None:
-        # Bunuh container by-name DAN klien `docker run` (proc). Kalau container
-        # belum ada (image masih di-pull), `docker kill` no-op → tanpa proc.kill()
-        # + wait berbatas, `proc.wait()` menggantung tak-terhingga & timeout luar
-        # jadi percuma. proc.wait() dibatasi agar timeout benar-benar menggigit.
+        # Kill the container by name AND the `docker run` client (proc). If the
+        # container does not exist yet (image still being pulled), `docker kill` is a
+        # no-op → without proc.kill() + a bounded wait, `proc.wait()` hangs forever and
+        # the outer timeout is useless. proc.wait() is bounded so the timeout really bites.
         await self._kill(name)
         try:
             proc.kill()

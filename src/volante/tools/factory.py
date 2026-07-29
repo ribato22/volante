@@ -10,7 +10,7 @@ from volante.tools.sandbox import resolve_sandbox_mode, sandbox_for
 def build_agentic_tools(
     workspace, *, allowed_domains=None, read_root=None, sandbox_mode=None
 ) -> ToolRegistry:
-    """run_python (when a sandbox is available) + fetch_url/read_file bila config diberikan.
+    """run_python (when a sandbox is available) + fetch_url/read_file when configured.
 
     ``sandbox_mode`` is normally resolved once at bootstrap and passed in, so the tool
     set here matches the tools the planner was told about. When no isolating sandbox is

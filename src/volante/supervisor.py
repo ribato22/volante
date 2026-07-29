@@ -126,16 +126,16 @@ class Supervisor:
         base_messages = list(req.messages)
         first_exc: ValueError | None = None
         for attempt in range(1, _MAX_PLAN_ATTEMPTS + 1):
-            # on_text -> streaming (progres planning live); else complete (nol
-            # regresi). NOTE: on retry, a partial re-stream of the corrected
+            # on_text -> streaming (live planning progress); else complete (zero
+            # regression). NOTE: on retry, a partial re-stream of the corrected
             # attempt is re-emitted to on_text — acceptable (bounded retries).
             if self._before_call is not None:
                 self._before_call(self._model_id)
             resp = await call_provider(self._provider, req, on_text)
-            # PATCH v2.1: tagih panggilan planning ke model_id SETELAH complete()
-            # sukses dan SEBELUM validasi -> panggilan yang benar-benar dieksekusi
-            # tetap terhitung meski plan-nya ternyata invalid. Setiap attempt
-            # dari retry loop ditagih, bukan hanya attempt terakhir.
+            # PATCH v2.1: bill the planning call to model_id AFTER complete()
+            # succeeds and BEFORE validation -> a call that really was executed
+            # still counts even if the plan turns out to be invalid. Every attempt
+            # of the retry loop is billed, not just the last one.
             self._cost_meter.add(
                 self._model_id, resp.usage, cost_usd=resp.cost_usd
             )
@@ -275,9 +275,9 @@ def _build_tasks(data: list[Any]) -> list[Task]:
     for i, item in enumerate(data):
         if not isinstance(item, dict):
             raise ValueError(f"plan item #{i} is not a JSON object")
-        # depends_on: key absen ATAU JSON null -> [] (bukan TypeError mentah).
-        # Tipe non-array ditolak sebagai plan invalid (ValueError bersih), bukan
-        # lolos ke iterasi yang melempar TypeError tak-tertangkap.
+        # depends_on: key absent OR JSON null -> [] (not a raw TypeError).
+        # A non-array type is rejected as an invalid plan (a clean ValueError), rather
+        # than slipping through to an iteration that raises an uncaught TypeError.
         raw_deps = item.get("depends_on")
         if raw_deps is None:
             raw_deps = []
@@ -335,8 +335,8 @@ def _build_tasks(data: list[Any]) -> list[Task]:
 def validate_plan(tasks: list[Task]) -> None:
     """Validate an entire task DAG, including every task's trusted schema."""
 
-    # Plan kosong = no-op yang, tanpa penjagaan ini, lolos DAG-check (Kahn:
-    # resolved==0==len) dan bikin aexecute lapor "success" tanpa kerja apa pun.
+    # An empty plan is a no-op that, without this guard, passes the DAG check (Kahn:
+    # resolved==0==len) and makes aexecute report "success" without doing any work.
     if not tasks:
         raise ValueError("plan is empty: planner returned no tasks")
     ids = [t.id for t in tasks]

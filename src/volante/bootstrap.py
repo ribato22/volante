@@ -1,12 +1,12 @@
 # src/volante/bootstrap.py
-"""Provider wiring dari environment: bangun Registry + peta LLMProvider + Runtime factory.
+"""Provider wiring from the environment: build Registry + LLMProvider map + Runtime factory.
 
-Dipindah dari `eval/run.py` agar bisa dipakai package (CLI `volante`, Web UI, demo) tanpa
-menyeret dependensi eval. `eval/run.py` me-re-export simbol-simbol ini sehingga
-`run._openai_compat_from_env`/`run.build_providers_from_env` (dipakai
-tests/eval/test_run.py) tetap resolve. Semua fungsi di sini murni/offline kecuali
-konstruksi provider di `build_providers_from_env` (yang pun offline — provider tak konek
-sampai dipanggil)."""
+Moved out of `eval/run.py` so the package (CLI `volante`, Web UI, demo) can use it without
+dragging in the eval dependencies. `eval/run.py` re-exports these symbols so
+`run._openai_compat_from_env`/`run.build_providers_from_env` (used by
+tests/eval/test_run.py) still resolve. Every function here is pure/offline except the
+provider construction in `build_providers_from_env` (which is offline too — a provider does
+not connect until it is called)."""
 
 from __future__ import annotations
 
@@ -190,16 +190,16 @@ def _compat_family_model_info(
 def _openai_compat_from_env(
     env: dict[str, str], prefix: str = "OPENAI_COMPAT"
 ) -> tuple[ModelInfo, str, str, str] | None:
-    """Parse SATU slot provider OpenAI-compatible generik dari env (Gemini/Groq/
-    OpenRouter/DeepSeek/dll. tanpa ubah kode). `prefix` memilih slot: "OPENAI_COMPAT"
-    (slot 1) atau "OPENAI_COMPAT_2"/"_3"/… (slot tambahan). Kembalikan (ModelInfo,
-    base_url, api_key, wire_model) atau None bila tak dikonfigurasi. Murni (tanpa
-    jaringan) agar mudah di-test.
+    """Parse ONE generic OpenAI-compatible provider slot from env (Gemini/Groq/
+    OpenRouter/DeepSeek/etc. without code changes). `prefix` picks the slot:
+    "OPENAI_COMPAT" (slot 1) or "OPENAI_COMPAT_2"/"_3"/… (extra slots). Returns
+    (ModelInfo, base_url, api_key, wire_model), or None when not configured. Pure
+    (no network) so it is easy to test.
 
-    Aktif bila `{prefix}_BASE_URL` diset. Wajib `{prefix}_MODEL` (nama model di wire).
-    Default standar: context 128k, output 8k, tools off, biaya 0 (tak menyesatkan
-    utk free tier; override bila endpoint berbayar). strengths catch-all {coding,
-    reasoning} agar router bisa mengarahkan SEMUA jenis task ke sini.
+    Active when `{prefix}_BASE_URL` is set. `{prefix}_MODEL` (the model name on the
+    wire) is required. Standard defaults: context 128k, output 8k, tools off, cost 0
+    (not misleading for a free tier; override when the endpoint is paid). Catch-all
+    strengths {coding, reasoning} so the router can send EVERY kind of task here.
     """
     base_url = env.get(f"{prefix}_BASE_URL")
     if not base_url:
@@ -232,11 +232,11 @@ def _openai_compat_from_env(
 def _all_openai_compat_from_env(
     env: dict[str, str],
 ) -> list[tuple[ModelInfo, str, str, str]]:
-    """Kumpulkan SEMUA slot OpenAI-compatible: `OPENAI_COMPAT_*` (slot 1) lalu
-    `OPENAI_COMPAT_2_*`, `OPENAI_COMPAT_3_*`, … (bernomor kontigu mulai 2; gap
-    ditolak agar model tidak diam-diam hilang). Memungkinkan beberapa provider
-    (mis. Gemini + Groq + DeepSeek)
-    masing-masing dengan model_id/harga/context sendiri (tanpa numpang slot lain)."""
+    """Collect EVERY OpenAI-compatible slot: `OPENAI_COMPAT_*` (slot 1) then
+    `OPENAI_COMPAT_2_*`, `OPENAI_COMPAT_3_*`, … (numbered contiguously from 2; a gap is
+    rejected so a model cannot silently go missing). Allows several providers
+    (e.g. Gemini + Groq + DeepSeek) each with its own model_id/price/context
+    (without sharing another slot)."""
     numbered: set[int] = set()
     pattern = re.compile(r"^OPENAI_COMPAT_(\d+)_")
     for key, value in env.items():
@@ -420,24 +420,25 @@ def build_providers_from_env(
     prefer: str = "quality",
     include_subscription: bool = False,
 ) -> tuple[Registry, dict[str, LLMProvider], str]:
-    """Bangun (registry, providers-by-model_id, baseline_model_id) dari env.
+    """Build (registry, providers-by-model_id, baseline_model_id) from env.
 
-    `prefer` = objektif routing (§6.2: cash_protect_quota|quality|local|cheap), diteruskan
-    ke `make_runtime_factory`/`Router(prefer=...)` oleh pemanggil. `include_subscription=False`
-    (default, §9 eval fence) → hanya provider API-key/base-url (tes eval tetap hijau, tak
-    pernah menyentuh kuota langganan). `True` → SETELAHNYA daftarkan provider langganan
-    ClaudeCode/Codex via `_register_subscription_providers` — tapi HANYA per provider bila
-    `*_ENABLED=1` DAN CLI-nya terdeteksi di PATH (§7.2); tiap registrasi mencetak peringatan
-    konsumsi kuota interaktif (§9). Provider langganan ditambahkan SETELAH baseline card
-    ditentukan sehingga tak pernah menggeser baseline.
+    `prefer` = the routing objective (§6.2: cash_protect_quota|quality|local|cheap), passed
+    on to `make_runtime_factory`/`Router(prefer=...)` by the caller.
+    `include_subscription=False` (default, §9 eval fence) → API-key/base-url providers only
+    (the eval tests stay green and never touch subscription quota). `True` → AFTERWARDS
+    register the ClaudeCode/Codex subscription providers via
+    `_register_subscription_providers` — but per provider ONLY when `*_ENABLED=1` AND its
+    CLI is detected on PATH (§7.2); each registration prints the interactive-quota
+    consumption warning (§9). Subscription providers are added AFTER the card baseline is
+    decided, so they never displace the baseline.
 
-    Membaca ANTHROPIC_API_KEY, satu ATAU lebih slot OpenAI-compatible generik
-    (OPENAI_COMPAT_* lalu OPENAI_COMPAT_2_*/_3_*… untuk Gemini/Groq/OpenRouter/DeepSeek
-    berbarengan, masing-masing label & harga sendiri), MOONSHOT_API_KEY (+
-    MOONSHOT_BASE_URL), dan OLLAMA_BASE_URL. Registry dipangkas hanya ke model yang
-    punya provider agar Router tak pernah me-route ke model tanpa backend. Prioritas
-    baseline: Anthropic > OPENAI_COMPAT (slot 1 dulu) > Moonshot > Ollama. Import
-    provider lazy supaya `import volante.bootstrap` tetap ringan/nol-jaringan."""
+    Reads ANTHROPIC_API_KEY, one OR MORE generic OpenAI-compatible slots
+    (OPENAI_COMPAT_* then OPENAI_COMPAT_2_*/_3_*… for Gemini/Groq/OpenRouter/DeepSeek
+    side by side, each with its own label & prices), MOONSHOT_API_KEY (+
+    MOONSHOT_BASE_URL), and OLLAMA_BASE_URL. The registry is trimmed down to only the
+    models that have a provider, so the Router never routes to a model with no backend.
+    Baseline priority: Anthropic > OPENAI_COMPAT (slot 1 first) > Moonshot > Ollama.
+    Provider imports are lazy so `import volante.bootstrap` stays light/zero-network."""
     from volante.providers.anthropic import AnthropicProvider
     from volante.providers.openai_compat import OpenAICompatProvider
 
@@ -476,8 +477,8 @@ def build_providers_from_env(
                 "set a distinct *_NAME per slot"
             )
         providers[info.id] = OpenAICompatProvider(base_url=base_url, api_key=api_key, model=wire)
-        extra_models.append(info)  # ModelInfo sendiri -> registry (pricing/context benar)
-        if baseline_model_id is None:  # slot 1 lebih dulu -> baseline di antara slot compat
+        extra_models.append(info)  # its own ModelInfo -> registry (correct pricing/context)
+        if baseline_model_id is None:  # slot 1 first -> baseline among the compat slots
             baseline_model_id = info.id
 
     moonshot_key = env.get("MOONSHOT_API_KEY")
@@ -592,7 +593,7 @@ def build_providers_from_env(
         inventory_models,
         quality_profiles=load_quality_profiles(env),
     )
-    assert baseline_model_id is not None  # dijamin oleh guard di atas
+    assert baseline_model_id is not None  # guaranteed by the guard above
     return registry, providers, baseline_model_id
 
 
@@ -858,11 +859,11 @@ def make_runtime_factory(
     *,
     prefer: str = "quality",
 ) -> Callable[[], Runtime]:
-    """Factory Runtime segar per pemanggilan (Supervisor non-re-entrant, CostMeter
-    per-run) berbagi registry + providers. Supervisor/Synthesizer memakai planner
-    temperature-controllable (card) yang dipilih `_planner_model_id` (§7.1), bukan
-    langsung `model_id` — Worker/AgenticWorker tetap memakai peta providers penuh
-    dan Router memakai `prefer`. Default `prefer="quality"` MATCHES `Router.__init__`'s
+    """Factory giving a fresh Runtime per call (Supervisor is non-re-entrant, CostMeter
+    is per-run) while sharing registry + providers. Supervisor/Synthesizer use the
+    temperature-controllable (card) planner picked by `_planner_model_id` (§7.1), not
+    `model_id` directly — Worker/AgenticWorker still use the full providers map
+    and Router uses `prefer`. Default `prefer="quality"` MATCHES `Router.__init__`'s
     own default: route each task to the highest predicted fit. Pass
     `prefer="cash_protect_quota"` to right-size instead and protect subscription quota.
 

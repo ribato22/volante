@@ -24,7 +24,7 @@ _RETRYABLE_STATUSES = frozenset({408, 409, 429})
 
 
 def _est(s: str) -> int:
-    """Cheap token estimate; never returns 0 (contract: JANGAN Usage(0, 0))."""
+    """Cheap token estimate; never returns 0 (contract: NEVER Usage(0, 0))."""
     return max(1, len(s) // 4)
 
 
@@ -222,8 +222,8 @@ class AnthropicProvider:
         stopped = False
         final = None
         try:
-            # `async with` menutup stream pada exit NORMAL, early-stop, MAUPUN
-            # CancelledError (timeout) -> tak ada koneksi bocor.
+            # `async with` closes the stream on a NORMAL exit, on early-stop, AND on
+            # CancelledError (timeout) -> no leaked connection.
             async with self._client.messages.stream(**kwargs) as s:
                 async for delta in s.text_stream:
                     parts.append(delta)
@@ -236,8 +236,8 @@ class AnthropicProvider:
             raise _to_provider_error(exc, self.billing) from exc
         latency_ms = int((time.perf_counter() - start) * 1000)
         if stopped:
-            # Early-stop: get_final_message tak tersedia; bangun response parsial dari
-            # teks terakumulasi (tool_use/usage server tak lengkap -> estimasi bertanda).
+            # Early-stop: get_final_message is unavailable; build a partial response from
+            # the accumulated text (server tool_use/usage is incomplete -> flagged estimate).
             text_out = "".join(parts)
             return CanonicalResponse(
                 content=[TextBlock(text=text_out)],

@@ -39,7 +39,7 @@ from volante.worker import Worker
 
 logger = logging.getLogger(__name__)
 
-# billing yang dihitung sebagai kuota langganan (bukan cash) untuk guard per-run.
+# billing that counts as subscription quota (not cash) for the per-run guard.
 _SUBSCRIPTION_BILLING = frozenset({"plan_included", "plan_credit"})
 
 
@@ -68,11 +68,11 @@ def _text_of(content: list[ContentBlock]) -> str:
 def _task_cb(
     on_worker_text: Callable[[str, str], object] | None, task_id: str
 ) -> Callable[[str], object] | None:
-    """Bungkus `on_worker_text(task_id, delta)` menjadi `on_text(delta)` ber-label,
-    supaya stream worker paralel bisa diurai per-task oleh konsumen. None -> None
-    (tak streaming). Nilai kembalian diteruskan (truthy = early-stop, konsisten
-    dengan kontrak on_text). Caveat: seperti streaming ber-retry lain, kegagalan
-    retryable di tengah stream akan memancarkan ulang teks parsial (lihat AgenticWorker)."""
+    """Wrap `on_worker_text(task_id, delta)` into a labelled `on_text(delta)`, so
+    consumers can demultiplex parallel worker streams per task. None -> None (no
+    streaming). The return value is passed through (truthy = early-stop, consistent
+    with the on_text contract). Caveat: like other retrying streams, a retryable
+    failure mid-stream will re-emit partial text (see AgenticWorker)."""
     if on_worker_text is None:
         return None
 
@@ -612,12 +612,12 @@ class Runtime:
         sem: asyncio.Semaphore,
         on_worker_text: Callable[[str, str], None] | None = None,
     ) -> bool:
-        # Penjaga fail-fast: eksepsi TAK-terduga (KeyError provider di agent,
-        # ValueError worker, OSError/FileNotFoundError sandbox, RuntimeError konfig)
-        # TIDAK boleh lolos ke asyncio.gather. Kalau lolos: sibling se-wave jadi
-        # orphan (subprocess/container bocor) dan tulisan cost/blackboard pasca-gagal
-        # tetap terjadi. Di sini direkam sebagai status gagal (replayable) lalu
-        # fail-fast lewat return False — bukan crash yang membuang state.
+        # Fail-fast guard: UNEXPECTED exceptions (provider KeyError in the agent,
+        # worker ValueError, sandbox OSError/FileNotFoundError, config RuntimeError)
+        # must NOT escape into asyncio.gather. If one does: same-wave siblings are
+        # orphaned (leaked subprocess/container) and post-failure cost/blackboard
+        # writes still happen. Here it is recorded as a failed status (replayable)
+        # then fails fast via return False — not a crash that throws state away.
         model_id = "unknown"
         try:
             required_tools = effective_required_tools(task)
@@ -671,7 +671,7 @@ class Runtime:
         # aexecute, so if one ever DID escape it must still convert to a recorded task
         # failure -> structured RunResult, never a raw exception out of aexecute. Letting
         # it fall through to the general handler below closes that contract at the source.
-        except Exception as err:  # noqa: BLE001 - konversi jadi kegagalan tercatat
+        except Exception as err:  # noqa: BLE001 - converted into a recorded failure
             self._remember_task_error(task.id, err)
             bb.append(
                 Entry(
@@ -696,32 +696,32 @@ class Runtime:
         model_ids: list[str],
         on_worker_text: Callable[[str, str], None] | None = None,
     ) -> bool:
-        # Jalur agentic: _run_agentic kini memiliki loop kandidatnya sendiri
-        # (proyeksi per-kandidat di dalam) dan mengambil slot fan-out sendiri
-        # (hindari akuisisi semaphore ganda -> deadlock).
+        # Agentic path: _run_agentic now has its own candidate loop (per-candidate
+        # projection inside) and takes its own fan-out slot (avoids a double
+        # semaphore acquisition -> deadlock).
         if task.mode == "agentic":
             return await self._run_agentic(task, bb, run_id, sem, model_ids, on_worker_text)
 
-        # Stream one-shot ter-label task.id (output paralel terurai per-task).
+        # One-shot stream labelled with task.id (parallel output is demultiplexed per task).
         worker_cb = _task_cb(on_worker_text, task.id)
         last_err: Exception | None = None
         last_model = model_ids[0]
-        async with sem:  # satu slot fan-out per task, membungkus loop kandidat+retry
+        async with sem:  # one fan-out slot per task, wrapping the candidate+retry loop
             for candidate_index, model_id in enumerate(model_ids):
                 last_model = model_id
-                # RE-PROYEKSI WAJIB per kandidat: req lama ter-scope ke
-                # context_window/max_output model sebelumnya, dan langkah reroute
-                # bisa mendarat di model dengan jendela jauh lebih kecil (tier 4 ke
-                # model lokal turun beberapa orde). Proyeksi ulang menjaga budget
-                # input & req.max_tokens benar untuk kandidat ini.
-                # Sengaja tanpa angka: angka model berubah, komentar tidak.
+                # MANDATORY RE-PROJECTION per candidate: the old req is scoped to the
+                # previous model's context_window/max_output, and a reroute step can
+                # land on a model with a much smaller window (tier 4 down to a local
+                # model drops by several orders of magnitude). Re-projecting keeps the
+                # input budget & req.max_tokens correct for this candidate.
+                # Deliberately no numbers: model numbers change, the comment does not.
                 req = self.projector.project(task, model_id, bb)
                 req.run_id = run_id
                 req.task_id = task.id
                 req.attempt = 0
                 reroute = False
                 reroute_reason: str | None = None
-                # attempt 0..max_retries inklusif => (max_retries + 1) percobaan.
+                # attempt 0..max_retries inclusive => (max_retries + 1) tries.
                 for attempt in range(self.max_retries + 1):
                     req.attempt = attempt
                     try:
@@ -757,7 +757,7 @@ class Runtime:
                                 )
                             )
                             break
-                        # Retry di kandidat SAMA hanya untuk transien/timeout.
+                        # Retry on the SAME candidate only for transient/timeout.
                         retryable = isinstance(err, TimeoutError) or (
                             isinstance(err, ProviderError) and err.retryable
                         )
@@ -814,8 +814,8 @@ class Runtime:
                         reason=reason,
                         message=str(last_err),
                     )
-                    # Satu entry status ber-alasan per kandidat yang ditinggalkan
-                    # (trace blackboard memperlihatkan jalannya reroute).
+                    # One reasoned status entry per abandoned candidate (the
+                    # blackboard trace shows how the reroute went).
                     bb.append(
                         Entry(
                             run_id=run_id,
@@ -828,11 +828,11 @@ class Runtime:
                             timestamp=time.time(),
                         )
                     )
-                    continue  # coba kandidat berikutnya TANPA sleep
+                    continue  # try the next candidate WITHOUT sleeping
                 # Semantic/request failures do not walk the remaining inventory:
                 # repeating an invalid request across providers only burns budget.
                 break
-        # gagal final: rekam str(err) di entry status agar replayable.
+        # final failure: record str(err) in the status entry so it stays replayable.
         bb.append(
             Entry(
                 run_id=run_id,
@@ -867,15 +867,16 @@ class Runtime:
                 f"task {task.id!r} requires unavailable runtime tools: "
                 f"{sorted(missing_tools)}"
             )
-        worker_cb = _task_cb(on_worker_text, task.id)  # stream agentic ter-label
+        worker_cb = _task_cb(on_worker_text, task.id)  # labelled agentic stream
         last_err: Exception | None = None
-        # Satu slot fan-out membungkus SEMUA kandidat (satu task = satu slot). Cap
-        # per-provider (Phase 6) di luar lingkup follow-up ini.
+        # One fan-out slot wraps ALL candidates (one task = one slot). A per-provider
+        # cap (Phase 6) is out of scope for this follow-up.
         async with sem:
             for candidate_index, model_id in enumerate(model_ids):
-                # RE-PROJEKSI WAJIB per kandidat: context_window/max_output berbeda
-                # antar-model, dan bisa berbeda beberapa orde; req kandidat lama akan
-                # overflow di model lebih kecil bila tak diproyeksi ulang.
+                # MANDATORY RE-PROJECTION per candidate: context_window/max_output
+                # differ between models, and can differ by several orders of magnitude;
+                # the old candidate's req would overflow on a smaller model if it is
+                # not re-projected.
                 req = self.projector.project(task, model_id, bb)
                 req.run_id = run_id
                 req.task_id = task.id
@@ -903,11 +904,12 @@ class Runtime:
                     )
                 except (ProviderError, TimeoutError) as err:
                     last_err = err
-                    # Reroute mid-agentic me-RESTART task dari awal pada kandidat baru:
-                    # turn parsial kandidat lama TIDAK direplay & tak dipersist sebagai
-                    # TurnRecord (biayanya sudah ter-meter di cost_meter, side-effect
-                    # workspace tetap ada). Keterbatasan ini DITERIMA & DIDOKUMENTASIKAN
-                    # (§6.4) — dikerjakan setelah jalur one-shot stabil.
+                    # A mid-agentic reroute RESTARTS the task from scratch on the new
+                    # candidate: the old candidate's partial turns are NOT replayed and
+                    # are not persisted as TurnRecords (their cost is already metered in
+                    # cost_meter, workspace side effects remain). This limitation is
+                    # ACCEPTED & DOCUMENTED (§6.4) — to be done once the one-shot path
+                    # is stable.
                     if (
                         candidate_index + 1 < len(model_ids)
                         and (
@@ -959,7 +961,7 @@ class Runtime:
                     )
                     self._remember_task_error(task.id, err)
                     return False
-                # sukses di kandidat ini: jejak per-turn + artifact + status.
+                # success on this candidate: per-turn trace + artifact + status.
                 for tr in res.turns:
                     bb.append(
                         Entry(
@@ -997,8 +999,8 @@ class Runtime:
         return False
 
     def _is_subscription(self, model_id: str) -> bool:
-        # Model tak terdaftar (mis. Registry([]) di test) -> perlakukan sebagai
-        # 'direct' agar guard tak salah-picu (nol regresi).
+        # Unregistered model (e.g. Registry([]) in tests) -> treat it as 'direct' so
+        # the guard does not misfire (zero regression).
         try:
             billing = self.registry.get(model_id).billing
         except ValueError:
@@ -1067,8 +1069,8 @@ class Runtime:
         error_code: str | None = None,
         error_message: str | None = None,
     ) -> RunResult:
-        # Cost close-out dipakai KEDUA jalur (sukses & gagal). Dua-ledger:
-        # billed_usd = cash keluar (card); credit_usd = nilai konsumsi plan_* (bukan cash).
+        # Cost close-out is used by BOTH paths (success & failure). Two ledgers:
+        # billed_usd = cash out (card); credit_usd = value of plan_* usage (not cash).
         billed, credit = self.cost_meter.costs_usd(self.registry)
         return RunResult(
             status=status,
@@ -1097,10 +1099,10 @@ class Runtime:
         on_text: Callable[[str], None] | None = None,
         on_worker_text: Callable[[str, str], None] | None = None,
     ) -> RunResult:
-        # on_text men-stream fase SEKUENSIAL (planning + sintesis). on_worker_text
-        # men-stream teks TIAP task (one-shot & agentic) ter-label task_id, sehingga
-        # output worker PARALEL bisa diurai per-task (bukan bercampur). Keduanya
-        # None = complete di semua fase (nol regresi).
+        # on_text streams the SEQUENTIAL phases (planning + synthesis). on_worker_text
+        # streams the text of EVERY task (one-shot & agentic) labelled with task_id, so
+        # PARALLEL worker output can be demultiplexed per task (not mixed together).
+        # Both None = complete in every phase (zero regression).
         started = time.perf_counter()
         run_id = uuid.uuid4().hex
         raw_cap = os.environ.get("VOLANTE_MAX_SUBSCRIPTION_CALLS", "16")
@@ -1196,7 +1198,7 @@ class Runtime:
                         code, message = self._task_errors.get(
                             task.id, ("task_failed", "task failed")
                         )
-                        # fail-fast antar-wave: sibling se-wave yang sukses tetap tersimpan.
+                        # fail fast between waves: successful same-wave siblings are kept.
                         return self._finalize(
                             bb,
                             started,

@@ -11,8 +11,8 @@ from volante.types import CanonicalRequest, CanonicalResponse
 
 
 class Worker:
-    """Menjalankan satu request one-shot terhadap provider yang dipilih router,
-    lalu mencatat usage ke CostMeter (key = model_id) setelah complete() sukses."""
+    """Runs one one-shot request against the provider the router picked, then
+    records usage into CostMeter (key = model_id) after complete() succeeds."""
 
     def __init__(
         self,
@@ -34,9 +34,9 @@ class Worker:
             raise ValueError(
                 f"no provider registered for model_id={model_id!r}"
             ) from exc
-        # on_text -> streaming; else complete (nol regresi). Runtime meneruskan
-        # callback ber-label per-task (lihat _task_cb) sehingga worker paralel pun
-        # bisa diurai per-task oleh konsumen.
+        # on_text -> streaming; else complete (zero regression). Runtime passes down a
+        # per-task labelled callback (see _task_cb) so that even parallel workers can
+        # still be untangled per task by the consumer.
         resp = await call_provider(provider, req, on_text)
         # Forward provider-authoritative cost_usd (for example CLI-agent
         # total_cost_usd) consistently across every orchestration phase.

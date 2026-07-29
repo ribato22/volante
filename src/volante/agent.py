@@ -97,7 +97,7 @@ class AgenticResult:
 
 
 class AgenticWorker:
-    """Loop model↔tool sampai end_turn / batas. Tak kenal blackboard (Runtime yg menulis)."""
+    """Loop model↔tool until end_turn / the limit. Knows no blackboard (Runtime writes it)."""
 
     def __init__(
         self,
@@ -147,9 +147,9 @@ class AgenticWorker:
                 return await call_provider(provider, req, on_text)
             except (ProviderError, TimeoutError) as err:
                 last = err
-                # quota_exhausted (kuota/kredit langganan habis) TAK di-backoff:
-                # short-circuit -> Runtime me-reroute ke kandidat lain (§6.4),
-                # bukan tidur detik-an percuma.
+                # quota_exhausted (subscription quota/credit used up) is NOT backed
+                # off: short-circuit -> Runtime reroutes to another candidate (§6.4),
+                # rather than sleeping for seconds to no purpose.
                 reroutable = isinstance(err, ProviderError) and (
                     err.quota_exhausted
                     or err.candidate_unavailable
@@ -163,10 +163,10 @@ class AgenticWorker:
                     await asyncio.sleep(0.5 * 2**attempt + random.uniform(0, 0.25))
                     continue
                 break
-        # Semua kegagalan keluar loop bersifat NON-retryable ke Runtime. Rantai
-        # `from last` + status HTTP dipertahankan agar traceback/diagnosa tak hilang.
-        # quota_exhausted DIPROPAGASI (re-wrap lama membuangnya) agar Runtime bisa
-        # reroute jalur agentic alih-alih menggagalkan task (§6.4).
+        # Every failure that leaves the loop is NON-retryable as far as Runtime is
+        # concerned. The `from last` chain + HTTP status are kept so the traceback /
+        # diagnosis is not lost. quota_exhausted is PROPAGATED (the old re-wrap threw it
+        # away) so Runtime can reroute the agentic path instead of failing the task (§6.4).
         raise ProviderError(
             str(last),
             retryable=False,
@@ -194,7 +194,7 @@ class AgenticWorker:
         required_tools: frozenset[str] | None = None,
     ) -> AgenticResult:
         provider = self.providers[model_id]
-        messages = list(req.messages)  # SALINAN — jangan mutasi input
+        messages = list(req.messages)  # COPY — do not mutate the input
         specs = [t.spec for t in tools.values()]
         local = CostMeter()
         turns: list[TurnRecord] = []

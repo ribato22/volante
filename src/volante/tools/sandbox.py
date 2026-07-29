@@ -40,10 +40,10 @@ def write_model_code(path: os.PathLike[str] | str, code: str) -> None:
     finally:
         os.close(fd)
 
-# Wrapper dijalankan DI DALAM proses anak: set RLIMIT_CPU sebelum menjalankan
-# snippet. Ini menghindari preexec_fn (fork-unsafe & tak aman di event loop
-# asyncio). RLIMIT_AS (memori) sengaja TIDAK diset — praktis tak
-# ditegakkan di macOS; timeout adalah backstop nyata.
+# The wrapper runs INSIDE the child process: it sets RLIMIT_CPU before running the
+# snippet. This avoids preexec_fn (fork-unsafe & not safe inside an asyncio event
+# loop). RLIMIT_AS (memory) is deliberately NOT set — in practice it is not
+# enforced on macOS; the timeout is the real backstop.
 _WRAPPER = (
     "import resource,runpy,sys;"
     "c=int(sys.argv[1]);"
@@ -56,8 +56,8 @@ _OUTPUT_LIMIT_MARKER = b"\n...[sandbox output truncated: byte limit reached]...\
 
 
 def _clean_env(workspace: Path) -> dict[str, str]:
-    # Hanya PATH + HOME/TMPDIR (diarahkan ke workspace). Semua secret (*_API_KEY,
-    # dll.) dibuang: kode yang dinilai tak bisa membaca env kredensial.
+    # Only PATH + HOME/TMPDIR (pointed at the workspace). Every secret (*_API_KEY,
+    # etc.) is dropped: the code being evaluated cannot read credential env vars.
     return {
         "PATH": os.environ.get("PATH", ""),
         "HOME": str(workspace),
@@ -216,8 +216,8 @@ async def _terminate_process_group(proc: asyncio.subprocess.Process) -> None:
 
 
 class Sandbox:
-    """Eksekusi Python best-effort di satu workspace (POSIX). Satu Sandbox per
-    agentic-task; file bertahan antar pemanggilan `run`."""
+    """Best-effort Python execution in a single workspace (POSIX). One Sandbox per
+    agentic task; files persist across `run` calls."""
 
     def __init__(
         self,
@@ -249,7 +249,7 @@ class Sandbox:
             env=_clean_env(self.workspace),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,  # grup proses sendiri → killpg bunuh cucu juga
+            start_new_session=True,  # own process group → killpg kills grandchildren too
         )
         return await _collect_bounded_output(
             proc,

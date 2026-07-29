@@ -57,10 +57,10 @@ class CliRunResult:
     stdout: str
     stderr: str
     returncode: int
-    timed_out: bool = False  # True bila proses dibunuh karena melewati timeout
+    timed_out: bool = False  # True when the process was killed for exceeding the timeout
 
 
-# Injected async runner (mock di test → tak pernah spawn claude/codex sungguhan).
+# Injected async runner (mocked in tests → never spawns a real claude/codex).
 # async def runner(argv, *, stdin, env, timeout, on_line=None) -> CliRunResult
 CliRunner = Callable[..., Awaitable[CliRunResult]]
 
@@ -139,7 +139,7 @@ async def _communicate_bounded(
 
 
 def _killpg(proc: asyncio.subprocess.Process) -> None:
-    # Bunuh seluruh grup proses (mirror tools/sandbox._killpg) → cucu ikut mati.
+    # Kill the whole process group (mirrors tools/sandbox._killpg) → grandchildren die too.
     try:
         os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
@@ -166,7 +166,7 @@ async def subprocess_cli_runner(
             stderr=asyncio.subprocess.PIPE,
             cwd=workdir,
             env=env,
-            start_new_session=True,  # grup proses sendiri → killpg bunuh cucu juga
+            start_new_session=True,  # own process group → killpg kills grandchildren too
             limit=_STREAM_LIMIT,  # allow large stream-json lines without erroring
         )
         if on_line is None:

@@ -32,8 +32,8 @@ def _trim(content: str, budget: int, label: str) -> str:
 
 
 class Synthesizer:
-    """Merangkai current_artifacts dari blackboard menjadi satu output final via provider,
-    lalu mencatat usage ke CostMeter (key = model_id) setelah complete() sukses."""
+    """Weaves the blackboard's current_artifacts into one final output via the provider,
+    then records usage into CostMeter (key = model_id) after complete() succeeds."""
 
     def __init__(
         self,
@@ -133,7 +133,7 @@ class Synthesizer:
             max_tokens=output_tokens,
             context_window=self._context_window,
         )
-        # on_text -> streaming (progres sintesis live); else complete (nol regresi).
+        # on_text -> streaming (live synthesis progress); else complete (zero regression).
         if self._before_call is not None:
             self._before_call(self._model_id)
         resp = await call_provider(self._provider, req, on_text)

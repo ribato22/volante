@@ -33,19 +33,20 @@ def model_input_char_budget(context_window: int, max_output_tokens: int) -> int:
 
 
 def _mid_trim(content: str, dep_id: str, char_share: int) -> str:
-    """Pangkas satu artifact ke jatah karakternya (`char_share`).
+    """Trim one artifact to its character share (`char_share`).
 
-    Simpan KEPALA + EKOR lalu sisipkan marker di tengah bila konten melebihi
-    jatahnya. Panjang hasil selalu <= char_share sehingga budget total aman
-    dan dependency ini tetap terwakili (tak pernah hilang total).
+    Keep the HEAD + TAIL then insert a marker in the middle when the content
+    exceeds its share. The result length is always <= char_share, so the overall
+    budget stays safe and this dependency is still represented (it never drops
+    out entirely).
     """
     if len(content) <= char_share:
         return content
     marker = f"\n…[dipangkas tengah artifact {dep_id}]…\n"
     keep = char_share - len(marker)
     if keep <= 0:
-        # Jatah lebih kecil dari marker: kembalikan penanda terpangkas agar blok
-        # tetap hadir (dependency tak hilang) & budget tetap dihormati.
+        # share smaller than the marker: return a truncated marker so the block
+        # is still present (the dependency is not lost) & the budget is respected.
         return marker[:char_share]
     head_len = keep // 2
     tail_len = keep - head_len
@@ -72,7 +73,7 @@ class Projector:
         artifacts = bb.current_artifacts()
         deps = [dep for dep in task.depends_on if dep in artifacts]
 
-        # Budget input token dengan margin keamanan 0.85 (PATCH v2.1).
+        # Input token budget with a 0.85 safety margin (PATCH v2.1).
         max_tokens = min(
             model.max_output_tokens, max(1, model.context_window // 2)
         )
@@ -111,9 +112,9 @@ class Projector:
         if not deps:
             user_content = task_line
         else:
-            # Tiap dependency dapat blok berlabel sendiri; no artifact can starve
+            # Each dependency gets its own labelled block; no artifact can starve
             # another because each receives an equal share of remaining context.
-            share = remaining // len(deps)  # ruang konten per-dependency (rata)
+            share = remaining // len(deps)  # content space per dependency (even)
             blocks = [
                 f"{labels[dep]}{_mid_trim(str(artifacts[dep]), dep, share)}"
                 for dep in deps

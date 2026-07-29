@@ -43,28 +43,29 @@ def _canonical_stop_reason(finish_reason: object) -> str:
     return _FINISH_REASON_MAP.get(finish_reason, finish_reason)
 
 
-# HTTP status transien yang layak di-retry.
+# Transient HTTP statuses worth retrying.
 _RETRYABLE_STATUSES: frozenset[int] = frozenset({408, 409, 429})
 
 
 @dataclass(frozen=True)
 class BackendConfig:
-    """Konfigurasi wire untuk backend OpenAI-compatible.
+    """Wire configuration for an OpenAI-compatible backend.
 
-    ``output_tokens_param`` adalah field chat.completions yang membatasi panjang
-    output. Satu sumber kebenaran agar literal tidak tersebar di kode request.
+    ``output_tokens_param`` is the chat.completions field that caps the output
+    length. One source of truth, so the literal is not scattered across the
+    request code.
     """
 
     output_tokens_param: str = "max_tokens"
 
 
 def _est(s: str) -> int:
-    """Estimasi token kasar, dipakai HANYA saat server tak mengirim usage."""
+    """Rough token estimate, used ONLY when the server sends no usage."""
     return max(1, len(s) // 4)
 
 
 def _to_chat_messages(messages: list[CanonicalMessage]) -> list[dict]:
-    """Canonical -> chat.completions messages, termasuk tool_use/tool_result."""
+    """Canonical -> chat.completions messages, including tool_use/tool_result."""
     out: list[dict] = []
     for m in messages:
         tool_results = [b for b in m.content if isinstance(b, ToolResultBlock)]
@@ -119,7 +120,7 @@ def _is_network_error(err: BaseException) -> bool:
 
 
 def _classify_error(err: BaseException) -> tuple[bool, int | None]:
-    """(retryable, status): 408/409/429 atau >=500 atau timeout/koneksi -> retryable."""
+    """(retryable, status): 408/409/429 or >=500 or timeout/connection -> retryable."""
     status = _status_of(err)
     if status is not None:
         return (status in _RETRYABLE_STATUSES or status >= 500), status
@@ -156,8 +157,9 @@ def _to_provider_error(err: BaseException, billing: str) -> ProviderError:
 
 
 async def _aclose_quietly(stream: object) -> None:
-    """Tutup stream best-effort (early-stop/cancel) supaya koneksi tak bocor. Async
-    generator punya aclose(); openai AsyncStream punya close(). Galat close ditelan."""
+    """Close the stream best-effort (early-stop/cancel) so the connection does not leak.
+    Async generators have aclose(); openai's AsyncStream has close(). Close errors are
+    swallowed."""
     closer = getattr(stream, "aclose", None) or getattr(stream, "close", None)
     if closer is None:
         return
@@ -296,8 +298,8 @@ class OpenAICompatProvider:
         model_name = self.model
         try:
             stream = await self._client.chat.completions.create(**create_kwargs)
-            # finally menutup stream pada exit NORMAL, early-stop (break), MAUPUN
-            # CancelledError (timeout) -> koneksi tak bocor.
+            # finally closes the stream on a NORMAL exit, on early-stop (break), AND on
+            # CancelledError (timeout) -> the connection does not leak.
             try:
                 async for chunk in stream:
                     if getattr(chunk, "usage", None):
@@ -355,8 +357,9 @@ class OpenAICompatProvider:
         prompt_toks = getattr(usage_obj, "prompt_tokens", None)
         completion_toks = getattr(usage_obj, "completion_tokens", None)
         if prompt_toks is None or completion_toks is None:
-            # Sertakan argumen tool_call dalam estimasi output — simetris dengan
-            # complete(); tanpa ini completion di-undercount saat ada tool call.
+            # Include the tool_call arguments in the output estimate — symmetric with
+            # complete(); without this the completion is undercounted when tool calls
+            # are present.
             tool_args = "".join(acc["arguments"] or "" for acc in tool_acc.values())
             usage = Usage(
                 prompt_tokens=_est(_join_input_text(req.messages)),

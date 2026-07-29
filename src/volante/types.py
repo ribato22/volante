@@ -173,7 +173,7 @@ class CanonicalRequest:
 class Usage:
     prompt_tokens: int
     completion_tokens: int
-    estimated: bool = False  # PATCH v2.1: True bila token diestimasi (SDK tak kirim usage)
+    estimated: bool = False  # PATCH v2.1: True when tokens are estimated (SDK sent no usage)
 
 
 @dataclass
@@ -183,7 +183,7 @@ class CanonicalResponse:
     model: str
     stop_reason: str
     latency_ms: int
-    cost_usd: float | None = None  # biaya call otoritatif (total_cost_usd); None jika lain
+    cost_usd: float | None = None  # authoritative call cost (total_cost_usd); None if not
 
 
 @dataclass
@@ -237,7 +237,7 @@ class RunResult:
     final: Any | None
     partial_artifacts: dict[str, Any]
     failed_task: str | None
-    # PATCH v2.1: close-out akunting (diisi Runtime di KEDUA jalur success & failed)
+    # PATCH v2.1: close-out accounting (filled by Runtime on BOTH the success & failed paths)
     usage_total: dict[str, Usage] = field(default_factory=dict)
     cost_usd: float = 0.0
     duration_ms: int = 0
@@ -251,11 +251,12 @@ class RunResult:
     # Actual physical subscription-provider attempts consumed by this run,
     # including planner, retries, agentic turns, workers, and synthesis.
     subscription_calls: int = 0
-    billed_usd: float = 0.0  # cash keluar (card); baca INI utk budget/cap
-    credit_usd: float = 0.0  # nilai konsumsi plan_included/plan_credit (bukan cash)
-    # True bila ada usage yang DIESTIMASI (provider tak mengirim token count), sehingga
-    # cost_usd/billed_usd/credit_usd adalah perkiraan, bukan angka otoritatif. Wajib
-    # ditampilkan bersama angka dolar agar klaim "biaya transparan" jujur di titik baca.
+    billed_usd: float = 0.0  # cash out (card); read THIS for budget/cap
+    credit_usd: float = 0.0  # value consumed from plan_included/plan_credit (not cash)
+    # True when any usage was ESTIMATED (the provider sent no token count), so
+    # cost_usd/billed_usd/credit_usd are approximations, not authoritative numbers. MUST
+    # be shown next to the dollar figures so the "transparent cost" claim stays honest
+    # at the point it is read.
     cost_estimated: bool = False
     # Human-readable note about a capability this run did NOT have (currently: code
     # execution withheld, or running unisolated). Surfaced on success AND failure so a

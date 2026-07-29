@@ -9,9 +9,9 @@ if TYPE_CHECKING:
 
 
 class CostMeter:
-    """Akumulasi Usage per model_id + hitung biaya USD via Registry.
+    """Accumulate Usage per model_id + compute USD cost via Registry.
 
-    Dipakai sebagai key = model_id; add() dipanggil SETELAH tiap complete() sukses.
+    Keyed by model_id; add() is called AFTER every successful complete().
     """
 
     def __init__(self) -> None:
@@ -29,7 +29,7 @@ class CostMeter:
     ) -> None:
         current = self._totals.get(model_id)
         if current is None:
-            # salin agar objek Usage milik pemanggil tak ikut termutasi
+            # copy so the caller's own Usage object is not mutated along with it
             self._totals[model_id] = Usage(
                 prompt_tokens=usage.prompt_tokens,
                 completion_tokens=usage.completion_tokens,
@@ -44,11 +44,12 @@ class CostMeter:
         if usage.estimated:
             self._has_estimated = True
         if cost_usd is not None:
-            # residu-4: catat token & dolar otoritatif call ini di bucket _direct
-            # terpisah (per-CALL), agar costs_usd tak double-count token*rate-nya.
-            # Split prompt/completion disimpan terpisah (bukan skalar gabungan) agar
-            # residual bisa dinilai per-komponen — skalar-fraksi tunggal salah bila
-            # split direct vs fallback berbeda dan cost_per_1k_in != cost_per_1k_out.
+            # residu-4: record this call's authoritative tokens & dollars in a
+            # separate _direct bucket (per-CALL), so costs_usd does not
+            # double-count its token*rate. The prompt/completion split is stored
+            # separately (not as a combined scalar) so the residual can be priced
+            # per-component — a single fraction scalar is wrong when the direct vs
+            # fallback split differs and cost_per_1k_in != cost_per_1k_out.
             bucket = self._direct.get(model_id)
             if bucket is None:
                 bucket = {"prompt": 0.0, "completion": 0.0, "usd": 0.0}
@@ -108,12 +109,13 @@ class CostMeter:
                 target[field] += source[field]
 
     def costs_usd(self, registry: Registry) -> tuple[float, float]:
-        # Dua-ledger: (billed, credit). billed = cash (card), credit = plan_*.
-        # residu-4 PER-CALL: _totals memuat SEMUA token; call otoritatif (_direct)
-        # dinilai pakai cost_usd-nya, sisanya (residual token PER-KOMPONEN) pakai
-        # token*rate. Residual dihitung terpisah untuk prompt & completion (bukan
-        # skalar-fraksi tunggal) karena split direct vs fallback bisa berbeda dan
-        # cost_per_1k_in != cost_per_1k_out — skalar-fraksi akan salah nilai di kasus itu.
+        # Two ledgers: (billed, credit). billed = cash (card), credit = plan_*.
+        # residu-4 PER-CALL: _totals holds ALL tokens; authoritative calls (_direct)
+        # are priced with their own cost_usd, and the rest (residual tokens
+        # PER-COMPONENT) with token*rate. The residual is computed separately for
+        # prompt & completion (not as a single fraction scalar) because the direct vs
+        # fallback split can differ and cost_per_1k_in != cost_per_1k_out — a fraction
+        # scalar would misprice that case.
         billed = 0.0
         credit = 0.0
         for model_id, usage in self._totals.items():

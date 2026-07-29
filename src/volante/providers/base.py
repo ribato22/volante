@@ -6,10 +6,10 @@ from typing import Protocol, runtime_checkable
 
 from volante.types import CanonicalRequest, CanonicalResponse
 
-# Callback progres streaming. Mengembalikan nilai TRUTHY = minta stream berhenti
-# lebih awal (cooperative cancel): adapter menutup koneksi dan mengembalikan response
-# terakumulasi sejauh ini. Mengembalikan None/falsy (kontrak lama) = lanjut — jadi
-# callback `-> None` yang sudah ada tak berubah perilaku (nol regresi).
+# Streaming progress callback. Returning a TRUTHY value = ask the stream to stop
+# early (cooperative cancel): the adapter closes the connection and returns the
+# response accumulated so far. Returning None/falsy (the old contract) = keep going —
+# so existing `-> None` callbacks do not change behaviour (zero regression).
 OnText = Callable[[str], object]
 
 
@@ -29,24 +29,24 @@ async def call_provider(
     req: CanonicalRequest,
     on_text: OnText | None = None,
 ) -> CanonicalResponse:
-    """Panggil provider: `stream` (progres teks live) bila `on_text` diberi, else
-    `complete`. Satu sumber kebenaran untuk pilihan stream-vs-complete yang dipakai
-    Supervisor, Synthesizer, Worker, dan AgenticWorker (hindari duplikasi 4×).
+    """Call a provider: `stream` (live text progress) when `on_text` is given, else
+    `complete`. One source of truth for the stream-vs-complete choice used by
+    Supervisor, Synthesizer, Worker, and AgenticWorker (avoids duplicating it 4×).
 
-    `on_text` boleh mengembalikan truthy untuk menghentikan stream lebih awal."""
+    `on_text` may return truthy to stop the stream early."""
     if on_text is not None:
         return await provider.stream(req, on_text)
     return await provider.complete(req)
 
 
 class ProviderError(Exception):
-    """Galat provider seragam.
+    """Uniform provider error.
 
-    `retryable` menggerakkan kebijakan backoff di Runtime (True -> retry dengan
-    jitter; False -> fail-fast). `status` adalah kode HTTP hulu bila diketahui
-    (None untuk galat transport/timeout tanpa status).
-    `quota_exhausted` menandai DEPLETION credit/quota (bukan rate-limit menit): Runtime
-    reroute ke kandidat berikutnya TANPA backoff (Layer 2). Selalu implikasi retryable=False.
+    `retryable` drives the backoff policy in Runtime (True -> retry with jitter;
+    False -> fail-fast). `status` is the upstream HTTP code when known (None for
+    transport/timeout errors that carry no status).
+    `quota_exhausted` marks credit/quota DEPLETION (not a per-minute rate limit): Runtime
+    reroutes to the next candidate WITHOUT backoff (Layer 2). Always implies retryable=False.
     `candidate_unavailable` means this particular configured model/deployment is
     inaccessible, so Runtime may safely try another ranked candidate without
     treating a provider-wide configuration error as transient.
@@ -113,8 +113,8 @@ def ensure_complete_response(
 
 
 # --- 429 / quota classification (Layer 1 reroute, §6.3) -------------------- #
-# Sinyal substring (lowercased) bahwa 400/402/429 adalah DEPLETION credit/quota
-# (bukan rate-limit per-menit). Depletion -> reroute, TANPA backoff.
+# Substring signals (lowercased) that a 400/402/429 is credit/quota DEPLETION
+# (not a per-minute rate limit). Depletion -> reroute, WITHOUT backoff.
 _QUOTA_SIGNALS: tuple[str, ...] = (
     "credit balance",              # Anthropic 400: "Your credit balance is too low"
     "out of credit",
@@ -127,7 +127,7 @@ _QUOTA_SIGNALS: tuple[str, ...] = (
     "payment required",            # HTTP 402 semantics
 )
 
-# Sinyal rate-limit transien: backoff di tempat memang benar.
+# Transient rate-limit signals: backing off in place really is the right move.
 _RATE_LIMIT_SIGNALS: tuple[str, ...] = (
     "rate limit",
     "rate_limit",                  # OpenAI code rate_limit_exceeded
@@ -153,16 +153,16 @@ _CANDIDATE_UNAVAILABLE_SIGNALS: tuple[str, ...] = (
 
 
 def is_quota_exhausted(message: str) -> bool:
-    """True bila body/pesan menandakan DEPLETION credit/quota (bukan rate-limit).
+    """True when the body/message indicates credit/quota DEPLETION (not a rate limit).
 
-    Berbasis body/pesan, BUKAN status: Anthropic mengirim depletion sebagai 400
-    ("credit balance too low"), OpenAI-compat sebagai 429 (`insufficient_quota`)."""
+    Driven by the body/message, NOT the status: Anthropic sends depletion as a 400
+    ("credit balance too low"), OpenAI-compat as a 429 (`insufficient_quota`)."""
     low = message.lower()
     return any(s in low for s in _QUOTA_SIGNALS)
 
 
 def is_transient_rate_limit(message: str) -> bool:
-    """True bila body/pesan menandakan rate-limit transien (backoff benar)."""
+    """True when the body/message indicates a transient rate limit (backoff is right)."""
     low = message.lower()
     return any(s in low for s in _RATE_LIMIT_SIGNALS)
 
@@ -188,12 +188,12 @@ def is_candidate_unavailable(
 
 
 def classify_429(message: str, *, billing: str) -> tuple[bool, bool]:
-    """Resolusi 429 ambigu -> (retryable, quota_exhausted) via body + billing.
+    """Resolve an ambiguous 429 -> (retryable, quota_exhausted) via body + billing.
 
-    Presedensi (body/type di atas status, §6.3):
-    1. sinyal depletion  -> (False, True): reroute, TANPA backoff.
-    2. sinyal rate-limit -> (True, False): backoff di tempat.
-    3. ambigu -> default per `billing` [residu 2]: plan-backed
+    Precedence (body/type over status, §6.3):
+    1. depletion signal  -> (False, True): reroute, WITHOUT backoff.
+    2. rate-limit signal -> (True, False): back off in place.
+    3. ambiguous -> default per `billing` [residual 2]: plan-backed
        (`plan_included`/`plan_credit`) -> (False, True); `card` -> (True, False)."""
     if is_quota_exhausted(message):
         return (False, True)

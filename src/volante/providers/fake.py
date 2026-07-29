@@ -45,7 +45,7 @@ class FakeProvider:
         for b in resp.content:
             if isinstance(b, TextBlock):
                 emitted.append(b.text)
-                if on_text(b.text):  # truthy -> stop early, kembalikan parsial
+                if on_text(b.text):  # truthy -> stop early, return the partial
                     return CanonicalResponse(
                         content=[TextBlock(text="".join(emitted))],
                         usage=resp.usage,
