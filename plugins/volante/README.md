@@ -11,7 +11,7 @@ so Claude Code can delegate whole goals to Volante's orchestration engine.
 ```
 
 **Prerequisites:** [`uv`](https://docs.astral.sh/uv/) on your PATH (the plugin launches the
-server with `uvx`, which fetches the pinned `volante[mcp]==0.3.2` package from
+server with `uvx`, which fetches the pinned `volante[mcp]==0.4.0` package from
 PyPI on first use), and at least one provider configured in your environment (e.g.
 `CLAUDE_CODE_ENABLED=1`, `CODEX_ENABLED=1`, `ANTHROPIC_API_KEY`, or an
 `OPENAI_COMPAT_*` endpoint — see the

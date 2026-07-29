@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-29
+
+A security release, and the largest one so far: eight fixes under Security, all of
+them from validating a scan's 33 unvalidated leads by hand and reproducing each
+before touching anything. Twenty-two distinct defects were in there; seven of the
+scan's claims turned out to be true but overstated and are recorded at their real
+weight rather than fixed at the weight they were filed.
+
+**Upgrade if you use any of these:** a subscription CLI provider (`claude -p` or
+`codex exec`) leaked a process per cancelled call and could pass off a truncated
+answer as a complete one; `~/.volante/usage.jsonl` was world-readable and holds
+your goal text; the Web UI served its bearer token over plain HTTP beyond
+loopback; `fetch_url`'s size cap and timeout each bounded less than they said.
+
+**Three behaviour changes to read before upgrading**, all deliberate: `fetch_url`
+now refuses an origin that compresses after being asked not to; a garbled CLI
+response now fails its task instead of quietly becoming the answer; and
+`CliAgentAdapter.argv()` gained a required argument (see Breaking).
+
+Minor rather than patch because of that last one, and because `CODEX_ENABLED=1`
+now carries a documented limitation it did not admit to before.
+
 ### Breaking
 - **`CliAgentAdapter.argv()` takes a `scratch_dir` keyword.** The provider creates a directory
   that lives exactly as long as one spawn and passes it in, so an adapter with prompt text to hand
@@ -653,8 +675,11 @@ version should upgrade.
 - The Code of Conduct now routes reports to a **private** channel (maintainer email / private GitHub
   Security Advisory) instead of the public issue tracker, and is linked from CONTRIBUTING and the README.
 
-[Unreleased]: https://github.com/ribato22/baton/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/ribato22/baton/compare/v0.2.1...v0.3.0
-[0.2.1]: https://github.com/ribato22/baton/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/ribato22/baton/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/ribato22/baton/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ribato22/volante/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ribato22/volante/compare/v0.3.2...v0.4.0
+[0.3.2]: https://github.com/ribato22/volante/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/ribato22/volante/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/ribato22/volante/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/ribato22/volante/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/ribato22/volante/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/ribato22/volante/releases/tag/v0.1.0
