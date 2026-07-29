@@ -1,22 +1,33 @@
 {
-  "openai/gpt-4.1": {
-    "confidence": 0.9,
-    "source": "eval suite, baseline arm, 9 coding goals x k=3, measured 2026-07-29",
+  "glm/glm-4.5-flash": {
+    "confidence": 0.5,
+    "source": "eval suite baseline arm: 9 coding goals + 1 analyze goal, k=3..5, measured 2026-07-29",
     "task_scores": {
+      "analyze": 0.3889,
+      "code": 0.7037
+    }
+  },
+  "openai/gpt-4.1": {
+    "confidence": 0.625,
+    "source": "eval suite baseline arm: 9 coding goals + 1 analyze goal, k=3..5, measured 2026-07-29",
+    "task_scores": {
+      "analyze": 0.4167,
       "code": 1.0
     }
   },
   "openai/gpt-4.1-nano": {
-    "confidence": 0.9,
-    "source": "eval suite, baseline arm, 9 coding goals x k=3, measured 2026-07-29",
+    "confidence": 0.625,
+    "source": "eval suite baseline arm: 9 coding goals + 1 analyze goal, k=3..5, measured 2026-07-29",
     "task_scores": {
+      "analyze": 0.1833,
       "code": 0.9506
     }
   },
   "openai/gpt-4o-mini": {
-    "confidence": 0.9,
-    "source": "eval suite, baseline arm, 9 coding goals x k=3, measured 2026-07-29",
+    "confidence": 0.625,
+    "source": "eval suite baseline arm: 9 coding goals + 1 analyze goal, k=3..5, measured 2026-07-29",
     "task_scores": {
+      "analyze": 0.1667,
       "code": 0.9901
     }
   }

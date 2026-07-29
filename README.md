@@ -575,11 +575,29 @@ uv run volante --calibrate measurements.json --calibrate-out quality-profiles.js
 (2026-07-29, 81 calls). Read them as a worked example, not as defaults: they describe three OpenAI
 models you probably do not have, and the router only loads a profile you point it at.
 
-**What that run does and does not establish.** It produced a clean monotonic gradient —
-`gpt-4.1-nano` 0.951, `gpt-4o-mini` 0.990, `gpt-4.1` 1.000 — and with the profile loaded the router
-finally scores `code` and `research` differently, where without one every task type ranked
-identically. It did **not** change which model wins: the measured order agrees with the tier order
-it already used, so this confirms the heuristic rather than overturning it.
+**What the measurements establish.** Three OpenAI models produced a clean monotonic gradient on
+`code` — `gpt-4.1-nano` 0.951, `gpt-4o-mini` 0.990, `gpt-4.1` 1.000 — which agreed with the tier
+order the router already used, so calibrating within one family confirmed the heuristic rather than
+overturning it. Measuring a **second family** is what changed the picture:
+
+| model | `code` | `analyze` |
+|---|---|---|
+| `openai/gpt-4.1` | 1.000 | 0.417 |
+| `openai/gpt-4o-mini` | 0.990 | **0.167** |
+| `openai/gpt-4.1-nano` | 0.951 | 0.183 |
+| `glm/glm-4.5-flash` | **0.704** | 0.389 |
+
+`glm-4.5-flash` is **last** at code and **second** at analysis; `gpt-4o-mini` is nearly best at code
+and **worst** at analysis. That is a genuine rank swap — 0.29 the wrong way on one task type, 0.22
+the right way on the other — against a 0.016 within-family wobble that was pure noise. Models from
+different labs have genuinely complementary strengths, and that is the assumption per-task routing
+rests on. It had never been tested here before.
+
+With that evidence loaded and the strongest model excluded, the router picks **`gpt-4o-mini` for
+`code` and `glm-4.5-flash` for `analyze`** — different models for different work, from measurement
+rather than from a tier constant. When the strongest model IS available it still wins both, because
+it is genuinely best at both; the swap shows up in everything below it, which is what a cost or
+quota objective actually chooses among.
 
 Two limits worth knowing before you trust a profile of your own:
 

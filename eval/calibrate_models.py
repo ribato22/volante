@@ -72,7 +72,11 @@ def _registry_for(model_id: str) -> Registry:
 
 
 async def measure(
-    models: list[str], k: int, only: str | None = None, prefix: str = "OPENAI_COMPAT"
+    models: list[str],
+    k: int,
+    only: str | None = None,
+    prefix: str = "OPENAI_COMPAT",
+    timeout_s: float = 600.0,
 ) -> dict:
     # Read the endpoint from the environment rather than taking it as an argument:
     # a key belongs in your gitignored .env, not in a command line that lands in
@@ -86,7 +90,13 @@ async def measure(
     for wire in models:
         model_id = f"{prefix.lower()}/{wire}"
         registry = _registry_for(model_id)
-        provider = OpenAICompatProvider(base_url=base_url, api_key=api_key, model=wire)
+        # Reasoning models spend a long time before their first token, and a
+        # trap-laden analyse goal is exactly the kind of prompt they spend it on.
+        # The 120s default times out on them, which would be recorded as a model
+        # failure rather than what it is: our own client giving up too early.
+        provider = OpenAICompatProvider(
+            base_url=base_url, api_key=api_key, model=wire, timeout=timeout_s
+        )
         by_type: dict[str, list[float]] = {}
         goals = [t for t in [*EVAL_SUITE, *TEXT_SUITE] if only in (None, t.task_type)]
         for task in goals:
@@ -124,6 +134,12 @@ def main(argv: list[str] | None = None) -> None:
         "GLM_BASE_URL and GLM_KEY (default: OPENAI_COMPAT)",
     )
     parser.add_argument(
+        "--timeout",
+        type=float,
+        default=600.0,
+        help="per-call timeout in seconds (default 600; reasoning models need it)",
+    )
+    parser.add_argument(
         "--only",
         help="measure a single task type — useful to test whether a new goal separates "
         "models before paying to re-measure everything",
@@ -132,14 +148,22 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     models = [m.strip() for m in args.models.split(",") if m.strip()]
+    if not models:
+        raise SystemExit("--models needs at least one model")
     if len(models) < 2:
-        # One model cannot calibrate anything: a component whose value is identical
-        # across every candidate is exactly the flat constant this is meant to fix.
-        raise SystemExit("--models needs at least two models to be worth measuring")
+        # A one-model file cannot calibrate anything on its own: a component whose
+        # value is identical across every candidate is the flat constant this exists
+        # to fix. It is still a legitimate thing to produce — measuring one model to
+        # compare against, or to merge into, an existing set — so this warns instead
+        # of refusing.
+        print(
+            "note: one model measured. This file cannot calibrate a router by itself; "
+            "merge it with measurements for the other models first."
+        )
     if args.k < 1:
         raise SystemExit("--k must be at least 1")
 
-    measurements = asyncio.run(measure(models, args.k, args.only, args.provider))
+    measurements = asyncio.run(measure(models, args.k, args.only, args.provider, args.timeout))
     Path(args.out).write_text(json.dumps(measurements, indent=2, sort_keys=True) + "\n")
     # No spend total on purpose. Pricing a run needs per-model prices, and this
     # script deliberately carries none — inventing them here to print a tidy figure
