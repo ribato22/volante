@@ -12,7 +12,6 @@ hypothetical.
 from __future__ import annotations
 
 import pytest
-
 from eval.harness import score_text
 from eval.tasks_text import TEXT_SUITE
 
