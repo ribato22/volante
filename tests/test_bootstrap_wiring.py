@@ -586,7 +586,9 @@ async def test_docker_sandbox_leaves_no_capability_notice(monkeypatch) -> None:
     sandbox_mod.reset_docker_probe()
     monkeypatch.setattr(sandbox_mod, "docker_available", lambda **_: True)
 
-    registry = Registry([_model("api/x")])
+    # Priced on purpose: an unpriced card-billed model raises its own notice, and
+    # this test is about the sandbox one.
+    registry = Registry([_model("api/x", cost_in=0.001, cost_out=0.002)])
     factory = await make_verified_runtime_factory(
         registry, {"api/x": FakeProvider([])}, "api/x"
     )
@@ -628,3 +630,47 @@ async def test_an_unusable_iteration_cap_fails_fast(monkeypatch, bad: str) -> No
         await make_verified_runtime_factory(
             registry, {"api/x": FakeProvider([])}, "api/x"
         )
+
+
+async def test_a_card_billed_model_with_no_price_is_flagged_as_unpriced(monkeypatch) -> None:
+    # The generic OpenAI-compatible slot defaults its rates to zero because it cannot
+    # know what an arbitrary endpoint charges. Pointed at OpenRouter, DeepSeek or
+    # Groq, that produced a confident `$0.000000` sitting on top of a real bill.
+    from volante.tools import sandbox as sandbox_mod
+
+    monkeypatch.delenv("VOLANTE_SANDBOX", raising=False)
+    sandbox_mod.reset_docker_probe()
+    monkeypatch.setattr(sandbox_mod, "docker_available", lambda **_: True)
+
+    registry = Registry([_model("openai-compat/mystery")])
+    factory = await make_verified_runtime_factory(
+        registry, {"openai-compat/mystery": FakeProvider([])}, "openai-compat/mystery"
+    )
+
+    notice = factory().capability_notice
+    assert notice is not None
+    assert "UNPRICED" in notice
+    assert "openai-compat/mystery" in notice
+
+
+async def test_a_locally_run_model_is_not_flagged_for_being_free(monkeypatch) -> None:
+    # Ollama's zero is the truth: inference runs on the user's own hardware, so there
+    # is no vendor rate to convert. Both spellings must be excluded — bootstrap
+    # registers provider="ollama", the seed reaches it via openai_compat.
+    from volante.tools import sandbox as sandbox_mod
+
+    monkeypatch.delenv("VOLANTE_SANDBOX", raising=False)
+    sandbox_mod.reset_docker_probe()
+    monkeypatch.setattr(sandbox_mod, "docker_available", lambda **_: True)
+
+    for model_id, provider in (("ollama/llama3.2", "openai_compat"), ("local/x", "ollama")):
+        info = _model(model_id)
+        object.__setattr__(info, "provider", provider) if hasattr(
+            info, "__dataclass_fields__"
+        ) else None
+        registry = Registry([info])
+        factory = await make_verified_runtime_factory(
+            registry, {model_id: FakeProvider([])}, model_id
+        )
+
+        assert factory().capability_notice is None, model_id

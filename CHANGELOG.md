@@ -22,7 +22,21 @@ All notable changes to this project are documented here. The format is based on
   overrides beat the code, following the example would have silently reinstated the values the
   release had just corrected.
 
+### Added
+- **An unpriced model is now reported as unpriced, not as free.** The generic OpenAI-compatible
+  slot defaults its rates to zero because it cannot know what an arbitrary endpoint charges — so a
+  user pointing it at OpenRouter, DeepSeek or Groq got a confident `billed_usd: $0.000000` sitting
+  on top of a real bill. A card-billed model with no configured rate now raises a capability
+  notice that travels with the result, naming the models and the env vars to set. Locally-run
+  models are excluded by both provider and id prefix: Ollama's zero is the truth, because
+  inference runs on the user's own hardware and there is no vendor rate to convert.
+
 ### Changed
+- **The package's comments and docstrings are now English** — 100 of them across 21 files, proven
+  comment-only by comparing normalised ASTs before and after. The Indonesian sat on exactly the
+  surfaces an outside contributor reads first: the provider contract, the runtime, the cost ledger.
+  Indonesian remains in a few user-visible STRING LITERALS (two `ProviderError` messages, two trim
+  markers); changing those is behavioural and deserves its own diff.
 - **The README now opens with `pip install volante`.** The Quickstart was `git clone`, `pip install`
   appeared once and only for the MCP server, and every CLI example used `uv run` — so a user
   arriving from the PyPI badge had no documented route to a working CLI.

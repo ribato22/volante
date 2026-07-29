@@ -793,6 +793,38 @@ def _runtime_factory(
                 "network and files. Prefer VOLANTE_SANDBOX=docker."
             )
             print(f"volante: {capability_notice}", file=sys.stderr)
+    # A card-billed model priced at zero is NOT free — it is UNPRICED. The generic
+    # OpenAI-compatible slot defaults its rates to 0 because it cannot know what an
+    # arbitrary endpoint charges, so a user pointing it at OpenRouter, DeepSeek or
+    # Groq gets a confident `billed_usd: $0.000000` sitting on top of a real bill.
+    # Ollama's zero is different and must not be flagged: inference runs on the
+    # user's own hardware, so there is no vendor rate to convert and zero is the
+    # truth. The distinction is billing="card" AND both rates zero.
+    # Locally-run models are excluded by provider and by id prefix, because both
+    # spellings exist: bootstrap registers Ollama with provider="ollama", while the
+    # seed inventory reaches the same server through the generic openai_compat
+    # transport. Missing either would flag a model whose zero is simply true.
+    unpriced = sorted(
+        model.id
+        for model in registry.all()
+        if model.billing == "card"
+        and model.cost_per_1k_in == 0.0
+        and model.cost_per_1k_out == 0.0
+        and model.provider != "ollama"
+        and not model.id.startswith("ollama/")
+    )
+    if unpriced:
+        unpriced_notice = (
+            "Cost is UNPRICED for "
+            + ", ".join(unpriced)
+            + ": no rate is configured, so these models contribute $0.00 to "
+            "billed_usd while still costing you money. Set the matching "
+            "*_COST_IN / *_COST_OUT to your provider's published rate."
+        )
+        capability_notice = (
+            f"{capability_notice} {unpriced_notice}" if capability_notice else unpriced_notice
+        )
+        print(f"volante: {unpriced_notice}", file=sys.stderr)
     if allowed_domains:
         available_tool_names.add("fetch_url")
     if read_root is not None:
