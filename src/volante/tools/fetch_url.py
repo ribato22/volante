@@ -154,7 +154,13 @@ class FetchUrlTool:
         return any(host == d or host.endswith("." + d) for d in self.allowed_domains)
 
     async def _read_limited(self, chunks: AsyncIterator[bytes]) -> bytes:
-        """Read at most ``max_bytes`` without buffering the full response body."""
+        """Read at most ``max_bytes`` without buffering the full response body.
+
+        Only ever fed RAW chunks. Slicing a chunk bounds what is KEPT, not what was
+        allocated to produce it, so a decoder upstream of this loop makes the cap
+        advisory: gzip reaches roughly 1030:1, and one ~64 KB network read expands
+        into a ~67 MB chunk that exists in full before the first slice runs.
+        """
         data = bytearray()
         async for chunk in chunks:
             remaining = self.max_bytes - len(data)
@@ -203,7 +209,17 @@ class FetchUrlTool:
             # the URL the wire would otherwise carry `Host: <ip>` and break every
             # virtual-hosted origin. netloc (not host) keeps a non-default port and
             # strips userinfo.
-            headers = {"Host": original.netloc.decode("ascii")}
+            headers = {
+                "Host": original.netloc.decode("ascii"),
+                # No content coding, because this tool never wants a whole body: it
+                # keeps max_bytes and stops. Compression only helps a client that
+                # downloads everything, while a decoder between the socket and the
+                # cap turns a small response into a large allocation. Refusing the
+                # coding outright also means no future decoder — brotli or zstd, which
+                # expand far harder than gzip — can be enabled underneath this tool by
+                # merely installing a package.
+                "Accept-Encoding": "identity",
+            }
         except (httpx.InvalidURL, UnicodeDecodeError) as exc:
             return f"error: malformed url: {exc}"
         # Keeps TLS bound to the ORIGINAL name: httpcore reads this extension and
@@ -239,7 +255,23 @@ class FetchUrlTool:
                         async with client.stream(
                             "GET", target, headers=headers, extensions=extensions
                         ) as resp:
-                            body = await self._read_limited(resp.aiter_bytes())
+                            # Asking for identity is a request, not a guarantee. Fail
+                            # closed on an origin that compressed anyway rather than
+                            # hand the stream to a decoder that has no size bound —
+                            # and say which coding arrived, so an allowlisted origin
+                            # that behaves this way is diagnosable rather than merely
+                            # broken.
+                            coding = (
+                                resp.headers.get("content-encoding", "").strip().lower()
+                            )
+                            if coding and coding != "identity":
+                                return (
+                                    "error: origin returned "
+                                    f"content-encoding: {coding} after identity was "
+                                    "requested; refusing to decode an unbounded body"
+                                )
+                            # aiter_raw, NOT aiter_bytes: the latter decodes.
+                            body = await self._read_limited(resp.aiter_raw())
                         return f"status={resp.status_code}\n{body.decode(errors='replace')}"
                     except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
                         last_connect_error = str(exc) or exc.__class__.__name__

@@ -7,6 +7,19 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Security
+- **`fetch_url`'s size cap bounded what it kept, not what it allocated.** The body was read
+  through httpx's DECODED iterator and each already-materialized chunk was then sliced to
+  `max_bytes`. gzip reaches about 1030:1 and httpx yields one decoded chunk per raw network read,
+  so a single ~64 KB read expanded into a ~67 MB allocation against a 100 KB cap: measured on a
+  real socket, a 194 KB response produced a 67,299,560-byte chunk and a 151 MB peak. Under
+  `VOLANTE_SANDBOX=docker` this tool is the only egress a model has, which is exactly where an
+  allowlisted or compromised origin would use it. The request now sends `Accept-Encoding: identity`
+  and the body is read RAW, so no decoder sits between the socket and the cap — and because asking
+  is not the same as being obeyed, a response carrying a content coding anyway is refused by name
+  rather than decoded. Same bomb, 3.3 MB peak. **Behaviour change:** an origin that compresses
+  after being asked not to now returns an error naming the coding instead of a page. Refusing that
+  also means a future decoder — brotli or zstd, which expand far harder than gzip — cannot be
+  enabled under this tool by merely installing a package.
 - **The usage ledger stored goal text with process-default permissions.** Every completed CLI, MCP
   and Web UI run appends up to 240 characters of the goal, the models chosen and the spend to
   `~/.volante/usage.jsonl` — and `mkdir`/`open` take their mode from the umask, so the ordinary 022

@@ -28,9 +28,14 @@ class _FakeResp:
     async def __aexit__(self, *a):
         return False
 
-    async def aiter_bytes(self):
+    async def aiter_raw(self):
         for chunk in self._chunks:
             yield chunk
+
+    async def aiter_bytes(self):
+        # httpx DECODES here. Reading the body through this iterator is what let a
+        # compressed response allocate far past max_bytes, so the tool must not.
+        raise AssertionError("fetch_url read the decoded body instead of the raw one")
 
 
 class _FakeClient:
@@ -119,7 +124,7 @@ async def test_stream_stops_reading_after_cap(monkeypatch) -> None:
     reads: list[int] = []
 
     class _TrackedResp(_FakeResp):
-        async def aiter_bytes(self):
+        async def aiter_raw(self):
             for index, chunk in enumerate((b"A" * 80, b"B" * 80, b"C" * 80)):
                 reads.append(index)
                 yield chunk
@@ -137,6 +142,105 @@ def test_rejects_non_positive_size_cap() -> None:
 
     with pytest.raises(ValueError, match="max_bytes"):
         FetchUrlTool({"example.com"}, max_bytes=0)
+
+
+# --- max_bytes has to bound ALLOCATION, not just what is kept ------------------
+# Slicing an already-decoded chunk caps the OUTPUT and nothing else. gzip reaches
+# about 1030:1, and httpx hands the cap one decoded chunk per raw network read, so
+# a ~64 KB read became a ~67 MB allocation against a 100 KB cap — measured, on a
+# real socket, at 151 MB peak for a 194 KB response.
+
+
+async def test_identity_encoding_is_requested(monkeypatch) -> None:
+    capture: dict = {}
+    _patch(monkeypatch, _FakeResp("hi", 200), capture)
+
+    await FetchUrlTool({"example.com"}).run({"url": "https://example.com/p"})
+
+    sent = {k.lower(): v for k, v in capture["stream"]["headers"].items()}
+    assert sent["accept-encoding"] == "identity"
+
+
+async def test_a_content_coding_we_did_not_ask_for_is_refused(monkeypatch) -> None:
+    # Asking for identity is a request, not a guarantee; a non-compliant or hostile
+    # origin can compress anyway. Refusing is what makes the bound hold, and it fails
+    # loudly rather than quietly handing the bytes to a decoder.
+    resp = _FakeResp("would be decompressed", 200)
+    resp.headers["content-encoding"] = "gzip"
+    _patch(monkeypatch, resp, {})
+
+    out = await FetchUrlTool({"example.com"}).run({"url": "https://example.com/p"})
+
+    assert out.startswith("error:")
+    assert "gzip" in out
+
+
+async def test_an_identity_content_coding_header_is_fine(monkeypatch) -> None:
+    resp = _FakeResp("plain body", 200)
+    resp.headers["content-encoding"] = "identity"
+    _patch(monkeypatch, resp, {})
+
+    out = await FetchUrlTool({"example.com"}).run({"url": "https://example.com/p"})
+
+    assert "plain body" in out
+
+
+async def test_a_real_compressed_bomb_never_reaches_a_decoder(monkeypatch) -> None:
+    # The fakes above hand over pre-built chunks, so they can never exercise
+    # Content-Encoding — which is exactly why this bug survived them. This one runs a
+    # real socket, a real httpx client and a real gzip stream.
+    import gzip
+    import socket
+    import threading
+    import tracemalloc
+
+    decoded = 200_000_000
+    payload = gzip.compress(b"\0" * decoded, 9)
+    assert len(payload) < 250_000, "the point is a tiny response with a huge expansion"
+
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+
+    def _serve() -> None:
+        conn, _ = srv.accept()
+        request = b""
+        while b"\r\n\r\n" not in request:
+            chunk = conn.recv(4096)
+            if not chunk:
+                break
+            request += chunk
+        conn.sendall(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+            b"Content-Encoding: gzip\r\n"
+            b"Content-Length: " + str(len(payload)).encode() + b"\r\n"
+            b"Connection: close\r\n\r\n" + payload
+        )
+        conn.close()
+
+    thread = threading.Thread(target=_serve, daemon=True)
+    thread.start()
+    try:
+        _patch_dns(monkeypatch, ("127.0.0.1",))
+        monkeypatch.setattr("volante.tools.fetch_url._is_disallowed", lambda _addr: False)
+        monkeypatch.setattr("volante.tools.fetch_url._ALLOWED_PORTS", frozenset({port}))
+
+        tracemalloc.start()
+        out = await FetchUrlTool({"example.com"}, max_bytes=100_000).run(
+            {"url": f"http://example.com:{port}/"}
+        )
+        _current, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+    finally:
+        srv.close()
+        thread.join(timeout=5)
+
+    assert out.startswith("error:")
+    assert "gzip" in out
+    # The old code materialized one 67 MB decoded chunk here.
+    assert peak < 10_000_000, f"peak allocation was {peak:,} bytes"
 
 
 # --- SSRF: the allowlist says WHICH NAME, these say WHERE IT MAY POINT ---------

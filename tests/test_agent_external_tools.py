@@ -30,7 +30,7 @@ class _FakeResp:
     async def __aexit__(self, *a):
         return False
 
-    async def aiter_bytes(self):
+    async def aiter_raw(self):
         yield self._body
 
 
