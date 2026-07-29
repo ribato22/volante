@@ -236,6 +236,11 @@ class OpenAICompatProvider:
                 args = json.loads(raw) if raw else {}
             except (ValueError, TypeError):
                 args = {}
+            # A result that parsed but is not an object (`"[]"`, `"null"`, `"3"`) is
+            # passed through DELIBERATELY rather than flattened to {} here. The agentic
+            # loop turns it into a tool error naming what arrived, which is a
+            # correction the model can act on; coercing it here would report the same
+            # call as a missing argument and hide why it was missing.
             content.append(ToolUseBlock(id=tc.id, name=tc.function.name, input=args))
         if not content:
             content = [TextBlock(text="")]

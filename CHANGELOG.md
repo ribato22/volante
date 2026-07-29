@@ -21,6 +21,15 @@ All notable changes to this project are documented here. The format is based on
   allocation. Nine new tests cover the read side; the seven added in 0.3.2 only covered writes.
 
 ### Fixed
+- **One malformed tool call from a model killed the whole task.** `{"arguments": "[]"}` is valid
+  JSON that is not an object, and the OpenAI-compatible adapter stored whatever `json.loads`
+  returned in a field declared to hold a dict. The agentic loop passed it straight to the tool,
+  where `args.get(...)` raised `AttributeError` — an exception type neither the worker nor
+  Runtime's per-candidate handlers look for, so it fell through to the general guard: task failed,
+  no correction turn for the model, and no attempt at another candidate that might have formatted
+  the call properly. A non-object argument list is now a tool error naming what arrived, which is
+  a correction the model can act on, and it does not satisfy a `required_tools` declaration.
+
 - **A required tool that only ever failed counted as having been used.** `required_tools` is how a
   planner states that a task genuinely NEEDS a capability — read this file, fetch this page — and
   the agentic loop recorded the tool name the instant `run()` returned, without looking at what it

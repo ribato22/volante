@@ -608,6 +608,45 @@ async def test_declared_requirements_are_still_enforced() -> None:
         )
 
 
+@pytest.mark.asyncio
+async def test_non_object_tool_arguments_become_a_correctable_tool_error() -> None:
+    # `{"arguments": "[]"}` is valid JSON that is not an object. Handing it to a tool
+    # made the built-ins' `args.get(...)` raise AttributeError, which escaped the
+    # worker entirely: Runtime's general guard recorded a failed task, the model never
+    # got a turn to correct itself, and no other candidate was tried either — the
+    # reroute paths only look at ProviderError and TimeoutError.
+    tool = _RecordingTool("read_file")
+    provider = FakeProvider(responses=[
+        _resp([ToolUseBlock(id="u1", name="read_file", input=[])], "tool_use"),
+        _resp([TextBlock(text="recovered with a proper object")], "end_turn"),
+    ])
+    worker = AgenticWorker({"m1": provider}, CostMeter())
+
+    result = await worker.run(_req(), "m1", {"read_file": tool})
+
+    assert result.final_text == "recovered with a proper object"
+    assert tool.calls == [], "the tool was invoked with arguments it cannot read"
+    errors = [t.payload for t in result.turns if t.kind == "tool_result"]
+    assert errors == ["error: tool arguments must be a JSON object, got list"]
+
+
+@pytest.mark.asyncio
+async def test_non_object_arguments_do_not_satisfy_a_required_tool() -> None:
+    # It is a refused call, so it must not count as the capability being obtained —
+    # otherwise the crash is traded for the quieter bug next door.
+    provider = FakeProvider(responses=[
+        _resp([ToolUseBlock(id="u1", name="read_file", input="a string")], "tool_use"),
+        _resp([TextBlock(text="claimed success")], "end_turn"),
+    ])
+    worker = AgenticWorker({"m1": provider}, CostMeter())
+
+    with pytest.raises(CapabilityUnavailableError, match="every call returned an error"):
+        await worker.run(
+            _req(), "m1", {"read_file": _RecordingTool("read_file")},
+            required_tools=frozenset({"read_file"}),
+        )
+
+
 class _RefusingTool:
     """A tool that runs but refuses the job — the shape a policy denial, a bad
     argument or an I/O failure takes on every built-in tool."""

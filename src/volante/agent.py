@@ -289,14 +289,28 @@ class AgenticWorker:
             )
             raw_results: list[tuple[str, str]] = []
             for b in tool_uses:
-                if b.name in tools:
+                if b.name not in tools:
+                    content = f"error: unknown tool {b.name!r}"
+                elif not isinstance(b.input, dict):
+                    # `ToolUseBlock.input` is DECLARED a dict; a model is under no
+                    # obligation to honour that. `{"arguments": "[]"}` is valid JSON
+                    # that is not an object, and handing it straight to a tool made
+                    # `args.get(...)` raise AttributeError out of this loop — past
+                    # Runtime's ProviderError/TimeoutError handlers, into the general
+                    # guard, killing the task with no correction turn and no reroute.
+                    # A malformed call is the model's mistake to fix, like any other.
+                    content = (
+                        "error: tool arguments must be a JSON object, got "
+                        f"{type(b.input).__name__}"
+                    )
+                    known_tool_calls += 1
+                    used_tool_names.add(b.name)
+                else:
                     content = await tools[b.name].run(b.input)
                     known_tool_calls += 1
                     used_tool_names.add(b.name)
                     if not is_tool_error(content):
                         satisfied_tool_names.add(b.name)
-                else:
-                    content = f"error: unknown tool {b.name!r}"
                 raw_results.append((b.id, content))
 
             # Tool output is untrusted and may be arbitrarily large. Allocate the
