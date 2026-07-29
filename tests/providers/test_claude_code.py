@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from volante.providers.base import ProviderError
+from volante.providers.base import (
+    IncompleteOutputError,
+    ProviderError,
+    ensure_complete_response,
+)
 from volante.providers.claude_code import ClaudeCodeAdapter
 from volante.providers.cli_agent import CliAgentProvider, CliRunResult
 from volante.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage, text
@@ -159,6 +163,26 @@ def test_parse_unparseable_json_falls_back_to_estimated_usage() -> None:
     assert resp.usage.estimated is True
     assert resp.usage.prompt_tokens == 4       # _est("0123456789012345") == 16 // 4
     assert resp.cost_usd is None
+
+
+def test_parse_unparseable_json_is_not_reported_complete() -> None:
+    # `--output-format json` always emits an envelope. Stdout that is not one means
+    # the CLI died mid-answer, was truncated, or changed its format — none of which
+    # is a finished turn, and all of which end_turn presented as one.
+    res = CliRunResult(stdout="The answer so far is incomp", stderr="", returncode=0)
+    resp = ClaudeCodeAdapter().parse(res, _req(None, "q"))
+    with pytest.raises(IncompleteOutputError):
+        ensure_complete_response(resp, phase="worker")
+
+
+def test_parse_envelope_without_a_subtype_is_not_reported_complete() -> None:
+    # `subtype` is how the envelope reports its own outcome. Absent, we do not know
+    # it succeeded — defaulting the missing value to end_turn asserted that we did.
+    payload = {"type": "result", "result": "half an ans", "total_cost_usd": 0.1}
+    res = CliRunResult(stdout=json.dumps(payload), stderr="", returncode=0)
+    resp = ClaudeCodeAdapter().parse(res, _req(None, "q"))
+    with pytest.raises(IncompleteOutputError):
+        ensure_complete_response(resp, phase="worker")
 
 
 def test_parse_json_without_usage_estimates_but_keeps_cost() -> None:

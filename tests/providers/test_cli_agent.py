@@ -10,7 +10,12 @@ import time
 
 import pytest
 
-from volante.providers.base import LLMProvider, ProviderError
+from volante.providers.base import (
+    IncompleteOutputError,
+    LLMProvider,
+    ProviderError,
+    ensure_complete_response,
+)
 from volante.providers.cli_agent import (
     _CAPTURE_LIMIT,
     _TRUNCATION_MARKER,
@@ -652,6 +657,45 @@ async def test_stream_early_stop_keeps_partial_even_with_result_line(monkeypatch
     resp = await provider.stream(_req(), lambda _d: True)  # stop after first delta
     assert resp.content[0].text == "Hel"       # partial, NOT the full result-line text
     assert resp.usage.estimated is True         # unchanged early-stop contract
+
+
+async def test_stream_without_a_terminal_result_line_is_not_called_complete(monkeypatch):
+    # A clean exit is not a finished turn. When the CLI stops mid-stream without
+    # emitting its terminal envelope, the partial text is all we have -- labelling
+    # it end_turn walks it straight past ensure_complete_response and Runtime
+    # persists a truncated answer as a successful artifact.
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
+    lines = [
+        json.dumps({"type": "text", "text": "The answer so f"}) + "\n",
+        json.dumps({"type": "text", "text": "ar is incomp"}) + "\n",
+    ]
+    adapter = _FakeAdapter(stream_result_line_value=None)  # CLI never said it finished
+    runner = _RecordingRunner(CliRunResult("", "", 0), lines=lines)
+    provider = CliAgentProvider(adapter, "opus", runner=runner)
+
+    resp = await provider.stream(_req(), lambda _d: None)
+
+    assert resp.content[0].text == "The answer so far is incomp"
+    with pytest.raises(IncompleteOutputError):
+        ensure_complete_response(resp, phase="agentic worker")
+
+
+async def test_stream_early_stop_is_labelled_like_the_other_adapters(monkeypatch):
+    # Anthropic and OpenAI-compatible both label a cooperative early stop
+    # "early_stop", which the shared guard rejects. This adapter labelled the same
+    # condition end_turn, so the same event meant "complete" on one path and
+    # "incomplete" on another.
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
+    lines = [json.dumps({"type": "text", "text": "partial"}) + "\n"]
+    adapter = _FakeAdapter(stream_result_line_value=None)
+    runner = _RecordingRunner(CliRunResult("", "", 0), lines=lines)
+    provider = CliAgentProvider(adapter, "opus", runner=runner)
+
+    resp = await provider.stream(_req(), lambda _d: True)  # caller asks to stop
+
+    assert resp.stop_reason == "early_stop"
+    with pytest.raises(IncompleteOutputError):
+        ensure_complete_response(resp, phase="agentic worker")
 
 
 async def test_stream_sets_stream_flag_true(monkeypatch):

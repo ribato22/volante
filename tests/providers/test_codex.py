@@ -8,7 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from volante.providers.base import ProviderError
+from volante.providers.base import (
+    IncompleteOutputError,
+    ProviderError,
+    ensure_complete_response,
+)
 from volante.providers.codex import CodexAdapter, build_codex_model, codex_detected
 from volante.types import CanonicalRequest, Usage, text
 
@@ -175,6 +179,20 @@ def test_parse_usage_estimated_when_turn_completed_lacks_usage() -> None:
     assert resp.usage.estimated is True
     assert resp.usage.prompt_tokens == 4       # len("0123456789012345") // 4
     assert resp.usage.completion_tokens == 2   # len("abcdefgh") // 4
+
+
+def test_parse_without_turn_completed_is_not_reported_complete() -> None:
+    # `turn.completed` IS codex's statement that the turn finished. Output holding
+    # agent text but no such event is a turn that stopped early; returning end_turn
+    # regardless meant the one signal we have was never read.
+    jsonl = "\n".join([
+        json.dumps({"type": "thread.started", "thread_id": "th_3"}),
+        _item_completed("The answer so far is incomp"),
+    ])
+    resp = CodexAdapter().parse(_run_result(jsonl), _req("q"))
+    assert resp.content[0].text == "The answer so far is incomp"
+    with pytest.raises(IncompleteOutputError):
+        ensure_complete_response(resp, phase="worker")
 
 
 def test_parse_ignores_total_cost_usd_field_cost_stays_none() -> None:

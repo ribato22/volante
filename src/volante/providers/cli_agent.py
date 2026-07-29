@@ -443,10 +443,17 @@ class CliAgentProvider:
                 if self.adapter.is_error(terminal):
                     raise self.adapter.classify_error(terminal)
                 return self.adapter.parse(terminal, req)
+        # Neither arm that reaches here finished a turn, so neither may claim to.
+        # A cooperative early stop is `early_stop`, the label Anthropic and the
+        # OpenAI-compatible adapters already use for the same event — the shared
+        # guard rejected it there and silently accepted it here. And falling through
+        # WITHOUT a terminal envelope means the CLI exited 0 mid-stream: all we hold
+        # is the accumulated partial, which `end_turn` walked straight past
+        # ensure_complete_response and into Runtime as a successful artifact.
         return CanonicalResponse(
             content=[TextBlock(text="".join(parts))],
             usage=Usage(prompt_tokens=0, completion_tokens=0, estimated=True),
             model=self.name,
-            stop_reason="end_turn",
+            stop_reason="early_stop" if stopped else "no_terminal_result",
             latency_ms=0,
         )

@@ -121,6 +121,10 @@ class CodexAdapter:
         texts: list[str] = []
         usage_in: int | None = None
         usage_out: int | None = None
+        # `turn.completed` IS codex's statement that the turn finished. Returning
+        # `end_turn` whether or not it arrived meant the one completion signal on
+        # this wire was collected for its usage numbers and then ignored.
+        turn_completed = False
         for raw in result.stdout.splitlines():
             line = raw.strip()
             if not line:
@@ -141,6 +145,7 @@ class CodexAdapter:
                     if msg:
                         texts.append(msg)
             elif etype == "turn.completed":
+                turn_completed = True
                 usage = evt.get("usage") or {}
                 usage_in = usage.get("input_tokens")
                 usage_out = usage.get("output_tokens")
@@ -175,7 +180,7 @@ class CodexAdapter:
             content=[TextBlock(text=final_text)],
             usage=usage,
             model="codex",  # provider tag; registry id (codex/<m>) is the accounting key
-            stop_reason="end_turn",
+            stop_reason="end_turn" if turn_completed else "no_turn_completed",
             latency_ms=0,
             cost_usd=None,  # no total_cost_usd on the real wire (§5.3 fallback is downstream)
         )

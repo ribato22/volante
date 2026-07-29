@@ -119,7 +119,11 @@ class ClaudeCodeAdapter:
     def parse(self, result: CliRunResult, req: CanonicalRequest) -> CanonicalResponse:
         data = _try_json(result.stdout)
         if data is None:
-            # JSON did not parse -> fall back to a flagged estimate, no authoritative cost.
+            # JSON did not parse -> fall back to a flagged estimate, no authoritative
+            # cost, and NO claim that the turn finished: `--output-format json` always
+            # emits an envelope, so stdout that is not one means the CLI died
+            # mid-answer, was truncated, or changed format. Reporting `end_turn` here
+            # told ensure_complete_response the opposite of what we know.
             text_out = result.stdout.strip()
             return CanonicalResponse(
                 content=[TextBlock(text=text_out)],
@@ -129,7 +133,7 @@ class ClaudeCodeAdapter:
                     estimated=True,
                 ),
                 model=self.name,
-                stop_reason="end_turn",
+                stop_reason="unparseable_output",
                 latency_ms=0,
                 cost_usd=None,
             )
@@ -151,7 +155,10 @@ class ClaudeCodeAdapter:
             content=[TextBlock(text=result_text)],
             usage=usage,
             model=str(data.get("model") or self.name),
-            stop_reason="end_turn" if subtype == "success" else str(subtype or "end_turn"),
+            # `subtype` is how the envelope reports its own outcome, so an ABSENT one
+            # is not a success — defaulting the missing value to `end_turn` asserted
+            # a completion the wire never claimed.
+            stop_reason="end_turn" if subtype == "success" else str(subtype or "unknown"),
             latency_ms=int(data.get("duration_ms") or 0),
             cost_usd=float(cost) if cost is not None else None,
         )

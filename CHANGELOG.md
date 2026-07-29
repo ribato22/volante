@@ -21,6 +21,18 @@ All notable changes to this project are documented here. The format is based on
   allocation. Nine new tests cover the read side; the seven added in 0.3.2 only covered writes.
 
 ### Fixed
+- **A subscription CLI could report a truncated answer as a complete one.** `ensure_complete_response`
+  exists so token exhaustion, refusals and partial output are never persisted as an artifact merely
+  because they contain some text — and every path into the CLI-agent providers walked past it, because
+  four separate places hard-coded `end_turn`. A stream whose CLI exited 0 without its terminal envelope,
+  stdout that `--output-format json` could not parse, a `result` envelope with no `subtype`, and a
+  `codex exec` run with no `turn.completed` event were all labelled "finished". The most visible one was
+  the cooperative early stop, which the Anthropic and OpenAI-compatible adapters already label
+  `early_stop` — the same event meant "incomplete" on one provider and "complete" on another. All four
+  now report what actually happened (`no_terminal_result`, `unparseable_output`, `unknown`,
+  `no_turn_completed`, `early_stop`), so the shared guard rejects them. The deliberate trade: a garbled
+  CLI response now fails its task instead of quietly becoming the answer.
+
 - **A cancelled CLI-agent call left the `claude`/`codex` child running, and the provider's own
   timeout had not started.** Both runner paths wrote the whole prompt and awaited
   `stdin.drain()` BEFORE entering the region that installs the deadline and the `killpg`
