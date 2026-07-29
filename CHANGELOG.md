@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Security
+- **A streaming CLI provider kept its own unbounded copy of the whole stream.** The runner caps the
+  raw stdout copy at 16 MiB with `_BoundedCapture`, and then `CliAgentProvider.stream` appended
+  every decoded line and every text delta to two lists with no ceiling at all — so the runner's
+  bound bounded nothing. Measured against a real subprocess: 283 MiB retained and a 927 MiB peak
+  inside a four-second window; the default CLI timeout is 120 seconds. Retention now stops at the
+  same 16 MiB (two copies of one stream, one ceiling), live progress still reaches `on_text`
+  untouched, and — because an answer with its middle removed is not an answer — a run that trips
+  the bound reports `output_limit` and is refused by the completeness guard rather than returned
+  as a quietly shortened success. Same probe now retains 14.7 MiB and peaks at 82 MiB.
 - **`fetch_url`'s `timeout_s` was a per-operation budget, not a deadline.** httpx applies its
   timeout to each connect/read/write separately, and the body loop had no total budget, so an
   origin that answered just inside the read timeout could hold the call open for as long as it

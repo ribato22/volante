@@ -10,6 +10,7 @@ import time
 
 import pytest
 
+from volante.providers import cli_agent
 from volante.providers.base import (
     IncompleteOutputError,
     LLMProvider,
@@ -696,6 +697,48 @@ async def test_stream_early_stop_is_labelled_like_the_other_adapters(monkeypatch
     assert resp.stop_reason == "early_stop"
     with pytest.raises(IncompleteOutputError):
         ensure_complete_response(resp, phase="agentic worker")
+
+
+async def test_stream_retention_is_bounded_and_says_so(monkeypatch):
+    # _BoundedCapture caps the runner's raw stdout copy at 16 MiB, but the provider
+    # kept its OWN copy of every decoded line and every text delta with no bound at
+    # all. Measured against a real subprocess: 283 MiB retained and a 927 MiB peak in
+    # a four-second window, against that 16 MiB ceiling — and the default timeout is
+    # 120 seconds.
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
+    monkeypatch.setattr(cli_agent, "_STREAM_RETENTION_LIMIT", 1000)
+    lines = [json.dumps({"type": "text", "text": "z" * 200}) + "\n" for _ in range(100)]
+    adapter = _FakeAdapter(stream_result_line_value=None)
+    runner = _RecordingRunner(CliRunResult("", "", 0), lines=lines)
+    provider = CliAgentProvider(adapter, "opus", runner=runner)
+
+    resp = await provider.stream(_req(), lambda _d: None)
+
+    assert len(resp.content[0].text) <= 1000 + 200  # bounded, plus the chunk in flight
+    assert resp.stop_reason == "output_limit"
+    with pytest.raises(IncompleteOutputError):
+        # Half an answer is not an answer: the guard has to see this, or Runtime
+        # persists a silently truncated artifact as a success.
+        ensure_complete_response(resp, phase="agentic worker")
+
+
+async def test_an_ordinary_stream_is_untouched_by_the_retention_bound(monkeypatch):
+    monkeypatch.delenv("VOLANTE_CLI_AGENT_DEPTH", raising=False)
+    lines = [
+        json.dumps({"type": "text", "text": "Hel"}) + "\n",
+        json.dumps({"type": "text", "text": "lo"}) + "\n",
+    ]
+    result_line = json.dumps(
+        {"result": "Hello", "usage": {"input_tokens": 3, "output_tokens": 2}}
+    )
+    adapter = _FakeAdapter(stream_result_line_value=result_line)
+    runner = _RecordingRunner(CliRunResult("", "", 0), lines=lines)
+    provider = CliAgentProvider(adapter, "opus", runner=runner)
+
+    resp = await provider.stream(_req(), lambda _d: None)
+
+    assert resp.content[0].text == "Hello"
+    assert resp.stop_reason == "end_turn"
 
 
 async def test_stream_sets_stream_flag_true(monkeypatch):

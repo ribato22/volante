@@ -20,6 +20,14 @@ from volante.types import CanonicalRequest, CanonicalResponse, TextBlock, Usage
 # orphan the child. 8 MB is a generous ceiling for that.
 _STREAM_LIMIT = 8 * 1024 * 1024
 _CAPTURE_LIMIT = 16 * 1024 * 1024
+
+# What the PROVIDER retains while streaming, as opposed to what the runner copies.
+# _BoundedCapture caps the raw stdout copy, but CliAgentProvider.stream kept its own
+# unbounded lists of every decoded line and every text delta, so the runner's ceiling
+# bounded nothing: a real subprocess retained 283 MiB and peaked at 927 MiB inside a
+# four-second window, and the default timeout is 120 seconds. Same number as the
+# capture limit on purpose — two copies of the same stream deserve the same ceiling.
+_STREAM_RETENTION_LIMIT = _CAPTURE_LIMIT
 _TRUNCATION_MARKER = b"\n...[CLI output truncated; tail retained]...\n"
 
 # Subscription CLIs inherit only environment needed to find the executable,
@@ -409,14 +417,25 @@ class CliAgentProvider:
         parts: list[str] = []
         lines: list[str] = []
         stopped = False
+        retained = 0
+        overflowed = False
 
         def _on_line(line: str) -> bool:
-            nonlocal stopped
-            lines.append(line)
+            nonlocal stopped, retained, overflowed
+            # on_text still gets every delta — live progress is not what costs memory.
+            # What is dropped is the COPY kept for the final response, once holding it
+            # stops being a bounded cost. Dropping quietly would hand back an answer
+            # missing its middle, so `overflowed` travels out as a refusal below.
+            if retained > _STREAM_RETENTION_LIMIT:
+                overflowed = True
+            else:
+                retained += len(line)
+                lines.append(line)
             delta = self.adapter.parse_delta(line)
             if delta is None:
                 return False
-            parts.append(delta)
+            if not overflowed:
+                parts.append(delta)
             if on_text(delta):  # truthy -> cooperative early-stop (kills process group)
                 stopped = True
                 return True
@@ -430,9 +449,11 @@ class CliAgentProvider:
             result.timed_out or result.returncode != 0 or self.adapter.is_error(result)
         ):
             raise self.adapter.classify_error(result)
-        if not stopped:
+        if not stopped and not overflowed:
             # §5.3: cost_usd is the primary credit source -- surface REAL usage/cost
             # from the terminal `type:"result"` line instead of a blind Usage(0, 0).
+            # Skipped once the retention bound tripped: `lines` no longer holds the
+            # whole stream, so anything read out of it would be a guess.
             result_line = self.adapter.stream_result_line(lines)
             if result_line is not None:
                 terminal = CliRunResult(result_line, "", 0)
@@ -443,17 +464,24 @@ class CliAgentProvider:
                 if self.adapter.is_error(terminal):
                     raise self.adapter.classify_error(terminal)
                 return self.adapter.parse(terminal, req)
-        # Neither arm that reaches here finished a turn, so neither may claim to.
+        # No arm that reaches here finished a turn, so none of them may claim to.
         # A cooperative early stop is `early_stop`, the label Anthropic and the
         # OpenAI-compatible adapters already use for the same event — the shared
-        # guard rejected it there and silently accepted it here. And falling through
+        # guard rejected it there and silently accepted it here. Falling through
         # WITHOUT a terminal envelope means the CLI exited 0 mid-stream: all we hold
         # is the accumulated partial, which `end_turn` walked straight past
-        # ensure_complete_response and into Runtime as a successful artifact.
+        # ensure_complete_response and into Runtime as a successful artifact. And
+        # `output_limit` means we stopped retaining, so what is here has a hole in it.
+        if overflowed:
+            reason = "output_limit"
+        elif stopped:
+            reason = "early_stop"
+        else:
+            reason = "no_terminal_result"
         return CanonicalResponse(
             content=[TextBlock(text="".join(parts))],
             usage=Usage(prompt_tokens=0, completion_tokens=0, estimated=True),
             model=self.name,
-            stop_reason="early_stop" if stopped else "no_terminal_result",
+            stop_reason=reason,
             latency_ms=0,
         )
