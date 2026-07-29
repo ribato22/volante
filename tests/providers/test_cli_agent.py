@@ -332,6 +332,39 @@ async def test_runner_cancellation_retrieves_every_future_it_cancelled(tmp_path)
     assert reported == [], f"cancellation logged to asyncio: {reported}"
 
 
+@pytest.mark.parametrize("on_line", [None, lambda _line: False], ids=["complete", "stream"])
+async def test_an_unexpected_exception_still_reaps_the_child(tmp_path, on_line):
+    # The stream path had a belt-and-suspenders finally for exactly this; the
+    # complete path caught only TimeoutError and CancelledError, so anything else
+    # escaping the pump left the child running. Both paths spawn, so both need the
+    # guarantee — a reaper attached to one branch is not a reaper.
+    pid_file = tmp_path / "child.pid"
+
+    async def _explode(reader, capture):
+        await asyncio.sleep(0.1)
+        raise RuntimeError("a reader blew up mid-drain")
+
+    original = cli_agent._drain
+    cli_agent._drain = _explode
+    try:
+        task = asyncio.ensure_future(
+            subprocess_cli_runner(
+                [sys.executable, "-c", _REPORTS_PID_THEN_STALLS, str(pid_file)],
+                stdin="",
+                env={"PATH": os.environ.get("PATH", "")},
+                timeout=60.0,
+                on_line=on_line,
+            )
+        )
+        pid = await _child_pid(pid_file)
+        with pytest.raises(RuntimeError):
+            await task
+    finally:
+        cli_agent._drain = original
+
+    assert not _is_running(pid), "an unexpected exception left the CLI child orphaned"
+
+
 async def test_runner_feed_does_not_deadlock_against_a_chatty_child():
     # Writing the whole prompt before draining stdout deadlocks once the child
     # fills the stdout pipe while the runner is still filling the stdin one.

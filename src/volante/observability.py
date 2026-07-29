@@ -54,6 +54,11 @@ _LEDGER_FILE_MODE = 0o600
 # actually exercise the boundary handling.
 _READ_CHUNK = 64 * 1024
 
+# A record is truncated to stay under PIPE_BUF (4096) so its append is atomic, so
+# anything this much larger is not a record of ours. The cap is what stops the
+# backwards walk from reassembling a file that has no line breaks in it at all.
+_MAX_LINE_BYTES = 1024 * 1024
+
 
 def configure_logging(env: Mapping[str, str] | None = None) -> int | None:
     """Configure root logging from ``VOLANTE_LOG`` and return the level applied.
@@ -231,6 +236,15 @@ def _lines_backwards(handle: IO[bytes]) -> Iterator[bytes]:
         # whole line once the walk reaches the start of the file. Yielding it early
         # would drop or corrupt exactly the records that straddle a block boundary.
         carry = pieces.pop(0)
+        # With no newline in the file at all, that fragment IS the file, and holding
+        # it across blocks reassembles the whole thing in memory — the exact cost
+        # this reader exists to avoid, reached by a corrupt ledger or by
+        # VOLANTE_USAGE_LOG pointed somewhere unintended. Every real record is kept
+        # well under PIPE_BUF, so a line past this cap is not one of ours and there
+        # is nothing to be gained by continuing to walk backwards past it.
+        if len(carry) > _MAX_LINE_BYTES:
+            _LOG.debug("usage read stopped: line exceeds %d bytes", _MAX_LINE_BYTES)
+            return
         yield from reversed(pieces)
     if carry:
         yield carry  # the file's first line, which has no newline in front of it

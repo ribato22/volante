@@ -230,6 +230,35 @@ def test_reading_a_few_records_does_not_read_the_whole_ledger(tmp_path: Path) ->
     assert peak < size // 4, f"peak {peak:,} against a {size:,}-byte file"
 
 
+def test_a_ledger_with_no_line_breaks_is_abandoned_not_swallowed(tmp_path: Path) -> None:
+    # Reading backwards holds the leading fragment of each block until a newline
+    # completes it. With no newline anywhere — a corrupted ledger, a truncated one,
+    # or simply a file VOLANTE_USAGE_LOG was pointed at by mistake — that fragment
+    # IS the file, so the walk quietly reassembles the whole thing in memory and the
+    # bound this reader exists for stops binding. Every real record is well under
+    # PIPE_BUF, so a line past the cap is not one of ours.
+    import tracemalloc
+
+    peaks = []
+    for size in (4_000_000, 16_000_000):
+        log = tmp_path / f"usage-{size}.jsonl"
+        log.write_bytes(b"x" * size)
+
+        tracemalloc.start()
+        runs = obs.read_runs(path=log, limit=5)
+        _current, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        assert runs == []
+        peaks.append(peak)
+
+    # The property is that the cost tracks the CAP, not the file: quadrupling the
+    # file must not move the peak. Asserting a fraction of the file size would pass
+    # for a reader that still scaled with it, just more slowly.
+    assert all(p < 4 * obs._MAX_LINE_BYTES for p in peaks), f"peaks {peaks}"
+    assert peaks[1] < peaks[0] * 2, f"cost grew with the file: {peaks}"
+
+
 def test_the_newest_records_still_come_back_first(tmp_path: Path) -> None:
     log = _ledger(tmp_path / "usage.jsonl", 2_000)
 

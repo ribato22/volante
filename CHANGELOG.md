@@ -91,6 +91,18 @@ All notable changes to this project are documented here. The format is based on
   allocation. Nine new tests cover the read side; the seven added in 0.3.2 only covered writes.
 
 ### Fixed
+- **Two defects found by attacking the fixes above rather than re-reading them.** The CLI runner
+  reaped its child on a timeout and on cancellation, and `_stream_lines` carried a
+  belt-and-suspenders `finally` for anything else — but `_communicate_bounded` did not, so on the
+  complete path a reader raising, an `on_line` callback raising or a line past the stream limit
+  still left the process running. The reaper now sits on the function that SPAWNS, where the
+  obligation is created, instead of on one of the two branches beneath it. And the new
+  read-the-ledger-backwards walk held each block's leading fragment until a newline completed it,
+  so a file with no line breaks at all — a corrupt ledger, or `VOLANTE_USAGE_LOG` pointed
+  somewhere unintended — reassembled itself in memory and the bound stopped binding: 80 MB peak
+  for a 40 MB file. Lines past 1 MiB are now abandoned (a real record is kept under `PIPE_BUF`),
+  and the test asserts the cost tracks the cap rather than a fraction of the file, because a
+  fraction still passes for a reader that scales.
 - **Nothing bounded how much work one model reply could ask for.** `max_iters` counts provider
   turns, not tool operations, so a single response requesting hundreds of tool calls ran all of
   them — 500 measured, sequentially, each `read_file` free to read 100 KB while the loop waits.

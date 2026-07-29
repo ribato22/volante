@@ -196,6 +196,7 @@ async def subprocess_cli_runner(
     prompt via stdin. killpg(SIGKILL) on BOTH TimeoutError AND CancelledError, then
     await proc.wait() (mirror src/volante/tools/sandbox.py)."""
     workdir = tempfile.mkdtemp(prefix="volante-cli-")
+    proc: asyncio.subprocess.Process | None = None
     try:
         proc = await asyncio.create_subprocess_exec(
             *argv,
@@ -211,6 +212,16 @@ async def subprocess_cli_runner(
             return await _communicate_bounded(proc, stdin, timeout)
         return await _stream_lines(proc, stdin, timeout, on_line)
     finally:
+        # The reaper belongs HERE, on the function that spawns, not on one of the
+        # two branches below it. _stream_lines carried its own belt-and-suspenders
+        # finally and _communicate_bounded did not, so anything escaping the pump
+        # other than a timeout or a cancellation -- a reader raising, an on_line
+        # callback raising, a line past the stream limit -- left the child running
+        # on the complete path only. A guarantee attached to one branch is not a
+        # guarantee; spawning is what creates the obligation, so spawning owns it.
+        if proc is not None and proc.returncode is None:
+            _killpg(proc)
+            await proc.wait()
         shutil.rmtree(workdir, ignore_errors=True)
 
 
