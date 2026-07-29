@@ -89,6 +89,17 @@ All notable changes to this project are documented here. The format is based on
   allocation. Nine new tests cover the read side; the seven added in 0.3.2 only covered writes.
 
 ### Fixed
+- **Nothing bounded how much work one model reply could ask for.** `max_iters` counts provider
+  turns, not tool operations, so a single response requesting hundreds of tool calls ran all of
+  them — 500 measured, sequentially, each `read_file` free to read 100 KB while the loop waits.
+  A plan was the same shape one level up: the planner prompt asks for a minimal DAG, and a prompt
+  is not an enforceable bound, so an inflated array became that many scheduled coroutines and,
+  on a card-billed candidate, that many paid calls. Both are now capped at 32. Over-cap tool calls
+  are REFUSED rather than dropped — a provider that receives a `tool_use` with no matching
+  `tool_result` rejects the next request outright — and an oversized plan is fed back through the
+  planner's existing retry as a correction it can act on. Neither is the resource exhaustion the
+  scan described (both were already bounded by the model's own `max_tokens`); both were budgets
+  nobody had chosen.
 - **The VS Code tasks passed the typed goal through a shell.** Both `Volante: Run goal` tasks were
   `"type": "shell"`, which builds a command *line*; VS Code quotes an argument only when it
   contains a space, a quote or a backslash, so a goal like `a;id` reached the developer's shell

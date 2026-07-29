@@ -51,6 +51,10 @@ _PLAN_SYSTEM = (
 # recovery, so plan() retries a bounded number of times with a corrective
 # follow-up before giving up.
 _MAX_PLAN_ATTEMPTS = 3
+
+# Upper bound on planner-produced task cardinality. Real plans run to a handful;
+# this is a backstop against a runaway array, not an opinion about decomposition.
+_MAX_PLAN_TASKS = 32
 _DEFAULT_CONTEXT_WINDOW = 32_768
 _DEFAULT_MAX_OUTPUT_TOKENS = 2_048
 
@@ -339,6 +343,16 @@ def validate_plan(tasks: list[Task]) -> None:
     # resolved==0==len) and makes aexecute report "success" without doing any work.
     if not tasks:
         raise ValueError("plan is empty: planner returned no tasks")
+    # The planner prompt asks for a minimal DAG; a prompt is not an enforceable
+    # bound. Every task becomes a scheduled coroutine and, on a card-billed
+    # candidate, a paid model call — so an inflated plan spends real money before
+    # anything downstream can object. Raising here feeds the reason back through the
+    # existing plan retry, which is a correction the planner can act on.
+    if len(tasks) > _MAX_PLAN_TASKS:
+        raise ValueError(
+            f"plan has too many tasks ({len(tasks)}); the maximum is "
+            f"{_MAX_PLAN_TASKS}. Decompose the goal more coarsely."
+        )
     ids = [t.id for t in tasks]
     if len(ids) != len(set(ids)):
         raise ValueError("plan contains duplicate task ids")

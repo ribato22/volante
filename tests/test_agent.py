@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from volante.agent import AgenticResult, AgenticWorker
+from volante.agent import _MAX_TOOL_CALLS_PER_TURN, AgenticResult, AgenticWorker
 from volante.cost import CostMeter
 from volante.providers.base import IncompleteOutputError
 from volante.providers.base import ProviderError as _PE
@@ -606,6 +606,38 @@ async def test_declared_requirements_are_still_enforced() -> None:
             _req(), "m1", {"run_python": _RecordingTool()},
             required_tools=frozenset({"run_python"}),
         )
+
+
+@pytest.mark.asyncio
+async def test_one_response_cannot_request_an_unbounded_tool_batch() -> None:
+    # max_iters counts provider TURNS, not tool operations, so a single response
+    # asking for hundreds of calls ran them all before any limit noticed. Measured:
+    # 500 calls in one turn, executed sequentially, none refused. Bounded by the
+    # model's own max_tokens in practice — which is a coincidence of the wire format,
+    # not a budget anyone chose.
+    calls = [
+        ToolUseBlock(id=str(i), name="read_file", input={"path": "x"})
+        for i in range(_MAX_TOOL_CALLS_PER_TURN + 3)
+    ]
+    tool = _RecordingTool("read_file")
+    provider = FakeProvider(responses=[
+        _resp(calls, "tool_use"),
+        _resp([TextBlock(text="fewer calls this time")], "end_turn"),
+    ])
+    worker = AgenticWorker({"read_file": provider, "m1": provider}, CostMeter())
+
+    result = await worker.run(_req(), "m1", {"read_file": tool})
+
+    assert len(tool.calls) == _MAX_TOOL_CALLS_PER_TURN
+    refusals = [
+        t.payload for t in result.turns
+        if t.kind == "tool_result" and t.payload.startswith("error:")
+    ]
+    assert len(refusals) == 3
+    assert "too many tool calls" in refusals[0]
+    # Every requested call still gets an answer: a provider that receives a tool_use
+    # with no matching tool_result rejects the next request outright.
+    assert sum(1 for t in result.turns if t.kind == "tool_result") == len(calls)
 
 
 @pytest.mark.asyncio

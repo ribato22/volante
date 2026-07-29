@@ -7,7 +7,7 @@ import pytest
 from volante.cost import CostMeter
 from volante.providers.base import IncompleteOutputError
 from volante.providers.fake import FakeProvider
-from volante.supervisor import _MAX_PLAN_ATTEMPTS, Supervisor
+from volante.supervisor import _MAX_PLAN_ATTEMPTS, _MAX_PLAN_TASKS, Supervisor
 from volante.types import (
     CanonicalRequest,
     CanonicalResponse,
@@ -317,6 +317,46 @@ async def test_plan_rejects_empty_plan() -> None:
 
     with pytest.raises(ValueError, match="empty"):
         await sup.plan("a goal the planner refuses to decompose")
+
+
+async def test_plan_rejects_an_oversized_task_graph() -> None:
+    # The planner prompt asks for a minimal DAG, but a prompt is not an enforceable
+    # bound. Every task becomes a scheduled coroutine and, for a card-billed
+    # candidate, a paid model call — so an inflated plan spends real money before
+    # anything downstream gets a say. Rejecting it feeds the reason back to the
+    # planner through the existing retry, which is a correction it can act on.
+    huge = json.dumps(
+        [
+            {
+                "id": f"t{i}", "description": f"step {i}", "type": "research",
+                "mode": "one_shot", "depends_on": [],
+            }
+            for i in range(_MAX_PLAN_TASKS + 1)
+        ]
+    )
+    provider = FakeProvider(responses=[_resp(huge)] * _MAX_PLAN_ATTEMPTS)
+    sup = Supervisor(provider, _PLANNER_MODEL, CostMeter())
+
+    with pytest.raises(ValueError, match="too many tasks"):
+        await sup.plan("a goal the planner keeps inflating")
+
+
+async def test_a_plan_at_the_limit_is_still_accepted() -> None:
+    # The boundary: the cap is a backstop against a runaway, not a style opinion.
+    at_limit = json.dumps(
+        [
+            {
+                "id": f"t{i}", "description": f"step {i}", "type": "research",
+                "mode": "one_shot", "depends_on": [],
+            }
+            for i in range(_MAX_PLAN_TASKS)
+        ]
+    )
+    sup = Supervisor(FakeProvider(responses=[_resp(at_limit)]), _PLANNER_MODEL, CostMeter())
+
+    tasks = await sup.plan("a genuinely wide goal")
+
+    assert len(tasks) == _MAX_PLAN_TASKS
 
 
 async def test_plan_rejects_empty_plan_inside_fence() -> None:

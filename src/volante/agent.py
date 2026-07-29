@@ -87,6 +87,15 @@ class TurnRecord:
 # genuinely being stuck.
 _MAX_STALL_NUDGES = 2
 
+# Tool calls executed from ONE provider response. max_iters counts provider turns,
+# not tool operations, so without this a single reply asking for hundreds of calls
+# ran all of them — 500 measured, executed sequentially, each `read_file` able to
+# read 100 KB while the event loop waits. In practice the model's own max_tokens
+# bounds how many calls fit in a reply, which is a coincidence of the wire format
+# rather than a budget anyone chose. 32 is far above any real parallel batch and far
+# below anything that matters.
+_MAX_TOOL_CALLS_PER_TURN = 32
+
 
 @dataclass
 class AgenticResult:
@@ -288,8 +297,20 @@ class AgenticWorker:
                 )
             )
             raw_results: list[tuple[str, str]] = []
-            for b in tool_uses:
-                if b.name not in tools:
+            for index, b in enumerate(tool_uses):
+                if index >= _MAX_TOOL_CALLS_PER_TURN:
+                    # Refused, not dropped. A provider that receives a tool_use with
+                    # no matching tool_result rejects the NEXT request outright, so
+                    # silently discarding the tail would break the conversation
+                    # instead of correcting it. The model is told what happened and
+                    # keeps whatever the first batch achieved.
+                    content = (
+                        f"error: too many tool calls in one response "
+                        f"({len(tool_uses)}); only the first "
+                        f"{_MAX_TOOL_CALLS_PER_TURN} were executed. Ask for fewer at "
+                        "a time."
+                    )
+                elif b.name not in tools:
                     content = f"error: unknown tool {b.name!r}"
                 elif not isinstance(b.input, dict):
                     # `ToolUseBlock.input` is DECLARED a dict; a model is under no
