@@ -89,6 +89,19 @@ All notable changes to this project are documented here. The format is based on
   allocation. Nine new tests cover the read side; the seven added in 0.3.2 only covered writes.
 
 ### Fixed
+- **The VS Code tasks passed the typed goal through a shell.** Both `Volante: Run goal` tasks were
+  `"type": "shell"`, which builds a command *line*; VS Code quotes an argument only when it
+  contains a space, a quote or a backslash, so a goal like `a;id` reached the developer's shell
+  unquoted and the `;` was read as a command separator. Every task is now `"type": "process"`,
+  which hands argv to the OS, and a contract test fails if a shell task ever interpolates an input
+  again. Self-inflicted rather than remote — but the fix is one word.
+- **`read_runs(limit=N)` read the entire ledger before counting to N.** `readlines()` materialized
+  every line of an append-only file that grows for the life of an install: 300,000 runs / 93 MiB
+  on disk cost 110 MiB of peak memory to return five records, and the Web UI does that
+  synchronously on its event loop. It now walks backwards in 64 KiB blocks and stops as soon as it
+  has the records asked for — the same probe now peaks below a megabyte and returns in
+  milliseconds. Not the denial of service the scan called it (300,000 runs is years of use), but a
+  limit that bounded nothing was still a limit in name only.
 - **Docker sandbox termination could hang forever on the `docker kill` client.** `_terminate`
   awaited that auxiliary process with no deadline, immediately above a `proc.wait()` that was
   deliberately bounded so "the timeout really bites". An unresponsive daemon leaves the client

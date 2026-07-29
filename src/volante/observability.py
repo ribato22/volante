@@ -27,10 +27,10 @@ import logging
 import os
 import stat
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 _LOG = logging.getLogger("volante.observability")
 
@@ -47,6 +47,12 @@ _DEFAULT_USAGE_PATH = "~/.volante/usage.jsonl"
 # account that can traverse the home directory.
 _LEDGER_DIR_MODE = 0o700
 _LEDGER_FILE_MODE = 0o600
+
+# Block size for the backwards read. Comfortably more than a page and more than
+# any single record (each is kept under PIPE_BUF), so the common `limit=200`
+# usually lands in one or two reads. Module-level so a test can shrink it and
+# actually exercise the boundary handling.
+_READ_CHUNK = 64 * 1024
 
 
 def configure_logging(env: Mapping[str, str] | None = None) -> int | None:
@@ -199,6 +205,37 @@ def record_run(
         return False
 
 
+def _lines_backwards(handle: IO[bytes]) -> Iterator[bytes]:
+    """Yield the file's lines newest-first, reading fixed blocks from the end.
+
+    The ledger is append-only and grows for the life of an install, while every
+    reader — ``volante --usage``, the Web UI dashboard — wants the last handful of
+    records. ``readlines()`` served those from a full materialization of the file: at
+    300,000 runs that was 93 MiB read and 110 MiB allocated to return five records,
+    on the Web UI's event loop. Reading from the end costs one block per record batch
+    regardless of how long the ledger has been growing.
+
+    Splitting on ``b"\\n"`` is safe on raw bytes: a newline byte cannot appear inside
+    a UTF-8 multi-byte sequence, so no block boundary can cut a character in half.
+    """
+    handle.seek(0, os.SEEK_END)
+    position = handle.tell()
+    carry = b""
+    while position > 0:
+        step = min(_READ_CHUNK, position)
+        position -= step
+        handle.seek(position)
+        block = handle.read(step) + carry
+        pieces = block.split(b"\n")
+        # The first piece continues into the block BEFORE this one, so it is only a
+        # whole line once the walk reaches the start of the file. Yielding it early
+        # would drop or corrupt exactly the records that straddle a block boundary.
+        carry = pieces.pop(0)
+        yield from reversed(pieces)
+    if carry:
+        yield carry  # the file's first line, which has no newline in front of it
+
+
 def read_runs(
     env: Mapping[str, str] | None = None,
     *,
@@ -217,23 +254,22 @@ def read_runs(
         return []
     records: list[dict[str, Any]] = []
     try:
-        with target.open(encoding="utf-8") as handle:
-            lines = handle.readlines()
+        with target.open("rb") as handle:
+            for line in _lines_backwards(handle):
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    parsed = json.loads(stripped)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+                if isinstance(parsed, dict):
+                    records.append(parsed)
+                if len(records) >= limit:
+                    break
     except OSError as exc:  # pragma: no cover - defensive
         _LOG.debug("usage read skipped: %s", exc)
         return []
-    for line in reversed(lines):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            parsed = json.loads(line)
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            continue
-        if isinstance(parsed, dict):
-            records.append(parsed)
-        if len(records) >= limit:
-            break
     return records
 
 

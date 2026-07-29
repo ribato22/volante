@@ -199,6 +199,83 @@ def test_tightening_failure_does_not_break_recording(tmp_path: Path, monkeypatch
     assert len(obs.read_runs(path=tmp_path / ".volante" / "usage.jsonl", limit=10)) == 1
 
 
+# --- a limit that does not limit anything is not a limit ----------------------
+# read_runs(limit=N) called handle.readlines() first, materializing every line in an
+# append-only file that grows for the life of the install, and only then counted to
+# N. Measured: 300,000 runs / 93 MiB on disk cost 110 MiB of peak memory to return
+# five records — and the Web UI does this synchronously on the event loop.
+
+
+def _ledger(path: Path, count: int, *, goal: str = "g") -> Path:
+    line = json.dumps({"ts": "2026-07-29T00:00:00Z", "source": "cli", "goal": goal})
+    with path.open("w", encoding="utf-8") as handle:
+        for index in range(count):
+            handle.write(line.replace('"g"', f'"{goal}-{index}"') + "\n")
+    return path
+
+
+def test_reading_a_few_records_does_not_read_the_whole_ledger(tmp_path: Path) -> None:
+    import tracemalloc
+
+    log = _ledger(tmp_path / "usage.jsonl", 40_000)
+    size = log.stat().st_size
+    assert size > 2_000_000, "the ledger has to be big enough for the point to hold"
+
+    tracemalloc.start()
+    runs = obs.read_runs(path=log, limit=5)
+    _current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    assert len(runs) == 5
+    assert peak < size // 4, f"peak {peak:,} against a {size:,}-byte file"
+
+
+def test_the_newest_records_still_come_back_first(tmp_path: Path) -> None:
+    log = _ledger(tmp_path / "usage.jsonl", 2_000)
+
+    runs = obs.read_runs(path=log, limit=3)
+
+    assert [r["goal"] for r in runs] == ["g-1999", "g-1998", "g-1997"]
+
+
+def test_a_record_spanning_a_read_boundary_is_not_split(tmp_path, monkeypatch) -> None:
+    # Reading backwards in blocks means a record can straddle two of them. Getting
+    # this wrong loses exactly the records at each boundary, quietly.
+    monkeypatch.setattr(obs, "_READ_CHUNK", 64)
+    log = tmp_path / "usage.jsonl"
+    with log.open("w", encoding="utf-8") as handle:
+        for index in range(20):
+            handle.write(json.dumps({"goal": f"g-{index}", "pad": "x" * 200}) + "\n")
+
+    runs = obs.read_runs(path=log, limit=20)
+
+    assert [r["goal"] for r in runs] == [f"g-{i}" for i in reversed(range(20))]
+
+
+def test_the_very_first_line_of_a_file_is_still_returned(tmp_path, monkeypatch) -> None:
+    # Walking backwards, the earliest line has no newline before it. Treating it like
+    # any other partial fragment would drop the oldest record in every ledger.
+    monkeypatch.setattr(obs, "_READ_CHUNK", 16)
+    log = tmp_path / "usage.jsonl"
+    log.write_text(json.dumps({"goal": "the-first-run-ever"}) + "\n", encoding="utf-8")
+
+    assert [r["goal"] for r in obs.read_runs(path=log, limit=10)] == [
+        "the-first-run-ever"
+    ]
+
+
+def test_a_torn_final_line_is_skipped_not_fatal(tmp_path: Path) -> None:
+    # A concurrent writer mid-append leaves a partial tail; reading backwards meets it
+    # first.
+    log = tmp_path / "usage.jsonl"
+    log.write_text(
+        json.dumps({"goal": "complete"}) + "\n" + '{"goal": "tor',
+        encoding="utf-8",
+    )
+
+    assert [r["goal"] for r in obs.read_runs(path=log, limit=10)] == ["complete"]
+
+
 def test_read_runs_skips_malformed_lines_and_missing_file(tmp_path: Path) -> None:
     assert obs.read_runs({"VOLANTE_USAGE_LOG": str(tmp_path / "nope.jsonl")}) == []
     log = tmp_path / "usage.jsonl"
