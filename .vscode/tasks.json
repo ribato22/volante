@@ -2,12 +2,18 @@
   // Shared Volante tasks. Run via: Terminal > Run Task…  (or ⌘/Ctrl+Shift+B for the default).
   // These wrap the same `uv` commands documented in the README — nothing VSCode-specific
   // is required to use Volante; this is just one-keystroke convenience inside the editor.
+  //
+  // "type": "process", not "shell". A shell task builds a command LINE, and VS Code
+  // quotes an argument only when it contains a space, a quote or a backslash — so a
+  // goal typed as `a;id` would reach the shell unquoted and the `;` would be read as a
+  // command separator. A process task hands argv to the OS, where the goal stays one
+  // element whatever characters it holds.
   "version": "2.0.0",
   "tasks": [
     {
       "label": "Volante: Run goal",
       "detail": "Prompt for a goal and orchestrate it end-to-end (plan → workers → synthesis).",
-      "type": "shell",
+      "type": "process",
       "command": "uv",
       "args": ["run", "volante", "${input:volanteGoal}"],
       "problemMatcher": [],
@@ -17,7 +23,7 @@
     {
       "label": "Volante: Run goal (JSON output)",
       "detail": "Same as above but emit a machine-readable JSON RunResult.",
-      "type": "shell",
+      "type": "process",
       "command": "uv",
       "args": ["run", "volante", "--json", "${input:volanteGoal}"],
       "problemMatcher": [],
@@ -26,7 +32,7 @@
     {
       "label": "Volante: Web UI",
       "detail": "Serve the live streaming Web UI at http://127.0.0.1:8000 (Ctrl+C to stop).",
-      "type": "shell",
+      "type": "process",
       "command": "uv",
       "args": ["run", "--extra", "ui", "python", "-m", "webui"],
       "isBackground": true,
@@ -36,7 +42,7 @@
     {
       "label": "Volante: MCP server (stdio)",
       "detail": "Run the Model Context Protocol server so an IDE AI agent can call volante_run.",
-      "type": "shell",
+      "type": "process",
       "command": "uv",
       "args": ["run", "--extra", "mcp", "python", "-m", "volante_mcp"],
       "isBackground": true,
@@ -46,7 +52,7 @@
     {
       "label": "Volante: Test",
       "detail": "Run the test suite (no network; integration tests skipped by default).",
-      "type": "shell",
+      "type": "process",
       "command": "uv",
       "args": ["run", "pytest", "-q"],
       "problemMatcher": [],
@@ -56,7 +62,7 @@
     {
       "label": "Volante: Lint",
       "detail": "Ruff lint the whole project.",
-      "type": "shell",
+      "type": "process",
       "command": "uv",
       "args": ["run", "ruff", "check", "."],
       "problemMatcher": [],

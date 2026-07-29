@@ -270,6 +270,24 @@ def test_distribution_surfaces_describe_evidence_based_routing_without_overclaim
         assert "best-quality capable model" not in normalized.lower()
 
 
+def test_no_vscode_task_interpolates_input_into_a_shell() -> None:
+    # `"type": "shell"` builds a command LINE. VS Code quotes an argument only when it
+    # contains a space, a quote or a backslash, so a promptString value like `a;id`
+    # goes through unquoted and the developer's shell reads the `;` as a separator.
+    # `"type": "process"` hands argv to the OS instead, where a goal is one element
+    # whatever it contains.
+    # tasks.json is JSONC; VS Code allows the `//` comments this file uses.
+    raw = (ROOT / ".vscode" / "tasks.json").read_text()
+    tasks = json.loads(re.sub(r"^\s*//.*$", "", raw, flags=re.MULTILINE))
+    offenders = [
+        task["label"]
+        for task in tasks["tasks"]
+        if task.get("type") == "shell"
+        and any("${input:" in str(arg) for arg in task.get("args", []))
+    ]
+    assert not offenders, f"shell tasks interpolating an input: {offenders}"
+
+
 def test_external_github_actions_are_pinned_to_full_commit_shas() -> None:
     for workflow in sorted((ROOT / ".github/workflows").glob("*.yml")):
         for line in workflow.read_text().splitlines():
