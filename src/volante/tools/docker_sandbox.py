@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import uuid
 from asyncio import create_subprocess_exec as _spawn  # alias: avoid the substring a hook forbids
@@ -12,6 +13,11 @@ from volante.tools.sandbox import (
     _collect_bounded_output,
     write_model_code,
 )
+
+# How long to wait on the auxiliary `docker kill` client before abandoning it.
+# `docker kill` talks to a local daemon, so seconds is already generous; the point
+# is that there IS a bound. Module-level so a test can shrink it.
+_KILL_CLIENT_TIMEOUT_S = 5.0
 
 
 class DockerSandbox:
@@ -74,9 +80,19 @@ class DockerSandbox:
                 "docker", "kill", name,
                 stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
             )
-            await k.wait()
         except OSError:
-            pass
+            return
+        try:
+            await asyncio.wait_for(k.wait(), timeout=_KILL_CLIENT_TIMEOUT_S)
+        except TimeoutError:
+            # An unresponsive daemon leaves this client sitting there. Waiting on it
+            # without a deadline put every termination path -- timeout, output limit,
+            # cancellation -- behind a process that may never answer, which is exactly
+            # what the bounded proc.wait() below was added to prevent. Give up on the
+            # auxiliary client and let _terminate go on to kill the `docker run` one,
+            # which is the process actually holding this sandbox open.
+            with contextlib.suppress(ProcessLookupError, OSError):
+                k.kill()
 
     async def _terminate(self, proc: asyncio.subprocess.Process, name: str) -> None:
         # Kill the container by name AND the `docker run` client (proc). If the

@@ -130,6 +130,54 @@ async def test_timeout_terminates_even_if_container_kill_is_noop(
     assert hang.killed is True
 
 
+class _UnresponsiveKillClient(_FakeProc):
+    """A `docker kill` client that is spawned and then does not come back.
+
+    The existing tests give it a fast exit, success or failure. An unresponsive
+    daemon gives it neither: the client sits there, and everything that has to
+    terminate the sandbox queues behind it.
+    """
+
+    def __init__(self, delay: float = 10.0) -> None:
+        super().__init__()
+        self._delay = delay
+        self.killed = False
+
+    async def wait(self):
+        await asyncio.sleep(self._delay)
+        return 0
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+async def test_termination_is_bounded_when_the_docker_kill_client_hangs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # proc.wait() was already bounded so "the timeout really bites". The docker kill
+    # client awaited just above it was not, so the timeout, output-limit and
+    # cancellation paths all stopped there instead and the advertised bound never
+    # applied. Cancelling from outside does not help either: it re-enters the same
+    # unbounded await.
+    hang = _HangProc()
+    kill_client = _UnresponsiveKillClient()
+
+    async def fake_spawn(*args, **kwargs):
+        return kill_client if args[:2] == ("docker", "kill") else hang
+
+    monkeypatch.setattr(ds, "_spawn", fake_spawn)
+    # Not raising=False: inlining the deadline back into _kill should fail here.
+    monkeypatch.setattr(ds, "_KILL_CLIENT_TIMEOUT_S", 0.2)
+    start = asyncio.get_running_loop().time()
+
+    res = await DockerSandbox(tmp_path, timeout_s=0.2).run("while True: pass")
+
+    assert asyncio.get_running_loop().time() - start < 3.0
+    assert res.timed_out is True
+    assert hang.killed is True, "the docker run client was never reached"
+    assert kill_client.killed is True, "the stuck kill client was left running"
+
+
 async def test_flood_output_is_bounded_and_kills_container(
     tmp_path: Path, monkeypatch
 ) -> None:

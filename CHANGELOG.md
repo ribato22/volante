@@ -21,6 +21,16 @@ All notable changes to this project are documented here. The format is based on
   allocation. Nine new tests cover the read side; the seven added in 0.3.2 only covered writes.
 
 ### Fixed
+- **Docker sandbox termination could hang forever on the `docker kill` client.** `_terminate`
+  awaited that auxiliary process with no deadline, immediately above a `proc.wait()` that was
+  deliberately bounded so "the timeout really bites". An unresponsive daemon leaves the client
+  sitting there, and the timeout, output-limit and cancellation paths all stopped at that await
+  instead — the bounded wait below it was never reached, and cancelling from outside only
+  re-entered the same call. It now gets a five-second deadline and is killed if it misses it, so
+  `_terminate` goes on to kill the `docker run` client that is actually holding the sandbox open.
+  The existing tests covered a fast kill client that succeeded and one that failed; neither
+  covered one that simply does not answer.
+
 - **One malformed tool call from a model killed the whole task.** `{"arguments": "[]"}` is valid
   JSON that is not an object, and the OpenAI-compatible adapter stored whatever `json.loads`
   returned in a field declared to hold a dict. The agentic loop passed it straight to the tool,
