@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Security
+- **The usage ledger stored goal text with process-default permissions.** Every completed CLI, MCP
+  and Web UI run appends up to 240 characters of the goal, the models chosen and the spend to
+  `~/.volante/usage.jsonl` — and `mkdir`/`open` take their mode from the umask, so the ordinary 022
+  produced a 0644 file inside a 0755 directory. On any host whose home directory is traversable,
+  which is the default on most Linux distributions, other local accounts could read what users had
+  asked Volante to do. New ledgers are now created 0600 inside a 0700 directory. An existing one at
+  the DEFAULT path is tightened on the next run — fixing only creation would have left every ledger
+  written before this release exactly as exposed as it was, which is all of them. A path set through
+  `VOLANTE_USAGE_LOG` is left alone: that is the user saying where this goes, there are real reasons
+  to point it somewhere group-readable, and re-tightening it would fight them on every run.
+
 - **0.3.2 guarded writing model code to the workspace; reading it back was still unguarded.**
   The escape that release fixed was not "a write follows a symlink", it was "the workspace is
   storage the model controls" — and the eval harness then read `solution.py` and `test_*.py`

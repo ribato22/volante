@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -117,6 +119,84 @@ def test_record_run_is_best_effort_on_bad_path(tmp_path: Path) -> None:
     env = {"VOLANTE_USAGE_LOG": str(blocker / "nested" / "usage.jsonl")}
     assert obs.record_run({"status": "success"}, goal="g", prefer=None,
                           source="cli", env=env) is False
+
+
+# --- the ledger holds goal text, so it is private storage -------------------- #
+# Every completed CLI, MCP and Web UI run appends up to 240 characters of the goal
+# plus the models and the spend. Written with process-default permissions under a
+# common umask of 022 that is a 0644 file in a 0755 directory: readable by any
+# other local account that can traverse the home directory.
+
+
+def _mode(path: Path) -> int:
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+def test_a_new_ledger_and_its_directory_are_owner_only(tmp_path: Path) -> None:
+    log = tmp_path / "dot-volante" / "usage.jsonl"
+    previous = os.umask(0o022)  # the permissive-but-ordinary case
+    try:
+        assert obs.record_run(
+            {"status": "success"}, goal="acquire the Q3 board deck figures",
+            prefer=None, source="cli", env={"VOLANTE_USAGE_LOG": str(log)},
+        )
+    finally:
+        os.umask(previous)
+
+    assert _mode(log) == 0o600
+    assert _mode(log.parent) == 0o700
+
+
+def test_an_existing_default_ledger_is_tightened(tmp_path: Path, monkeypatch) -> None:
+    # Fixing only creation leaves every ledger written before this release exactly as
+    # exposed as it was. At the default path Volante chose the location, so it also
+    # owns the convention.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("VOLANTE_USAGE_LOG", raising=False)
+    log = tmp_path / ".volante" / "usage.jsonl"
+    log.parent.mkdir(parents=True)
+    log.write_text('{"goal":"written by an older version"}\n')
+    log.chmod(0o644)
+    log.parent.chmod(0o755)
+
+    assert obs.record_run({"status": "success"}, goal="g", prefer=None, source="cli")
+
+    assert _mode(log) == 0o600
+    assert _mode(log.parent) == 0o700
+    # Tightening is not truncating: the history already in the file is still there.
+    goals = [r.get("goal") for r in obs.read_runs(path=log, limit=10)]
+    assert goals == ["g", "written by an older version"]
+
+
+def test_a_user_configured_ledger_keeps_the_permissions_the_user_chose(
+    tmp_path: Path,
+) -> None:
+    # VOLANTE_USAGE_LOG is the user saying where this goes. Re-tightening a path they
+    # picked would fight them on every run, and there is a real reason to point it at
+    # a group-readable location.
+    log = tmp_path / "shared" / "usage.jsonl"
+    log.parent.mkdir(parents=True)
+    log.write_text("")
+    log.chmod(0o644)
+
+    assert obs.record_run({"status": "success"}, goal="g", prefer=None, source="cli",
+                          env={"VOLANTE_USAGE_LOG": str(log)})
+
+    assert _mode(log) == 0o644
+
+
+def test_tightening_failure_does_not_break_recording(tmp_path: Path, monkeypatch) -> None:
+    # record_run's contract: telemetry never fails the run that produced it.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("VOLANTE_USAGE_LOG", raising=False)
+
+    def _refuse(*args, **kwargs):
+        raise PermissionError("read-only filesystem")
+
+    monkeypatch.setattr(obs.os, "chmod", _refuse)
+
+    assert obs.record_run({"status": "success"}, goal="g", prefer=None, source="cli")
+    assert len(obs.read_runs(path=tmp_path / ".volante" / "usage.jsonl", limit=10)) == 1
 
 
 def test_read_runs_skips_malformed_lines_and_missing_file(tmp_path: Path) -> None:

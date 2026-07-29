@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import stat
 import sys
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -38,6 +39,14 @@ _LOG = logging.getLogger("volante.observability")
 # prompts verbatim. The goal is a human label for the run, not a full transcript.
 _MAX_GOAL_CHARS = 240
 _DEFAULT_USAGE_PATH = "~/.volante/usage.jsonl"
+
+# The ledger holds up to 240 characters of every goal, the models chosen and the
+# spend, from the CLI, the MCP server and the Web UI alike. That is private storage,
+# but `mkdir`/`open` take their permissions from the process umask, and the ordinary
+# 022 produces a 0644 file inside a 0755 directory — readable by any other local
+# account that can traverse the home directory.
+_LEDGER_DIR_MODE = 0o700
+_LEDGER_FILE_MODE = 0o600
 
 
 def configure_logging(env: Mapping[str, str] | None = None) -> int | None:
@@ -135,6 +144,21 @@ def build_record(
     }
 
 
+def _restrict_to_owner(path: Path) -> None:
+    """Bring an already-existing default ledger and its directory down to owner-only.
+
+    Best-effort inside a best-effort function: hardening someone else's filesystem is
+    not the job this call was made to do, so a read-only mount or a foreign owner is
+    skipped rather than allowed to cost the caller their usage record.
+    """
+    for target, mode in ((path.parent, _LEDGER_DIR_MODE), (path, _LEDGER_FILE_MODE)):
+        try:
+            if stat.S_IMODE(target.stat().st_mode) & 0o077:
+                os.chmod(target, mode)
+        except OSError as exc:  # missing, not ours, or a filesystem that refuses
+            _LOG.debug("usage ledger permissions left as found: %s", exc)
+
+
 def record_run(
     result: Mapping[str, Any] | Any,
     *,
@@ -152,12 +176,22 @@ def record_run(
     path = usage_log_path(env)
     if path is None:
         return False
+    if env is None:
+        env = os.environ
     try:
         record = build_record(result, goal=goal, prefer=prefer, source=source, now=now)
         line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path.parent.mkdir(parents=True, exist_ok=True, mode=_LEDGER_DIR_MODE)
+        # Only at the DEFAULT path. There, Volante chose the location, so it owns the
+        # convention — and creating new ledgers privately would otherwise leave every
+        # ledger written before this release exactly as exposed as it was, which is
+        # all of them. `VOLANTE_USAGE_LOG` is the user saying where this goes;
+        # re-tightening a path they picked would fight them on every single run.
+        if "VOLANTE_USAGE_LOG" not in env:
+            _restrict_to_owner(path)
         # Single O_APPEND write of a sub-PIPE_BUF line -> atomic across processes on POSIX.
-        with path.open("a", encoding="utf-8") as handle:
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, _LEDGER_FILE_MODE)
+        with os.fdopen(fd, "a", encoding="utf-8") as handle:
             handle.write(line)
         return True
     except (OSError, TypeError, ValueError) as exc:  # pragma: no cover - defensive
