@@ -11,6 +11,13 @@ measurements — the step that was missing, and the reason the project shipped n
 calibrated evidence of its own.
 
     uv run python -m eval.calibrate_models --models gpt-4.1-nano,gpt-4o-mini --k 3
+    uv run python -m eval.calibrate_models --provider GLM --models glm-4.6,glm-4.5-air --k 3
+
+Measuring a SECOND provider family is the point of --provider. Three models from one
+lab tell you almost nothing about whether models have complementary strengths: they
+mostly differ in size, so their abilities move together. Routing per task type only
+pays off when some cheaper model is genuinely better at one kind of work than a
+dearer one — and that is a claim about different labs, not different sizes.
 
 It runs ONLY the baseline arm: one model, one call, no orchestration. That is what a
 quality profile is meant to describe — how good a model is at a task type, not how
@@ -64,15 +71,20 @@ def _registry_for(model_id: str) -> Registry:
     )
 
 
-async def measure(models: list[str], k: int, only: str | None = None) -> dict:
-    base_url = os.environ.get("OPENAI_COMPAT_BASE_URL")
-    api_key = os.environ.get("OPENAI_COMPAT_KEY")
+async def measure(
+    models: list[str], k: int, only: str | None = None, prefix: str = "OPENAI_COMPAT"
+) -> dict:
+    # Read the endpoint from the environment rather than taking it as an argument:
+    # a key belongs in your gitignored .env, not in a command line that lands in
+    # shell history and every transcript of this run.
+    base_url = os.environ.get(f"{prefix}_BASE_URL")
+    api_key = os.environ.get(f"{prefix}_KEY")
     if not base_url or not api_key:
-        raise SystemExit("OPENAI_COMPAT_BASE_URL and OPENAI_COMPAT_KEY must be set")
+        raise SystemExit(f"{prefix}_BASE_URL and {prefix}_KEY must be set")
 
     measurements: dict[str, dict[str, list[float]]] = {}
     for wire in models:
-        model_id = f"openai/{wire}"
+        model_id = f"{prefix.lower()}/{wire}"
         registry = _registry_for(model_id)
         provider = OpenAICompatProvider(base_url=base_url, api_key=api_key, model=wire)
         by_type: dict[str, list[float]] = {}
@@ -106,6 +118,12 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--k", type=int, default=3, help="runs per goal per model")
     parser.add_argument(
+        "--provider",
+        default="OPENAI_COMPAT",
+        help="env prefix of the OpenAI-compatible endpoint to measure, e.g. GLM reads "
+        "GLM_BASE_URL and GLM_KEY (default: OPENAI_COMPAT)",
+    )
+    parser.add_argument(
         "--only",
         help="measure a single task type — useful to test whether a new goal separates "
         "models before paying to re-measure everything",
@@ -121,7 +139,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.k < 1:
         raise SystemExit("--k must be at least 1")
 
-    measurements = asyncio.run(measure(models, args.k, args.only))
+    measurements = asyncio.run(measure(models, args.k, args.only, args.provider))
     Path(args.out).write_text(json.dumps(measurements, indent=2, sort_keys=True) + "\n")
     # No spend total on purpose. Pricing a run needs per-model prices, and this
     # script deliberately carries none — inventing them here to print a tidy figure
