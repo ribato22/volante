@@ -16,11 +16,11 @@ It runs ONLY the baseline arm: one model, one call, no orchestration. That is wh
 quality profile is meant to describe — how good a model is at a task type, not how
 good a pipeline is. It spends real money, roughly (models x goals x k) calls.
 
-Scope, stated plainly: every goal in the eval suite is a coding task, so this can
-only produce `code` evidence. The other three task types stay uncalibrated, and the
-router will keep zeroing task_fit for them — correctly, because nothing has measured
-them. Graded research/write/analyze goals would be needed for that, and inventing
-scores for them would be worse than admitting the gap.
+Coverage: the coding suite plus every goal in eval/tasks_text.py, grouped by task
+type, so a profile can carry evidence for more than `code`. Whatever type has no
+goals yet stays uncalibrated, and the router keeps zeroing task_fit for it —
+correctly, because nothing has measured it. Inventing scores would be worse than
+admitting the gap.
 """
 
 from __future__ import annotations
@@ -31,8 +31,9 @@ import json
 import os
 from pathlib import Path
 
-from eval.harness import run_baseline, score_code
+from eval.harness import run_baseline, score_for
 from eval.tasks import EVAL_SUITE
+from eval.tasks_text import TEXT_SUITE
 
 from volante.providers.openai_compat import OpenAICompatProvider
 from volante.registry import ModelInfo, Registry
@@ -63,7 +64,7 @@ def _registry_for(model_id: str) -> Registry:
     )
 
 
-async def measure(models: list[str], k: int) -> dict:
+async def measure(models: list[str], k: int, only: str | None = None) -> dict:
     base_url = os.environ.get("OPENAI_COMPAT_BASE_URL")
     api_key = os.environ.get("OPENAI_COMPAT_KEY")
     if not base_url or not api_key:
@@ -74,21 +75,25 @@ async def measure(models: list[str], k: int) -> dict:
         model_id = f"openai/{wire}"
         registry = _registry_for(model_id)
         provider = OpenAICompatProvider(base_url=base_url, api_key=api_key, model=wire)
-        scores: list[float] = []
-        for task in EVAL_SUITE:
+        by_type: dict[str, list[float]] = {}
+        goals = [t for t in [*EVAL_SUITE, *TEXT_SUITE] if only in (None, t.task_type)]
+        for task in goals:
+            bucket = by_type.setdefault(task.task_type, [])
             for run in range(k):
                 try:
                     result = await run_baseline(task.goal, provider, model_id, registry)
-                    score = score_code(result.output, task.reference_test)
+                    score = score_for(task, result.output)
                 except Exception as exc:  # a failed run is evidence too
                     print(f"  {wire:<14} {task.id:<15} run{run + 1}  ERROR {type(exc).__name__}")
-                    scores.append(0.0)
+                    bucket.append(0.0)
                     continue
-                scores.append(score)
+                bucket.append(score)
                 print(f"  {wire:<14} {task.id:<15} run{run + 1}  {score:.2f}")
-        measurements[model_id] = {"code": scores}
-        mean = sum(scores) / len(scores) if scores else 0.0
-        print(f"  -> {model_id}: mean(code)={mean:.3f} over {len(scores)} runs\n")
+        measurements[model_id] = by_type
+        summary = "  ".join(
+            f"{t}={sum(v) / len(v):.3f}(n={len(v)})" for t, v in sorted(by_type.items())
+        )
+        print(f"  -> {model_id}: {summary}\n")
     return measurements
 
 
@@ -100,6 +105,11 @@ def main(argv: list[str] | None = None) -> None:
         help="comma-separated wire model names reachable through OPENAI_COMPAT_BASE_URL",
     )
     parser.add_argument("--k", type=int, default=3, help="runs per goal per model")
+    parser.add_argument(
+        "--only",
+        help="measure a single task type — useful to test whether a new goal separates "
+        "models before paying to re-measure everything",
+    )
     parser.add_argument("--out", default="measurements.json", help="where to write them")
     args = parser.parse_args(argv)
 
@@ -111,7 +121,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.k < 1:
         raise SystemExit("--k must be at least 1")
 
-    measurements = asyncio.run(measure(models, args.k))
+    measurements = asyncio.run(measure(models, args.k, args.only))
     Path(args.out).write_text(json.dumps(measurements, indent=2, sort_keys=True) + "\n")
     # No spend total on purpose. Pricing a run needs per-model prices, and this
     # script deliberately carries none — inventing them here to print a tidy figure
