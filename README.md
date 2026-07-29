@@ -557,6 +557,38 @@ from low scores would make the reliability component a copy of the quality compo
 exist in your configured inventory (the loader is strict), and the output replaces rather than
 merges, so calibrate every model you care about in one file.
 
+**Where those measurements come from.** `eval/calibrate_models.py` runs the eval suite's baseline
+arm — one model, one call, no orchestration — across several models and writes the measurements
+file for you. It spends real money (`models x goals x k` calls):
+
+```bash
+uv run python -m eval.calibrate_models --models gpt-4.1-nano,gpt-4o-mini,gpt-4.1 --k 3
+uv run volante --calibrate measurements.json --calibrate-out quality-profiles.json
+```
+
+`measurements.json` and `quality-profiles.json` in this repo are a real run of exactly that
+(2026-07-29, 81 calls). Read them as a worked example, not as defaults: they describe three OpenAI
+models you probably do not have, and the router only loads a profile you point it at.
+
+**What that run does and does not establish.** It produced a clean monotonic gradient —
+`gpt-4.1-nano` 0.951, `gpt-4o-mini` 0.990, `gpt-4.1` 1.000 — and with the profile loaded the router
+finally scores `code` and `research` differently, where without one every task type ranked
+identically. It did **not** change which model wins: the measured order agrees with the tier order
+it already used, so this confirms the heuristic rather than overturning it.
+
+Two limits worth knowing before you trust a profile of your own:
+
+- **The suite saturates.** `gpt-4.1` scored 27/27 perfect, so nothing above it can be measured and
+  the gradient is compressed into the top 5%. At `k=1` the *weakest* model scored a perfect 1.000
+  by luck; only `k=3` separated them. Calibrate at `k>=3`, and expect a task set that everything
+  passes to tell you nothing.
+- **One task type carries all four.** Every goal in the suite is a coding task, so only `code` is
+  measured. `task_fit` correctly falls back to your declared strengths for the other three — but
+  `overall_score` is a macro-average of *measured* types, so with one type measured it is your
+  coding evidence, and the router applies it to every task type at the same `confidence`. The
+  profile records its `source`, so this is traceable rather than hidden; it is still an
+  extrapolation. Measure `research`, `write` and `analyze` before leaning on a profile for them.
+
 The profile file format is the same one you can write by hand:
 
 ```json
