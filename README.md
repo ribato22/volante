@@ -288,8 +288,10 @@ key needed). This is a **source-checkout feature** — `webui/` is not shipped i
 package.
 
 `VOLANTE_UI_HOST` / `VOLANTE_UI_PORT` override the bind address. Volante refuses a non-loopback host
-unless `VOLANTE_UI_AUTH_TOKEN` is set; for remote access also set `VOLANTE_UI_ALLOWED_HOSTS` to the
-comma-separated hostnames clients will use. `VOLANTE_UI_MAX_GOAL_CHARS` (default `20000`) and
+unless `VOLANTE_UI_AUTH_TOKEN` is set, **and** refuses to carry that token over plain HTTP: set
+`VOLANTE_UI_TLS_CERT` + `VOLANTE_UI_TLS_KEY` to serve TLS directly, or `VOLANTE_UI_TRUST_PROXY=1`
+if a TLS-terminating reverse proxy sits in front. For remote access also set
+`VOLANTE_UI_ALLOWED_HOSTS` to the comma-separated hostnames clients will use. `VOLANTE_UI_MAX_GOAL_CHARS` (default `20000`) and
 `VOLANTE_UI_MAX_CONCURRENT_RUNS` (default `2`) bound input and concurrency. The page inserts all
 model output via `textContent` only (never raw HTML), so streamed text cannot inject markup. A
 `/usage` page (linked from the header, gated by the same `VOLANTE_UI_AUTH_TOKEN`) shows the usage

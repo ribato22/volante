@@ -21,18 +21,56 @@ def _is_loopback_host(host: str) -> bool:
         return False
 
 
+def _truthy(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _tls_settings(env: Mapping[str, str], *, exposed: bool) -> dict[str, Any]:
+    """Resolve the transport for a non-loopback bind, or refuse to start.
+
+    A bearer token is only as private as the channel carrying it. The browser sends
+    it in an `Authorization` header on every run creation and every usage read, so on
+    plain HTTP anyone on the path can lift it and replay it — submit paid goals, read
+    the ledger. Accepting a token and then starting plain HTTP made the one control
+    here authenticate over a channel that had none.
+
+    Terminating TLS at a reverse proxy is the normal deployment and stays supported;
+    refusing it outright would only push people to a worse workaround. What is no
+    longer possible is arriving there by ACCIDENT — `VOLANTE_UI_TRUST_PROXY` is the
+    operator stating that something in front is doing the job.
+    """
+    cert = env.get("VOLANTE_UI_TLS_CERT", "").strip()
+    key = env.get("VOLANTE_UI_TLS_KEY", "").strip()
+    if bool(cert) != bool(key):
+        missing = "VOLANTE_UI_TLS_KEY" if cert else "VOLANTE_UI_TLS_CERT"
+        raise SystemExit(f"TLS is half-configured for the Volante Web UI: {missing} is unset.")
+    if cert and key:
+        return {"ssl_certfile": cert, "ssl_keyfile": key}
+    if exposed and not _truthy(env.get("VOLANTE_UI_TRUST_PROXY", "")):
+        raise SystemExit(
+            "Refusing to serve the Volante Web UI beyond loopback over plain HTTP: "
+            "the bearer token would travel in cleartext and can be replayed to submit "
+            "paid runs and read the usage ledger. Set VOLANTE_UI_TLS_CERT and "
+            "VOLANTE_UI_TLS_KEY, or VOLANTE_UI_TRUST_PROXY=1 if a TLS-terminating "
+            "reverse proxy sits in front."
+        )
+    return {}
+
+
 def _webui_settings(
     env: Mapping[str, str],
-) -> tuple[str, int, dict[str, Any]]:
+) -> tuple[str, int, dict[str, Any], dict[str, Any]]:
     """Parse and validate the host-facing Web UI security settings."""
     host = env.get("VOLANTE_UI_HOST", "127.0.0.1").strip()
     port = int(env.get("VOLANTE_UI_PORT", "8000"))
     auth_token = env.get("VOLANTE_UI_AUTH_TOKEN", "").strip() or None
-    if not _is_loopback_host(host) and auth_token is None:
+    exposed = not _is_loopback_host(host)
+    if exposed and auth_token is None:
         raise SystemExit(
             "Refusing to expose Volante Web UI beyond loopback without "
             "VOLANTE_UI_AUTH_TOKEN."
         )
+    tls = _tls_settings(env, exposed=exposed)
     allowed_raw = env.get("VOLANTE_UI_ALLOWED_HOSTS", "")
     allowed_hosts = [item.strip() for item in allowed_raw.split(",") if item.strip()]
     app_options: dict[str, Any] = {
@@ -43,7 +81,7 @@ def _webui_settings(
         ),
         "allowed_hosts": allowed_hosts or None,
     }
-    return host, port, app_options
+    return host, port, app_options, tls
 
 
 def build_runtime_factory() -> tuple[Callable[[], Any], str]:
@@ -78,13 +116,18 @@ def main() -> None:
     from webui.app import create_app
 
     factory, mode = build_runtime_factory()
-    host, port, app_options = _webui_settings(os.environ)
-    print(f"Volante Web UI — {mode}\n  open http://{host}:{port}")
+    host, port, app_options, tls = _webui_settings(os.environ)
+    # Print the scheme actually being served. The old line said http:// even when the
+    # deployment was meant to be reached over TLS, which is the wrong thing to paste
+    # into a browser and the wrong thing to believe about the connection.
+    scheme = "https" if tls else "http"
+    print(f"Volante Web UI — {mode}\n  open {scheme}://{host}:{port}")
     uvicorn.run(
         create_app(factory, **app_options),
         host=host,
         port=port,
         log_level="warning",
+        **tls,
     )
 
 

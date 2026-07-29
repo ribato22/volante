@@ -41,6 +41,12 @@ LEGACY_SETTINGS: frozenset[str] = frozenset(
         "UI_MAX_CONCURRENT_RUNS",
         "UI_MAX_GOAL_CHARS",
         "UI_PORT",
+        # Added after the rename, so no BATON_* user can ever have set them — listed
+        # anyway because the drift guard's job is to make forgetting impossible, and
+        # an exemption list would need the same maintenance with none of the safety.
+        "UI_TLS_CERT",
+        "UI_TLS_KEY",
+        "UI_TRUST_PROXY",
         "USAGE_LOG",
     }
 )

@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Security
+- **The Web UI accepted a remote bind and then served the bearer token over plain HTTP.**
+  `_webui_settings` refused a non-loopback host without `VOLANTE_UI_AUTH_TOKEN` — and then `main`
+  printed an `http://` URL and called `uvicorn.run` with no certificate. The browser sends that
+  token in an `Authorization` header on every run creation and every usage read, so anyone on the
+  path could lift it and replay it: submit paid runs, read the ledger. The token was the control,
+  and it authenticated over a channel that had none. A non-loopback bind now also needs a
+  transport: `VOLANTE_UI_TLS_CERT` + `VOLANTE_UI_TLS_KEY` to serve TLS directly, or
+  `VOLANTE_UI_TRUST_PROXY=1` to state that a TLS-terminating proxy is in front. Terminating at a
+  proxy is the normal deployment and stays supported — what is no longer possible is arriving
+  there by accident. The startup line now prints the scheme actually being served.
 - **A streaming CLI provider kept its own unbounded copy of the whole stream.** The runner caps the
   raw stdout copy at 16 MiB with `_BoundedCapture`, and then `CliAgentProvider.stream` appended
   every decoded line and every text delta to two lists with no ceiling at all — so the runner's
