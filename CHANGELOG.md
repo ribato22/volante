@@ -20,10 +20,12 @@ All notable changes to this project are documented here. The format is based on
   `codex exec` has no equivalent: `--sandbox read-only` selects, in the CLI's own words, the policy
   for "executing model-generated shell commands" — it stops writes, not reads, and the child
   inherits `HOME`/`CODEX_HOME` because OAuth needs them. So an injected prompt on that path can
-  ask the underlying agent to read files outside `read_file`'s root. There is no flag to close it
-  in codex-cli 0.145, so it is now stated instead of implied: a warning naming the gap at
-  registration, the asymmetry documented on the adapter, and a SECURITY.md row that no longer
-  claims a boundary this path does not have.
+  ask the underlying agent to read files outside `read_file`'s root — verified live against
+  codex-cli 0.145.0 by driving this adapter's own argv at a file under `$HOME` and getting its
+  contents back, and `-c sandbox_permissions=[]` does not narrow it either. There is no flag that
+  closes it, so it is now stated instead of implied: a warning naming the gap at registration, the
+  asymmetry documented on the adapter, and a SECURITY.md row that no longer claims a boundary this
+  path does not have.
 - **The Web UI accepted a remote bind and then served the bearer token over plain HTTP.**
   `_webui_settings` refused a non-loopback host without `VOLANTE_UI_AUTH_TOKEN` — and then `main`
   printed an `http://` URL and called `uvicorn.run` with no certificate. The browser sends that

@@ -84,13 +84,18 @@ class CodexAdapter:
     `--ignore-rules` isolate it from the user's Codex configuration; none of them
     close the read path.
 
-    So an injected or hostile prompt reaching this provider can ask the underlying
-    agent to read files outside the `read_file` root and fold the contents into its
-    reply. Registration prints a warning saying so (`_warn_codex_host_tools`), and
-    SECURITY.md carries it in the table rather than leaving the guarantee overstated.
-    NOT verified: whether `-c sandbox_permissions=[]` narrows the read policy — that
-    needs a live spawn against the real CLI, and an unverified guess in this position
-    would be worse than the documented limitation.
+    LIVE-VERIFIED (2026-07-29, codex-cli 0.145.0), not inferred from the help text.
+    Driving THIS adapter's argv through the real `subprocess_cli_runner`, a prompt
+    asking for a file under ``$HOME`` — outside the runner's fresh temp cwd — came
+    back with the file's contents. So an injected or hostile prompt reaching this
+    provider can read anything the account can and fold it into its reply.
+
+    Also live-verified: ``-c sandbox_permissions=[]`` does NOT narrow it. The same
+    probe with that flag appended leaked the same file. `read-only` means "may read
+    everything, may write nothing", and there is no flag in this CLI version that
+    makes reads root-confined — so this is a limitation to state, not a bug to fix
+    here. Registration prints a warning (`_warn_codex_host_tools`) and SECURITY.md
+    carries a row for it, rather than leaving the guarantee overstated.
     """
 
     name = "codex"
