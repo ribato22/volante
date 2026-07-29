@@ -408,8 +408,18 @@ def test_claude_code_model_info_seed() -> None:
     assert mi.billing == "plan_included"     # cash $0, valuasi kredit (§5.1)
     assert mi.tier == 4
     assert mi.supports_tools is False        # jalur --tools "" (§8.1)
-    # tarif opus underlying, HANYA untuk valuasi konsumsi (bukan uang keluar) (§5.1).
-    assert (mi.cost_per_1k_in, mi.cost_per_1k_out) == (0.015, 0.075)
+    # The underlying Opus rate, used ONLY to value plan consumption as credit_usd.
+    # This assertion used to read (0.015, 0.075) and so ENFORCED the 3x error the
+    # 0.3.1 release was named for: the fix landed everywhere except here, and the
+    # test kept it alive. Bound to the same table the registry is checked against,
+    # so the two cannot drift apart again.
+    from tests.test_registry_seed import VENDOR_FACTS
+
+    opus = VENDOR_FACTS["anthropic/claude-opus-4-8"]
+    assert (mi.cost_per_1k_in, mi.cost_per_1k_out) == (
+        opus["cost_per_1k_in"],
+        opus["cost_per_1k_out"],
+    )
 
 
 def test_claude_code_model_info_tier_override() -> None:

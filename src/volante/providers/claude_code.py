@@ -238,8 +238,15 @@ def claude_code_model_info(
         context_window=context_window,
         max_output_tokens=max_output_tokens,
         supports_tools=False,
-        cost_per_1k_in=0.015,
-        cost_per_1k_out=0.075,
+        # The underlying Opus API rate, used to VALUE plan consumption as credit_usd
+        # (never as cash). It was 0.015/0.075 — the Opus 4.1 generation — so the
+        # release that fixed that 3x error everywhere else left it live on this path:
+        # a user reading credit_usd for their subscription saw three times the value
+        # they actually consumed. Verified 2026-07-28 on
+        # platform.claude.com/docs/en/about-claude/pricing: $5/$25 per MTok, and this
+        # field is per THOUSAND, so /1000.
+        cost_per_1k_in=0.005,
+        cost_per_1k_out=0.025,
         tier=tier,
         billing="plan_included",
     )

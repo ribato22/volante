@@ -301,3 +301,65 @@ def test_no_distribution_surface_ships_a_retired_model_id() -> None:
         if any(dead in line for dead in retired)
     ]
     assert not offenders, f"retired Moonshot model id still shipped in: {offenders}"
+
+
+# --- THE WHOLE ANTHROPIC TABLE ------------------------------------------------
+# VENDOR_FACTS above pins the two models that appear in the seed. bootstrap.py's
+# _ANTHROPIC_FACTS carries nine, and seven of them — including the flagship a user
+# is most likely to configure — were pinned by nothing at all. A table built to stop
+# stale numbers that only guards two of its nine rows is a guard in name.
+
+ANTHROPIC_TABLE_FACTS: dict[str, tuple[int, int, float, float]] = {
+    # wire name: (context_window, max_output_tokens, $/1k in, $/1k out)
+    # Read 2026-07-28 from platform.claude.com: /docs/en/about-claude/pricing and
+    # /docs/en/build-with-claude/context-windows. Published per MTok; /1000 here.
+    "claude-fable-5": (1_000_000, 128_000, 0.010, 0.050),
+    "claude-mythos-5": (1_000_000, 128_000, 0.010, 0.050),
+    "claude-opus-5": (1_000_000, 128_000, 0.005, 0.025),
+    "claude-opus-4-8": (1_000_000, 128_000, 0.005, 0.025),
+    "claude-opus-4-7": (1_000_000, 128_000, 0.005, 0.025),
+    "claude-opus-4-6": (1_000_000, 128_000, 0.005, 0.025),
+    "claude-sonnet-5": (1_000_000, 128_000, 0.003, 0.015),
+    "claude-sonnet-4-6": (1_000_000, 128_000, 0.003, 0.015),
+    "claude-haiku-4-5": (200_000, 64_000, 0.001, 0.005),
+}
+
+
+def test_every_anthropic_table_row_is_pinned() -> None:
+    # A row added without a matching expectation fails here rather than shipping
+    # numbers nobody checked — which is exactly how the 3x price survived.
+    from volante.bootstrap import _ANTHROPIC_FACTS
+
+    assert set(_ANTHROPIC_FACTS) == set(ANTHROPIC_TABLE_FACTS)
+
+
+@pytest.mark.parametrize("wire", sorted(ANTHROPIC_TABLE_FACTS))
+def test_anthropic_table_values_match_the_published_figures(wire: str) -> None:
+    from volante.bootstrap import _ANTHROPIC_FACTS
+
+    assert _ANTHROPIC_FACTS[wire] == ANTHROPIC_TABLE_FACTS[wire]
+
+
+@pytest.mark.parametrize("wire", sorted(ANTHROPIC_TABLE_FACTS))
+def test_anthropic_table_prices_are_per_thousand(wire: str) -> None:
+    # The unit slip that produced the original bug: vendors publish $/MTok, this
+    # field is $/1k. Anything above $1 per 1k means someone pasted the MTok figure.
+    _, _, cost_in, cost_out = ANTHROPIC_TABLE_FACTS[wire]
+
+    assert 0.0 < cost_in < 1.0 and 0.0 < cost_out < 1.0
+    assert cost_out > cost_in, "output has always been dearer than input"
+
+
+def test_the_seed_and_the_bootstrap_table_agree_on_the_shared_model() -> None:
+    # Two hardcoded copies of the same fact is how the original bug reached two
+    # files; if they must both exist, they must at least be checked against
+    # each other.
+    from volante.bootstrap import _ANTHROPIC_FACTS
+
+    facts = VENDOR_FACTS["anthropic/claude-opus-4-8"]
+    context, max_output, cost_in, cost_out = _ANTHROPIC_FACTS["claude-opus-4-8"]
+
+    assert context == facts["context_window"]
+    assert max_output == facts["max_output_tokens"]
+    assert cost_in == facts["cost_per_1k_in"]
+    assert cost_out == facts["cost_per_1k_out"]

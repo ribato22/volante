@@ -6,6 +6,33 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+- **The 3x Opus price the 0.3.1 release was named for was still live on the Claude Code path.**
+  `claude_code_model_info` valued plan consumption at $0.015/$0.075 per 1k, so a subscription user
+  reading `credit_usd` saw three times the value they had actually consumed. Worse, a test asserted
+  those exact numbers — it was enforcing the bug, not guarding against it. Both now read the
+  published $5/$25 per MTok, and the test is bound to the same fact table the registry is checked
+  against so the two cannot drift apart again.
+- **Seven of the nine rows in the Anthropic fact table were guarded by nothing** — including the
+  flagship a user is most likely to configure. A table built to stop stale numbers that checks two
+  of its nine rows is a guard in name only. All nine are now pinned on all four fields, with a
+  membership test so a new row cannot be added without an expectation, and a unit-sanity test that
+  fails if anyone pastes a per-MTok figure into a per-1k field.
+- **`.env.example` handed out pre-0.3.1 Kimi numbers** as copy-pasteable overrides. Since env
+  overrides beat the code, following the example would have silently reinstated the values the
+  release had just corrected.
+
+### Changed
+- **The README now opens with `pip install volante`.** The Quickstart was `git clone`, `pip install`
+  appeared once and only for the MCP server, and every CLI example used `uv run` — so a user
+  arriving from the PyPI badge had no documented route to a working CLI.
+- **The MCP startup error tells the two failure modes apart.** A missing extra and an incompatible
+  `mcp` both raise `ImportError`, and the old message assumed the first — sending users whose `mcp`
+  was merely too new to reinstall the extra they already had, in a loop with no exit.
+- **The benchmark's rank-swap claim is stated at the weight the data carries.** The `analyze` half
+  of it is one goal, not nine; that is now said in the sentence that makes the claim rather than
+  left for a reader to discover in the artifacts.
+
 ## [0.3.2] - 2026-07-29
 
 Two blockers, both found by an audit that attacked the code instead of reading it.

@@ -130,7 +130,24 @@ flowchart TD
 
 ## Quickstart
 
-Requires **Python 3.11+** and [`uv`](https://docs.astral.sh/uv/).
+Requires **Python 3.11.10+** (the floor is a security boundary — see
+[Providers](#providers)).
+
+**Install it:**
+
+```bash
+pip install volante          # the CLI and the library
+pip install "volante[mcp]"   # ...plus the MCP server, for IDE use
+volante --version
+volante --list-models        # what your environment currently offers, offline
+```
+
+`volante` needs at least one configured provider before it can run a goal — see
+[Providers](#providers) for the two-line setup. Until then `--list-models` and `--help` work and
+everything else will tell you what is missing.
+
+**Or work on it:** the clone gives you the tests, the Web UI, and a zero-key demo that the wheel
+deliberately does not ship.
 
 ```bash
 git clone https://github.com/ribato22/volante
@@ -588,10 +605,15 @@ overturning it. Measuring a **second family** is what changed the picture:
 | `glm/glm-4.5-flash` | **0.704** | 0.389 |
 
 `glm-4.5-flash` is **last** at code and **second** at analysis; `gpt-4o-mini` is nearly best at code
-and **worst** at analysis. That is a genuine rank swap — 0.29 the wrong way on one task type, 0.22
-the right way on the other — against a 0.016 within-family wobble that was pure noise. Models from
-different labs have genuinely complementary strengths, and that is the assumption per-task routing
-rests on. It had never been tested here before.
+and **worst** at analysis — 0.29 the wrong way on one task type, 0.22 the right way on the other,
+against a 0.016 within-family wobble that was noise.
+
+**How much weight that carries, stated plainly.** The `code` figure is 9 goals x k=3 per model. The
+`analyze` figure is **one goal** — `eval/tasks_text.py` currently has a single item — at k=3 to 5,
+and every score sits in the lower half of that rubric's range. A swap this size on a single item is
+suggestive, not established; treat it as a reason to measure your own inventory, not as a result to
+cite. Whether models from different labs have genuinely complementary strengths is the assumption
+per-task routing rests on, and this is the first evidence here pointing at it — one goal's worth.
 
 With that evidence loaded and the strongest model excluded, the router picks **`gpt-4o-mini` for
 `code` and `glm-4.5-flash` for `analyze`** — different models for different work, from measurement
