@@ -7,7 +7,7 @@ from volante.types import ToolSpec
 def _cap(s: str, limit: int) -> str:
     if len(s) <= limit:
         return s
-    marker = "\n…[dipotong]…\n"
+    marker = "\n…[output truncated]…\n"
     keep = max(limit - len(marker), 0)
     head = keep // 2
     tail = keep - head

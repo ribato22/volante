@@ -42,7 +42,7 @@ def _mid_trim(content: str, dep_id: str, char_share: int) -> str:
     """
     if len(content) <= char_share:
         return content
-    marker = f"\n…[dipangkas tengah artifact {dep_id}]…\n"
+    marker = f"\n…[artifact {dep_id} truncated in the middle]…\n"
     keep = char_share - len(marker)
     if keep <= 0:
         # share smaller than the marker: return a truncated marker so the block

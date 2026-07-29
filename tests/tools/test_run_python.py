@@ -31,7 +31,7 @@ async def test_missing_code_returns_error_string_not_exception(tmp_path: Path) -
 async def test_large_output_is_capped(tmp_path: Path) -> None:
     out = await _tool(tmp_path, max_result_chars=200).run({"code": "print('A' * 5000)"})
     assert len(out) <= 200
-    assert "[dipotong]" in out
+    assert "[output truncated]" in out
 
 
 async def test_reports_sandbox_output_limit(tmp_path: Path) -> None:

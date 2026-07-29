@@ -35,8 +35,11 @@ All notable changes to this project are documented here. The format is based on
 - **The package's comments and docstrings are now English** — 100 of them across 21 files, proven
   comment-only by comparing normalised ASTs before and after. The Indonesian sat on exactly the
   surfaces an outside contributor reads first: the provider contract, the runtime, the cost ledger.
-  Indonesian remains in a few user-visible STRING LITERALS (two `ProviderError` messages, two trim
-  markers); changing those is behavioural and deserves its own diff.
+  The four user-visible Indonesian STRING LITERALS are translated too, in a separate change because
+  they are behaviour rather than documentation: two `ProviderError` messages a user reads when
+  Claude Code is not logged in or out of quota, and the two truncation markers that appear inside a
+  model's own prompt and in tool output. Tests asserting on the old text were updated with them. No
+  Indonesian string reaches a user of the shipped package now.
 - **The README now opens with `pip install volante`.** The Quickstart was `git clone`, `pip install`
   appeared once and only for the MCP server, and every CLI example used `uv run` — so a user
   arriving from the PyPI badge had no documented route to a working CLI.

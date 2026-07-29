@@ -179,14 +179,14 @@ class ClaudeCodeAdapter:
         # Not logged in yet / auth lost -> pragmatic: reroute to a direct candidate (Phase 5).
         if "not logged in" in blob or "/login" in blob or "invalid api key" in blob:
             return ProviderError(
-                "claude_code: not logged in (jalankan `claude` untuk autentikasi)",
+                "claude_code: not logged in (run `claude` to authenticate)",
                 retryable=False,
                 quota_exhausted=True,
             )
         # Subscription usage limit (5-hour/weekly hard pause) -> quota exhausted, reroute.
         if any(k in blob for k in ("usage limit", "rate limit", "quota", "limit reached")):
             return ProviderError(
-                "claude_code: batas pemakaian langganan tercapai",
+                "claude_code: subscription usage limit reached",
                 retryable=False,
                 quota_exhausted=True,
             )

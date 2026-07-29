@@ -104,12 +104,12 @@ def test_project_trims_per_artifact_and_keeps_every_dependency() -> None:
     # t2 TIDAK hilang meski t1 raksasa (properti anti-starvation PATCH).
     assert small in usr_text
     # t1 dipangkas PER-ARTIFACT: kepala + ekor tersimpan, marker di tengah.
-    assert "[dipangkas tengah artifact t1]" in usr_text
+    assert "[artifact t1 truncated in the middle]" in usr_text
     assert "HEAD_ONE_" in usr_text
     assert "_TAIL_ONE" in usr_text
     assert huge not in usr_text          # benar-benar terpangkas
     # Marker per-artifact hanya untuk yang terpangkas (t2 utuh -> tanpa marker t2).
-    assert "[dipangkas tengah artifact t2]" not in usr_text
+    assert "[artifact t2 truncated in the middle]" not in usr_text
     # Scoping tetap: artifact non-dependency tak pernah masuk.
     assert "NOISE_NON_DEPENDENCY_PAYLOAD" not in usr_text
     # Budget (margin 0.85) dihormati.
@@ -143,7 +143,7 @@ def test_project_budget_uses_085_safety_margin() -> None:
     sys_text = req.messages[0].content[0].text
     usr_text = req.messages[1].content[0].text
 
-    assert "[dipangkas tengah artifact t1]" in usr_text
+    assert "[artifact t1 truncated in the middle]" in usr_text
     assert (len(sys_text) + len(usr_text)) // 4 <= margin_budget
     assert req.max_tokens == 200
 
