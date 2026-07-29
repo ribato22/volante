@@ -188,6 +188,22 @@ class FetchUrlTool:
         if port not in _ALLOWED_PORTS:
             return f"error: port not allowed: {port}"
 
+        # ONE deadline over resolution, connect and the whole body. httpx's timeout is
+        # per-operation, and the read loop had no total budget of its own, so an origin
+        # answering just inside the read timeout held the call open for as long as it
+        # liked — 12 s measured for 40 bytes against timeout_s=0.5. Resolution sat
+        # outside every budget: getaddrinfo was awaited before the client existed.
+        # Cancelling that await does not stop the resolver's own thread, but it does
+        # return the deadline to the caller, which is what timeout_s promises.
+        try:
+            return await asyncio.wait_for(
+                self._fetch(url, host, port), timeout=self.timeout_s
+            )
+        except TimeoutError:
+            return f"error: fetch exceeded its {self.timeout_s}s deadline"
+
+    async def _fetch(self, url: str, host: str, port: int) -> str:
+        """The part of a fetch that touches the network, under one deadline."""
         try:
             resolved = await _resolve(host, port)
         except OSError as exc:

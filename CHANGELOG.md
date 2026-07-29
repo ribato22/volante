@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Security
+- **`fetch_url`'s `timeout_s` was a per-operation budget, not a deadline.** httpx applies its
+  timeout to each connect/read/write separately, and the body loop had no total budget, so an
+  origin that answered just inside the read timeout could hold the call open for as long as it
+  liked — 12.17 s measured for 40 bytes against `timeout_s=0.5`, and the same shape scales to days
+  at the 100 KB default. Name resolution was worse: `getaddrinfo` was awaited before the client
+  existed, outside every budget there was. Resolution, connect and the whole body now run under a
+  single deadline. (Cancelling a stalled resolver does not stop its OS thread, but it does hand
+  the deadline back to the caller, which is what `timeout_s` promises.)
 - **`fetch_url`'s size cap bounded what it kept, not what it allocated.** The body was read
   through httpx's DECODED iterator and each already-materialized chunk was then sliced to
   `max_bytes`. gzip reaches about 1030:1 and httpx yields one decoded chunk per raw network read,

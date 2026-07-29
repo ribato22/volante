@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import ipaddress
+import time
 
 import pytest
 
@@ -183,6 +185,63 @@ async def test_an_identity_content_coding_header_is_fine(monkeypatch) -> None:
     out = await FetchUrlTool({"example.com"}).run({"url": "https://example.com/p"})
 
     assert "plain body" in out
+
+
+# --- timeout_s has to be a DEADLINE, not a per-operation budget ----------------
+# httpx timeouts are per connect/read/write, and the body loop had no total budget
+# of its own, so an origin answering just inside the read timeout could hold the
+# call open indefinitely: measured at 12.17 s against timeout_s=0.5 for 40 bytes.
+# Name resolution sat outside every budget entirely.
+
+
+async def test_a_slow_trickle_cannot_outlast_the_timeout(monkeypatch) -> None:
+    class _TrickleResp(_FakeResp):
+        async def aiter_raw(self):
+            for _ in range(1000):
+                await asyncio.sleep(0.05)  # each read alone is well inside the timeout
+                yield b"x"
+
+    _patch(monkeypatch, _TrickleResp(status=200), {})
+    started = time.monotonic()
+
+    out = await FetchUrlTool({"example.com"}, max_bytes=1000, timeout_s=0.3).run(
+        {"url": "https://example.com/slow"}
+    )
+    elapsed = time.monotonic() - started
+
+    assert out.startswith("error:")
+    assert "deadline" in out
+    assert elapsed < 2.0, f"took {elapsed:.2f}s against a 0.3s timeout"
+
+
+async def test_a_stalled_resolver_cannot_outlast_the_timeout(monkeypatch) -> None:
+    # getaddrinfo was awaited before the client was even built, so nothing bounded
+    # it but the OS resolver's own retry schedule.
+    async def _never_answers(host, port):
+        await asyncio.sleep(30)
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr("volante.tools.fetch_url._resolve", _never_answers)
+    started = time.monotonic()
+
+    out = await FetchUrlTool({"example.com"}, timeout_s=0.3).run(
+        {"url": "https://example.com/p"}
+    )
+    elapsed = time.monotonic() - started
+
+    assert out.startswith("error:")
+    assert "deadline" in out
+    assert elapsed < 2.0, f"took {elapsed:.2f}s against a 0.3s timeout"
+
+
+async def test_a_normal_fetch_is_untouched_by_the_deadline(monkeypatch) -> None:
+    _patch(monkeypatch, _FakeResp("quick body", 200), {})
+
+    out = await FetchUrlTool({"example.com"}, timeout_s=5.0).run(
+        {"url": "https://example.com/p"}
+    )
+
+    assert "quick body" in out
 
 
 async def test_a_real_compressed_bomb_never_reaches_a_decoder(monkeypatch) -> None:
