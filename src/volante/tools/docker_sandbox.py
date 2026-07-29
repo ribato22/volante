@@ -10,6 +10,7 @@ from volante.tools.sandbox import (
     _DEFAULT_MAX_OUTPUT_BYTES,
     ExecResult,
     _collect_bounded_output,
+    write_model_code,
 )
 
 
@@ -93,7 +94,7 @@ class DockerSandbox:
             pass
 
     async def run(self, code: str) -> ExecResult:
-        (self.workspace / "_snippet.py").write_text(code, encoding="utf-8")
+        write_model_code(self.workspace / "_snippet.py", code)
         name = "volante_" + uuid.uuid4().hex[:12]
         proc = await _spawn(
             *self._argv(name),

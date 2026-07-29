@@ -58,7 +58,12 @@ ui = [
 # MCP server (volante_mcp/): `uv sync --extra mcp` then `uv run python -m volante_mcp`.
 # Exposes Volante as a tool to IDE AI agents (Claude Code, Cursor, VS Code, Windsurf).
 mcp = [
-    "mcp>=1.2",
+    # Upper bound is load-bearing, not caution: mcp 2.0.0 (2026-07-28) removed
+    # mcp.server.fastmcp, which volante_mcp imports, so an unbounded range broke
+    # EVERY published install path the day it landed — uvx, MCPB, the plugin,
+    # Smithery and the registry record all resolve the newest release. uv.lock
+    # pinned an older mcp, so neither CI nor local runs could see it.
+    "mcp>=1.2,<2",
 ]
 
 [project.scripts]
@@ -84,7 +89,7 @@ dev = [
     "mypy>=1.11",
     "fastapi>=0.110",   # webui tests
     "uvicorn>=0.29",
-    "mcp>=1.2",         # volante_mcp tests
+    "mcp>=1.2,<2",      # volante_mcp tests
 ]
 
 [build-system]

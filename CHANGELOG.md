@@ -6,6 +6,39 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-29
+
+Two blockers, both found by an audit that attacked the code instead of reading it.
+Anyone on 0.3.1 should upgrade; anyone who ran agentic goals under the Docker
+sandbox should assume the workspace could reach files outside it.
+
+### Security
+- **The Docker sandbox could be escaped to an arbitrary host file write.** Model
+  code was written with `Path.write_text`, which follows symlinks, into a workspace
+  that PERSISTS across agentic iterations — so one tool call could plant
+  `_snippet.py` as a symlink and the next wrote model-authored bytes straight
+  through it. The escape travels through the bind mount rather than the container,
+  so `--network none`, `--cap-drop ALL`, `--read-only` and `--pids-limit` never saw
+  it, and a purely relative link to `.git/hooks/pre-commit` needed no knowledge of
+  host paths. SECURITY.md called that mode "real isolation"; it was not. Writes now
+  go through `write_model_code`, which unlinks any planted link without following it
+  and opens with `O_NOFOLLOW | O_EXCL` so a link reappearing in the race window is
+  an error rather than a silent redirect. The subprocess sandbox had the identical
+  bug and is fixed the same way. Not one of the 1027 tests that existed touched a
+  symlink; seven now do.
+
+### Fixed
+- **Every published MCP install path was dead.** `mcp` 2.0.0 (2026-07-28) removed
+  `mcp.server.fastmcp`, which `volante_mcp` imports, and the dependency was declared
+  as an unbounded `mcp>=1.2` — so `uvx`, the MCPB bundle, the Claude Code plugin,
+  Smithery and the MCP Registry record all resolved the newest release and died at
+  startup, one day before this release. The failure was invisible locally and in CI
+  because `uv.lock` pinned an older `mcp`. Now `mcp>=1.2,<2`.
+- CI installs the `[mcp]` extra from **live PyPI, unlocked**, and imports what the
+  server actually imports. The wheel smoke test never installed that extra and every
+  other job resolved through the lockfile, which is precisely why a released version
+  could ship a server that could not start.
+
 ## [0.3.1] - 2026-07-29
 
 A correctness release. 0.3.0 reported Anthropic costs three times too high and

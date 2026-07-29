@@ -1320,7 +1320,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.40" },
     { name = "fastapi", marker = "extra == 'ui'", specifier = ">=0.110" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.2" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.2,<2" },
     { name = "openai", specifier = ">=1.50" },
     { name = "uvicorn", marker = "extra == 'ui'", specifier = ">=0.29" },
 ]
@@ -1329,7 +1329,7 @@ provides-extras = ["mcp", "ui"]
 [package.metadata.requires-dev]
 dev = [
     { name = "fastapi", specifier = ">=0.110" },
-    { name = "mcp", specifier = ">=1.2" },
+    { name = "mcp", specifier = ">=1.2,<2" },
     { name = "mypy", specifier = ">=1.11" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.24" },

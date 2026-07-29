@@ -12,6 +12,34 @@ from typing import Any, cast
 
 from volante.types import CapabilityUnavailableError
 
+
+def write_model_code(path: os.PathLike[str] | str, code: str) -> None:
+    """Write model-authored code to ``path`` without following a symlink there.
+
+    ``Path.write_text`` follows symlinks, and the workspace PERSISTS across agentic
+    iterations — so one tool call could plant ``_snippet.py`` as a symlink and the
+    next would write model-authored bytes straight through it to any file the host
+    process can reach. That escape goes through the bind mount, not the container,
+    so `--network none`, `--cap-drop ALL` and `--read-only` do not touch it: a
+    relative link to `.git/hooks/pre-commit` is enough, and needs no knowledge of
+    host paths.
+
+    Two defences, because either alone leaves a window. The unlink removes a planted
+    link WITHOUT following it, and O_NOFOLLOW then refuses to open one that appears
+    in the gap between the two. O_EXCL makes a regular file planted in that same gap
+    an error rather than a silent overwrite — fail closed, not fail quiet.
+    """
+    target = os.fspath(path)
+    try:
+        os.unlink(target)
+    except FileNotFoundError:
+        pass
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(fd, code.encode("utf-8"))
+    finally:
+        os.close(fd)
+
 # Wrapper dijalankan DI DALAM proses anak: set RLIMIT_CPU sebelum menjalankan
 # snippet. Ini menghindari preexec_fn (fork-unsafe & tak aman di event loop
 # asyncio). RLIMIT_AS (memori) sengaja TIDAK diset — praktis tak
@@ -214,7 +242,7 @@ class Sandbox:
 
     async def run(self, code: str) -> ExecResult:
         script = self.workspace / "_snippet.py"
-        script.write_text(code, encoding="utf-8")
+        write_model_code(script, code)
         proc = await _spawn(
             sys.executable, "-c", _WRAPPER, str(self.cpu_s), str(script),
             cwd=str(self.workspace),

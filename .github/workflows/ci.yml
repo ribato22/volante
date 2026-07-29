@@ -70,3 +70,22 @@ jobs:
           /tmp/volante-wheel-venv/bin/pip install --quiet dist/*.whl
           /tmp/volante-wheel-venv/bin/volante --version
           /tmp/volante-wheel-venv/bin/volante --help
+
+      - name: MCP extra resolves against LIVE PyPI, not the lockfile
+        # The gap that let a released version ship a dead MCP server. The smoke test
+        # above never installed the `mcp` extra, and every other job resolves through
+        # uv.lock — which pinned an old `mcp`. So when mcp 2.0.0 removed
+        # mcp.server.fastmcp, every published install path (uvx, MCPB, the Claude Code
+        # plugin, Smithery, the registry record) broke while CI stayed green.
+        #
+        # Deliberately UNLOCKED: this must resolve the newest releases a user would
+        # get today, so an upstream major bump fails here instead of in their terminal.
+        run: |
+          python3 -m venv /tmp/volante-mcp-venv
+          /tmp/volante-mcp-venv/bin/pip install --quiet "$(ls dist/*.whl)[mcp]"
+          /tmp/volante-mcp-venv/bin/python -c "import mcp; print('mcp', getattr(mcp, '__version__', '?'))"
+          # Import what the server actually imports, not just the package.
+          /tmp/volante-mcp-venv/bin/python -c "import volante_mcp; print('volante_mcp OK')"
+          # And prove the console script starts rather than dying on an import.
+          /tmp/volante-mcp-venv/bin/volante-mcp --help >/dev/null 2>&1 \
+            || /tmp/volante-mcp-venv/bin/python -c "from volante_mcp import main; print('entrypoint OK')"
