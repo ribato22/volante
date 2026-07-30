@@ -6,6 +6,22 @@ name: Release
 # project settings (https://docs.pypi.org/trusted-publishers/). OIDC works whether
 # the GitHub repo is public or private; until that trusted publisher exists, pushing
 # a v* tag builds correctly but the publish step fails at the PyPI end.
+#
+# WHAT THE BINDING IS PINNED TO, verified rather than assumed, because this repo was
+# deleted and recreated on 2026-07-30 and every id it had changed. PyPI's GitHub
+# publisher requires `repository`, `repository_owner`, `repository_owner_id`,
+# `job_workflow_ref` and `jti`, and verifies `environment` when one is configured.
+# `repository_id` is explicitly in warehouse's __unchecked_claims__. So the identity
+# is (owner name + OWNER id + repo NAME + workflow filename + environment) — none of
+# which a delete-and-recreate under the same owner and name changes. Recreation does
+# not break it; RENAMING the repo or transferring it to another owner does, and would
+# need the publisher reconfigured on PyPI first.
+#
+# Attestations (PEP 740) are produced and served. Check any release with
+#   curl https://pypi.org/integrity/volante/<version>/<filename>/provenance
+# which returns the recorded publisher (repository, workflow, environment). The
+# `provenance` field is absent from this project's /pypi/<version>/json response, so
+# that endpoint is not evidence either way — use /integrity.
 on:
   push:
     tags: ["v*"]
