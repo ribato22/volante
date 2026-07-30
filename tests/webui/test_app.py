@@ -295,3 +295,23 @@ async def test_a_non_ascii_credential_is_rejected_not_a_crash() -> None:
     )
 
     assert status == 401
+
+
+async def test_demo_run_reports_no_cash_because_it_spends_none() -> None:
+    """The demo makes zero network calls, so any dollar figure it produces is fiction.
+
+    The Web UI persists every run to ~/.volante/usage.jsonl, which README documents as
+    cash vs. plan credit with billed_usd = "real cash spent", and `volante --usage`
+    totals it. A user with no API key configured — the exact user the demo exists for
+    — used to get $0.000676 of invented spend recorded against them, unflagged and
+    with cost_estimated=False asserting it was authoritative.
+
+    Priced at zero at the source: the demo ModelInfo. Nothing downstream then has to
+    know it was a demo in order to avoid lying.
+    """
+    result = await demo_runtime_factory()().aexecute("write a haiku about concurrency")
+
+    assert result.status == "success"
+    assert result.cost_usd == 0.0
+    assert result.billed_usd == 0.0
+    assert result.credit_usd == 0.0

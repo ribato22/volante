@@ -59,7 +59,16 @@ def demo_runtime_factory() -> Callable[[], Runtime]:
             ModelInfo(
                 id=_MID, provider="fake", strengths={"coding", "reasoning"},
                 context_window=128_000, max_output_tokens=4_096, supports_tools=True,
-                cost_per_1k_in=0.001, cost_per_1k_out=0.002,
+                # Priced at zero because it costs zero: FakeProvider makes no network
+                # call. Plausible-looking rates here were not harmless decoration —
+                # every Web UI run is persisted to ~/.volante/usage.jsonl, which
+                # README documents as cash vs. plan credit with billed_usd = "real
+                # cash spent", and `volante --usage` totals it. A user with no API key
+                # (the exact user this demo exists for) had $0.000676 of invented spend
+                # recorded against them, with cost_estimated=False asserting it was
+                # authoritative. Fixing it at the source means nothing downstream has
+                # to know it was a demo in order to avoid lying.
+                cost_per_1k_in=0.0, cost_per_1k_out=0.0,
             )
         ]
     )
