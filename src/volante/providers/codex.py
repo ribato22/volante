@@ -16,9 +16,15 @@ codex output (unlike claude) — `cost_usd` is always None from this adapter; th
 registry-rate fallback (`CODEX_COST_IN`/`CODEX_COST_OUT` via `build_codex_model`)
 is applied downstream by `CostMeter` from token counts, not here.
 
-Error-path detection (`is_error` / `classify_error`) remains PROVISIONAL: no real
-codex ERROR sample was captured (only a success run) — reconfirm at a live
-failure before trusting it in production (§14).
+ERROR-path wire shape is now LIVE-VERIFIED too (2026-07-30, codex-cli 0.145.0;
+fixtures `codex_error_auth.2026-07-30-live.jsonl` and
+`codex_error_badmodel.2026-07-30-live.jsonl`). It is NOT what this file guessed:
+    {"type":"error","message":"Reconnecting... 2/5 (unexpected status 401 ...)"}
+    {"type":"turn.failed","error":{"message":"..."}}
+Two corrections came out of that. A standalone `error` event is NOT fatal — codex
+emits a run of them while falling back from WebSockets to HTTPS and then finishes
+the turn normally, so the terminal event decides. And `turn.failed`, which is how
+a real failure ends, was an event type this file did not know existed.
 
 Auth gotcha (openai/codex #2000): a ChatGPT sign-in can auto-provision an
 `OPENAI_API_KEY` into the environment. If present, `codex exec` would bill the
@@ -30,7 +36,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
 from volante.providers.base import ProviderError
@@ -60,6 +66,44 @@ _STREAM_MESSAGE_KEY = "_volante_stream_message"
 def _est(s: str) -> int:
     """Cheap token estimate; never 0 (contract: NEVER Usage(0, 0))."""
     return max(1, len(s) // 4)
+
+
+def _events(stdout: str) -> Iterator[dict]:
+    """Every JSON object on the wire, tolerating banner/log lines that are not JSON."""
+    for raw in stdout.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            evt = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(evt, dict):
+            yield evt
+
+
+def _failure_message(stdout: str) -> str:
+    """The reason the turn failed, as codex stated it.
+
+    ``turn.failed`` carries the authoritative one (live-verified 2026-07-30:
+    ``{"type":"turn.failed","error":{"message": ...}}``). A standalone ``error``
+    event is the fallback for a stream that died without a terminal event; the LAST
+    one is used because the auth capture emits a numbered retry countdown and the
+    final line is the one that stopped being transient.
+    """
+    terminal = ""
+    stray = ""
+    for evt in _events(stdout):
+        etype = evt.get("type")
+        if etype == "turn.failed":
+            error = evt.get("error")
+            if isinstance(error, dict):
+                terminal = str(error.get("message") or "") or terminal
+            elif error:
+                terminal = str(error)
+        elif etype == "error":
+            stray = str(evt.get("message") or "") or stray
+    return (terminal or stray).strip()
 
 
 def _prompt_text(req: CanonicalRequest) -> str:
@@ -231,51 +275,87 @@ class CodexAdapter:
         return item.get("text") or None
 
     def classify_error(self, result: CliRunResult) -> ProviderError:
-        # PROVISIONAL (§14): no real codex ERROR sample was captured live -- only a
-        # success run (2026-07-23). These string matches are a best-effort guess
-        # (stderr "not logged in" / usage-limit phrasing); reconfirm against a real
-        # failing `codex exec` before trusting this in production.
+        """Turn a failing run into an error Runtime can act on, saying WHY.
+
+        Live-verified 2026-07-30 against the two dated error captures. The previous
+        version was a guess (it said so) and lost two things on real output. It
+        matched no substring in an expired-token run, so a lost login produced a
+        bare non-retryable ``codex exec failed (exit 1)`` with every reroute flag
+        false — every codex-routed task died outright, where the same condition on
+        claude_code reroutes and the run survives. And the actual cause sat on
+        stdout, inside the ``turn.failed`` envelope, reaching nobody.
+        """
         if result.timed_out:
             # transient: backoff on the same candidate (killpg handled by base).
             return ProviderError("codex exec timed out", retryable=True, status=None)
+        detail = _failure_message(result.stdout) or result.stderr.strip()
         blob = f"{result.stderr}\n{result.stdout}".lower()
-        if "not logged in" in blob or "codex login" in blob:
+        # Auth signals as the WIRE actually phrases them. `codex login` never
+        # appears in the capture; what does is a 401 from the API host, because the
+        # token is refreshed per request and can expire long after bootstrap probed it.
+        if any(
+            k in blob
+            for k in (
+                "not logged in", "codex login",
+                "401 unauthorized", "missing bearer", "invalid bearer",
+            )
+        ):
             return ProviderError(
-                "codex not logged in", retryable=False, status=None,
-                quota_exhausted=True,  # pragmatic: reroute to direct (§6.3)
+                # quota_exhausted is the reroute lever, not a claim about billing:
+                # ClaudeCodeAdapter already uses it for its own not-logged-in arm,
+                # and the two adapters must not disagree about the same condition.
+                f"codex authentication failed: {detail or 'no detail on the wire'}",
+                retryable=False, status=None, quota_exhausted=True,
             )
         if any(k in blob for k in ("usage limit", "try again in", "rate limit", "quota")):
             # Codex hard-pause is hours-long → reroute, not seconds of backoff (§6.3).
             return ProviderError(
-                "codex usage/quota limit reached", retryable=False, status=None,
-                quota_exhausted=True,
+                f"codex usage/quota limit reached: {detail}" if detail
+                else "codex usage/quota limit reached",
+                retryable=False, status=None, quota_exhausted=True,
             )
+        if detail:
+            # Everything else, verbatim. An unrecognised failure that reports its own
+            # cause is diagnosable; `exit 1` is not.
+            return ProviderError(f"codex error: {detail}", retryable=False, status=None)
         return ProviderError(
             f"codex exec failed (exit {result.returncode})",
             retryable=False, status=None,
         )
 
     def is_error(self, result: CliRunResult) -> bool:
-        # codex exec can exit 0 while a turn still failed mid-run -- but the ERROR
-        # wire shape itself is PROVISIONAL / NOT live-verified (§14: only a success
-        # run was captured 2026-07-23): either a standalone `{"type":"error"}`
-        # event, or a truthy `error` field carried on `turn.completed`. Any other
-        # shape / unparseable JSONL defaults to False (returncode already covers it).
-        # Reconfirm both against a real failing `codex exec` before trusting this.
-        for raw in result.stdout.splitlines():
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                evt = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+        """Did the TURN fail? Not: did anything go wrong along the way.
+
+        LIVE-VERIFIED 2026-07-30 (codex-cli 0.145.0) against two captured failing
+        runs; this used to be a guess and said so. The guess was wrong in the
+        expensive direction: it treated any standalone ``{"type":"error"}`` event as
+        fatal, and codex emits those WHILE RECOVERING — ten `Reconnecting... N/5`
+        events appear in the auth capture as it falls back from WebSockets to HTTPS.
+        Splicing one verbatim into an otherwise-normal successful run made this
+        return True, so ``complete()`` raised and an exit-0 run that had produced
+        the right answer and spent real tokens was discarded.
+
+        Both captures terminate in ``turn.failed``, an event type this file did not
+        know existed. So the terminal event decides, and a mid-stream error that was
+        followed by ``turn.completed`` is exactly what it looks like: recovered.
+        """
+        failed = False
+        completed = False
+        stray_error = False
+        for evt in _events(result.stdout):
             etype = evt.get("type")
-            if etype == "error":
-                return True
-            if etype == "turn.completed" and evt.get("error"):
-                return True
-        return False
+            if etype == "turn.failed":
+                failed = True
+            elif etype == "turn.completed":
+                completed = True
+                if evt.get("error"):
+                    failed = True
+            elif etype == "error":
+                stray_error = True
+        if failed:
+            return True
+        # An error with no terminal event either way recovered from nothing.
+        return stray_error and not completed
 
     def stream_result_line(self, lines: list[str]) -> str | None:
         # LIVE-VERIFIED (2026-07-23): codex exec --json ends a successful turn with

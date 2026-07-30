@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+- **Codex threw away answers it had already paid for.** `is_error` treated any standalone
+  `{"type":"error"}` event as fatal. Captured live, codex emits a run of ten of them —
+  `Reconnecting... N/5 (unexpected status 401 ...)` — WHILE RECOVERING, as it falls back from
+  WebSockets to HTTPS, and then finishes the turn normally. Splicing one verbatim into an
+  otherwise-normal successful run made `complete()` raise on an exit-0 run that had produced the
+  right answer and spent real tokens. The terminal event decides now: `turn.failed` is a failure,
+  `turn.completed` is not, and a mid-stream error followed by a completion is what it looks like.
+- **Losing a Codex token mid-run killed every task instead of rerouting.** The auth capture matched
+  none of the substrings `classify_error` looked for — the wire says `401 Unauthorized: Missing
+  bearer`, never "codex login" — so an expired token produced a bare `codex exec failed (exit 1)`
+  with every reroute flag false. The same condition on `claude_code` reroutes and the run survives.
+  It now matches the phrasing the wire actually uses and carries the reroute lever its sibling
+  adapter already used for this.
+- **A failing Codex run reported only its exit code.** The real cause sits on stdout inside the
+  `turn.failed` envelope and reached nobody — including the genuinely useful "The model is not
+  supported when using Codex with a ChatGPT account". Errors now carry the message codex gave.
+- The error path is no longer marked PROVISIONAL. It was guessed from a success-only capture and
+  labelled as such since it was written; it is now pinned by two dated live captures, and the guess
+  was wrong in the expensive direction.
+
 ## [0.4.0] - 2026-07-29
 
 A security release, and the largest one so far: eight fixes under Security, all of

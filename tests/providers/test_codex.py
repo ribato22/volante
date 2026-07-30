@@ -599,3 +599,83 @@ async def test_stream_terminal_is_error_reroutes() -> None:
         await provider.stream(_req(), lambda _d: False)
     assert ei.value.quota_exhausted is False
     assert ei.value.retryable is False
+
+
+# --- the error path, no longer PROVISIONAL ---------------------------------- #
+# Captured LIVE on 2026-07-30 against codex-cli 0.145.0, by driving this adapter's
+# own argv through the real subprocess_cli_runner. Both captures terminate in
+# `turn.failed` — an event type that appeared nowhere in src/ when they were taken —
+# and the auth one carries ten standalone `error` events that codex emits WHILE
+# RECOVERING (it falls back from WebSockets to HTTPS and keeps going).
+
+_AUTH_FAILURE = "codex_error_auth.2026-07-30-live.jsonl"
+_BAD_MODEL = "codex_error_badmodel.2026-07-30-live.jsonl"
+
+
+def test_error_fixtures_are_dated_like_the_success_one() -> None:
+    files = list(_FIXTURES.glob("codex_error_*.jsonl"))
+    assert files, "a dated live ERROR capture is required, not a guessed wire shape"
+    assert all(re.search(r"\.\d{4}-\d{2}-\d{2}.*\.jsonl$", f.name) for f in files)
+
+
+def test_a_recovered_transient_error_does_not_discard_a_paid_answer() -> None:
+    # THE expensive one. codex emits `{"type":"error","message":"Reconnecting... 2/5"}`
+    # and then carries on to finish the turn. Treating any error event as fatal makes
+    # complete() raise on a run that exited 0, produced the right answer and burned
+    # real tokens — the answer is thrown away and the quota is still spent.
+    transient = next(
+        line for line in (_FIXTURES / _AUTH_FAILURE).read_text().splitlines()
+        if line.strip() and json.loads(line).get("type") == "error"
+    )
+    success = (_FIXTURES / "codex_result.2026-07-23-live.jsonl").read_text().splitlines()
+    spliced = "\n".join([*success[:2], transient, *success[2:]])
+    result = _run_result(spliced, returncode=0)
+
+    assert CodexAdapter().is_error(result) is False
+    resp = CodexAdapter().parse(result, _req())
+    assert resp.content[0].text  # the answer survives
+    assert resp.stop_reason == "end_turn"
+
+
+def test_turn_failed_is_a_failure_even_though_no_code_knew_that_event() -> None:
+    result = _run_result((_FIXTURES / _AUTH_FAILURE).read_text(), returncode=1)
+
+    assert CodexAdapter().is_error(result) is True
+
+
+def test_losing_auth_mid_run_can_reroute_to_another_candidate() -> None:
+    # bootstrap.py treats a lost claude_code login as reroutable so the run survives
+    # on another model. Codex returned a bare non-retryable error with every reroute
+    # flag false, so a token that expired after bootstrap killed every codex-routed
+    # task outright.
+    err = CodexAdapter().classify_error(
+        _run_result((_FIXTURES / _AUTH_FAILURE).read_text(), returncode=1)
+    )
+
+    assert err.quota_exhausted is True, "Runtime has no reason to try another candidate"
+
+
+def test_the_reason_for_the_failure_reaches_the_operator() -> None:
+    # The real cause is on stdout in both captures and reached nobody: the message
+    # was `codex exec failed (exit 1)`, which says only that something went wrong.
+    auth = CodexAdapter().classify_error(
+        _run_result((_FIXTURES / _AUTH_FAILURE).read_text(), returncode=1)
+    )
+    bad_model = CodexAdapter().classify_error(
+        _run_result((_FIXTURES / _BAD_MODEL).read_text(), returncode=1)
+    )
+
+    assert "401" in str(auth) or "unauthorized" in str(auth).lower()
+    assert "not supported" in str(bad_model).lower() or "invalid_request" in str(bad_model)
+
+
+def test_an_error_with_no_terminal_event_is_still_a_failure() -> None:
+    # The boundary of the change: transient errors are forgiven only because a
+    # terminal success followed. With no terminal event at all, nothing was recovered.
+    stray = json.dumps({"type": "error", "message": "stream died"})
+    assert CodexAdapter().is_error(_run_result(stray, returncode=0)) is True
+
+
+def test_an_ordinary_successful_run_is_still_not_an_error() -> None:
+    fixture = (_FIXTURES / "codex_result.2026-07-23-live.jsonl").read_text()
+    assert CodexAdapter().is_error(_run_result(fixture, returncode=0)) is False
