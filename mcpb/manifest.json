@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "volante",
   "display_name": "Volante",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "User-owned model routing and orchestration: plan a task DAG, then route each task to the best predicted fit from configured metadata/evidence after hard-capability filtering.",
   "author": { "name": "ribato22", "url": "https://github.com/ribato22/volante" },
   "homepage": "https://github.com/ribato22/volante",
@@ -15,7 +15,7 @@
     "entry_point": "",
     "mcp_config": {
       "command": "uvx",
-      "args": ["--from", "volante[mcp]==0.4.0", "volante-mcp"],
+      "args": ["--from", "volante[mcp]==0.4.1", "volante-mcp"],
       "env": {
         "ANTHROPIC_API_KEY": "${user_config.anthropic_api_key}",
         "ANTHROPIC_MODELS": "${user_config.anthropic_models}",

@@ -2,7 +2,7 @@
   "mcpServers": {
     "volante": {
       "command": "uvx",
-      "args": ["--from", "volante[mcp]==0.4.0", "volante-mcp"],
+      "args": ["--from", "volante[mcp]==0.4.1", "volante-mcp"],
       "env": {}
     }
   }

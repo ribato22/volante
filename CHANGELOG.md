@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-30
+
+Seven defects, none of them from a scanner: they came from pointing a fan-out of
+readers at the two surfaces the 0.4.0 security pass never reached, and then
+reproducing every claim before acting on it.
+
+**Upgrade if you use `CODEX_ENABLED=1` or the Web UI.** Codex could discard an
+answer it had already paid for, and could not fail over when its token expired.
+The Web UI rejected the reverse-proxy deployment 0.4.0 itself recommended, and a
+single page reload could take a run slot away until restart.
+
+The third fix is smaller but sharper: Volante's calibration harness could not emit
+the `null` its own consumer documents, so `reliability_score` was unreachable from
+this project's own pipeline — a measurement bug in the evidence the router routes on.
+
 ### Fixed
 - **The calibration harness could not emit the `null` its own consumer documents.**
   `volante.calibrate` reads `null` in a score list as "this run produced nothing usable" and counts
@@ -726,7 +741,8 @@ version should upgrade.
 - The Code of Conduct now routes reports to a **private** channel (maintainer email / private GitHub
   Security Advisory) instead of the public issue tracker, and is linked from CONTRIBUTING and the README.
 
-[Unreleased]: https://github.com/ribato22/volante/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ribato22/volante/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/ribato22/volante/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ribato22/volante/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/ribato22/volante/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ribato22/volante/compare/v0.3.0...v0.3.1
