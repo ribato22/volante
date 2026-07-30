@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import shutil
 import signal
@@ -159,15 +160,13 @@ async def _communicate_bounded(
         await asyncio.wait_for(combined, timeout=timeout)
     except TimeoutError:
         _killpg(proc)
-        await proc.wait()
-        await asyncio.gather(combined, *tasks, return_exceptions=True)
+        await _settle(proc, combined, *tasks)
         return CliRunResult(
             stdout.text(), stderr.text(), -9, timed_out=True
         )
     except asyncio.CancelledError:
         _killpg(proc)
-        await proc.wait()
-        await asyncio.gather(combined, *tasks, return_exceptions=True)
+        await _settle(proc, combined, *tasks)
         raise
     return CliRunResult(
         stdout.text(),
@@ -182,6 +181,78 @@ def _killpg(proc: asyncio.subprocess.Process) -> None:
         os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
+
+
+# How long cleanup may take after the kill. The child has already had SIGKILL, so its
+# own pipe ends close at once and this bound is never reached on a healthy path. It
+# exists for the case where waiting longer cannot help: something OUTSIDE the process
+# group is holding the pipes, and by definition we cannot kill it.
+_SETTLE_TIMEOUT_S = 2.0
+
+
+def _release_pipes(proc: asyncio.subprocess.Process) -> None:
+    """Drop OUR ends of the child's stdout/stderr pipes.
+
+    This is what actually unblocks `wait()`. asyncio resolves `Process.wait()` only
+    once every pipe transport has reported connection_lost, so a surviving holder of
+    the write ends keeps it pending forever even though the child is long dead.
+    Closing the transport ends that regardless of who else inherited them — and those
+    are the same descriptors that would otherwise stay open for the holder's lifetime.
+
+    `_transport` is private because asyncio exposes no public accessor: StreamReader
+    has no close(), and only the transport owns the read ends. Guarded accordingly.
+    """
+    transport = getattr(proc, "_transport", None)
+    if transport is None:
+        return
+    with contextlib.suppress(Exception):
+        transport.close()
+
+
+async def _settle(
+    proc: asyncio.subprocess.Process, *awaitables: object
+) -> None:
+    """Reap after a kill, in bounded time.
+
+    THE BUG THIS EXISTS FOR. Every post-kill path used to do a bare `await
+    proc.wait()` followed by a bare `await gather(...)` on the drains. Both are
+    unbounded, and `wait()` does not resolve while any pipe transport is still
+    connected. A descendant that starts its OWN session escapes the process group
+    killpg reaches while still holding the inherited stdout/stderr — exactly what a
+    `claude -p` hook or an MCP helper launched with setsid does. The child dies, the
+    pipes stay open, and the cleanup that was supposed to ENFORCE the deadline
+    outlives it: the configured timeout silently becomes "however long some detached
+    helper decides to live".
+
+    On the streaming path it was worse than slow. Those awaits sit inside the `except`
+    handlers, so an outer `wait_for` cancellation escaped into the `finally`, which
+    then awaited a stderr drain nobody had cancelled. `Runtime.call_timeout` could not
+    recover the run and neither could Ctrl-C — the orchestration wedged with the
+    provider's concurrency slot still held.
+
+    Never raises for a slow cleanup: a timeout here is not the caller's error, it is
+    the condition this function exists to absorb. A genuine outer CancelledError is
+    still allowed through, because the caller's own handler decides what that means.
+    """
+    tasks = [a for a in awaitables if isinstance(a, asyncio.Future)]
+    combined = asyncio.gather(proc.wait(), *tasks, return_exceptions=True)
+    try:
+        await asyncio.wait_for(combined, timeout=_SETTLE_TIMEOUT_S)
+        return
+    except TimeoutError:
+        pass
+
+    _release_pipes(proc)
+    for task in tasks:
+        task.cancel()
+    # `combined` is awaited again rather than dropped: wait_for cancelled it, and an
+    # abandoned gather wrapper holds an unretrieved CancelledError that asyncio prints
+    # to stderr when it is collected — on a path Runtime takes for every outer timeout.
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(
+            asyncio.gather(combined, *tasks, return_exceptions=True),
+            timeout=_SETTLE_TIMEOUT_S,
+        )
 
 
 async def subprocess_cli_runner(
@@ -221,7 +292,7 @@ async def subprocess_cli_runner(
         # guarantee; spawning is what creates the obligation, so spawning owns it.
         if proc is not None and proc.returncode is None:
             _killpg(proc)
-            await proc.wait()
+            await _settle(proc)
         shutil.rmtree(workdir, ignore_errors=True)
 
 
@@ -271,15 +342,13 @@ async def _stream_lines(
             await asyncio.wait_for(_run_to_completion(), timeout=timeout)
         except TimeoutError:
             _killpg(proc)
-            await proc.wait()
-            await asyncio.gather(stderr_task, return_exceptions=True)
+            await _settle(proc, stderr_task)
             return CliRunResult(
                 stdout.text(), stderr.text(), -9, timed_out=True
             )
         except asyncio.CancelledError:
             _killpg(proc)
-            await proc.wait()
-            await asyncio.gather(stderr_task, return_exceptions=True)
+            await _settle(proc, stderr_task)
             raise
         if stopped:
             return CliRunResult(
@@ -295,9 +364,10 @@ async def _stream_lines(
     finally:
         if proc.returncode is None:  # any other exception -> still reap, never orphan
             _killpg(proc)
-            await proc.wait()
-        if not stderr_task.done():
-            await asyncio.gather(stderr_task, return_exceptions=True)
+        # Bounded even here. This `finally` runs while a CancelledError is in flight,
+        # which is precisely when an unbounded await turns a recoverable timeout into
+        # an unrecoverable hang.
+        await _settle(proc, stderr_task)
 
 
 @runtime_checkable

@@ -210,6 +210,78 @@ async def test_stream_timeout_covers_process_wait_after_stdout_eof():
     assert r.returncode == -9
 
 
+# --- a grandchild that escapes the process group and keeps the pipes open --- #
+# `Process.wait()` resolves only once the child has exited AND every pipe transport
+# has disconnected. `start_new_session=True` puts the child in its own group so
+# killpg reaches its descendants — but a descendant that starts ITS OWN session
+# escapes that group while still holding the inherited stdout/stderr. The child dies
+# on SIGKILL; the pipes stay open; the post-kill `await proc.wait()` never returns.
+# The cleanup that enforces the deadline then outlives it.
+#
+# Real shape, not a contrivance: `claude -p` and `codex exec` run hooks and MCP
+# helpers, and anything daemonised with setsid does exactly this.
+_ESCAPING_GRANDCHILD = (
+    "import subprocess, sys, time;"
+    "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(10)'],"
+    " start_new_session=True);"
+    "sys.stdout.write('{\"type\":\"x\"}\\n'); sys.stdout.flush();"
+    "time.sleep(30)"
+)
+
+
+async def test_timeout_bites_when_a_grandchild_holds_the_pipes():
+    """The runner's own deadline must survive its own cleanup.
+
+    Without a bound on the post-kill settle the call runs until the GRANDCHILD exits,
+    so `timeout` stops meaning anything: the configured 120 s provider deadline is
+    silently replaced by however long some detached helper decides to live.
+    """
+    start = time.monotonic()
+    r = await asyncio.wait_for(
+        subprocess_cli_runner(
+            [sys.executable, "-c", _ESCAPING_GRANDCHILD],
+            stdin="",
+            env={"PATH": os.environ.get("PATH", "")},
+            timeout=0.5,
+        ),
+        timeout=20.0,  # watchdog: fail the test rather than wedge the suite
+    )
+    elapsed = time.monotonic() - start
+
+    assert r.timed_out is True
+    assert r.returncode == -9
+    assert elapsed < 4.0, f"settle outlived the deadline it enforces: {elapsed:.1f}s"
+
+
+async def test_stream_stays_cancellable_when_a_grandchild_holds_the_pipes():
+    """The streaming path must still be recoverable by the caller's deadline.
+
+    This is the worse half. On the streaming path the post-kill awaits sit inside the
+    `except` handlers, so the CancelledError raised by an outer `wait_for` escapes into
+    the `finally`, which then awaits a stderr drain nobody cancelled. Runtime's
+    `call_timeout` cannot recover the run, and neither can Ctrl-C: the whole
+    orchestration wedges with the provider's concurrency slot still held.
+    """
+    start = time.monotonic()
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(
+            asyncio.wait_for(
+                subprocess_cli_runner(
+                    [sys.executable, "-c", _ESCAPING_GRANDCHILD],
+                    stdin="",
+                    env={"PATH": os.environ.get("PATH", "")},
+                    timeout=30.0,  # never fires; the OUTER deadline is under test
+                    on_line=lambda _line: False,
+                ),
+                timeout=0.5,  # stands in for Runtime.call_timeout
+            ),
+            timeout=20.0,  # watchdog
+        )
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 4.0, f"outer deadline could not recover the run: {elapsed:.1f}s"
+
+
 async def test_stream_cancel_kills_and_reraises():
     task = asyncio.ensure_future(
         subprocess_cli_runner(
