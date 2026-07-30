@@ -7,6 +7,25 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Fixed
+- **The Web UI rejected the reverse-proxy deployment 0.4.0 had just blessed.** `require_same_origin`
+  compared `scheme://host` verbatim, and behind a TLS-terminating proxy the browser sends
+  `Origin: https://host` while the app is served over http — uvicorn only rewrites the scheme from
+  `X-Forwarded-Proto` when the peer is in `forwarded_allow_ips` (default `127.0.0.1`). So every
+  Docker, k8s or CDN deployment got `403 Cross-origin run creation is forbidden` on the exact
+  configuration `VOLANTE_UI_TRUST_PROXY=1` was added to support. It compares HOSTS now, which is
+  where the CSRF property came from; a different host is still refused.
+- **One page reload could take a run slot away permanently.** `active += 1` ran in the handler and
+  `active -= 1` in the SSE generator's `finally`. A client that disconnects before the first
+  iteration leaves that generator merely ABANDONED, so its `finally` waits on CPython finalizing
+  it — measurably, not theoretically: the same probe returned the slot with an explicit
+  `gc.collect()` and never returned it without one. At the default `max_concurrent_runs=2` two
+  reloads wedged the UI until restart. The slot is now released by the response's background task,
+  which Starlette runs after its task group unwinds on the disconnect path too.
+- **A single high byte in a header was a 500 instead of a 401.** `hmac.compare_digest` raises
+  `TypeError` on a `str` holding a character above U+007F, and uvicorn decodes header bytes as
+  latin-1 — so `Authorization: Bearer \xfc` escaped the guard as a traceback. Both guards compare
+  bytes now, which keeps the comparison constant-time and makes every byte sequence a comparison
+  rather than an exception.
 - **Codex threw away answers it had already paid for.** `is_error` treated any standalone
   `{"type":"error"}` event as fatal. Captured live, codex emits a run of ten of them —
   `Reconnecting... N/5 (unexpected status 401 ...)` — WHILE RECOVERING, as it falls back from

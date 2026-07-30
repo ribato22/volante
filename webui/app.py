@@ -7,6 +7,7 @@ import secrets
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 from volante.observability import read_runs, record_run, summarize, usage_log_path
 from webui.runner import stream_events
@@ -1015,6 +1016,7 @@ def create_app(
     from fastapi import FastAPI, HTTPException, Request
     from fastapi.middleware.trustedhost import TrustedHostMiddleware
     from fastapi.responses import HTMLResponse, StreamingResponse
+    from starlette.background import BackgroundTask
 
     # With ``from __future__ import annotations`` FastAPI resolves endpoint
     # annotations against module globals. Keep the optional dependency lazy, but
@@ -1043,12 +1045,23 @@ def create_app(
         )
         return response
 
+    def _constant_time_equal(supplied: str, expected: str) -> bool:
+        # BYTES, not str. `hmac.compare_digest` raises TypeError when a str holds a
+        # character above U+007F, and uvicorn decodes header bytes as latin-1 — so a
+        # single high byte in a header escaped the guard entirely and became a 500
+        # with a traceback where the guard meant 401. Encoding first keeps the
+        # comparison constant-time and makes every byte sequence a comparison rather
+        # than an exception. surrogateescape carries through anything latin-1
+        # produced that utf-8 cannot represent.
+        return hmac.compare_digest(
+            supplied.encode("utf-8", "surrogateescape"), expected.encode("utf-8")
+        )
+
     def require_authorized(request: Request) -> None:
         if auth_token is None:
             return
         authorization = request.headers.get("authorization", "")
-        expected = f"Bearer {auth_token}"
-        if not hmac.compare_digest(authorization, expected):
+        if not _constant_time_equal(authorization, f"Bearer {auth_token}"):
             raise HTTPException(
                 status_code=401,
                 detail="A valid Volante UI bearer token is required.",
@@ -1059,8 +1072,16 @@ def create_app(
         origin = request.headers.get("origin")
         if origin is None:
             return
-        expected = f"{request.url.scheme}://{request.headers.get('host', '')}"
-        if not hmac.compare_digest(origin.rstrip("/"), expected.rstrip("/")):
+        # HOST, not scheme://host. The CSRF property this guard exists for comes from
+        # the origin's host matching ours; the scheme adds nothing to it and breaks
+        # the deployment 0.4.0 explicitly blessed. Behind a TLS-terminating proxy the
+        # browser sends `Origin: https://host` while the app is served over http, and
+        # uvicorn only rewrites the scheme from X-Forwarded-Proto when the peer is in
+        # forwarded_allow_ips (default 127.0.0.1) — so every Docker, k8s or CDN
+        # deployment failed a check that was never about the scheme.
+        supplied = urlsplit(origin.rstrip("/")).netloc
+        expected = request.headers.get("host", "")
+        if not supplied or not _constant_time_equal(supplied, expected):
             raise HTTPException(status_code=403, detail="Cross-origin run creation is forbidden.")
 
     @app.get("/", response_class=HTMLResponse)
@@ -1133,23 +1154,32 @@ def create_app(
             goal = item[0]
             active += 1
 
-        async def gen():
+        async def release() -> None:
             nonlocal active
-            try:
-                async for event in stream_events(runtime_factory(), goal):
-                    if isinstance(event, dict) and event.get("type") == "result":
-                        # Persist to the shared usage ledger so browser runs show up in
-                        # the Usage dashboard alongside CLI/MCP runs. Best-effort.
-                        record_run(event, goal=goal, prefer=None, source="webui")
-                    yield f"data: {json.dumps(event)}\n\n"
-            finally:
-                async with state_lock:
-                    active -= 1
+            async with state_lock:
+                active -= 1
 
+        async def gen():
+            async for event in stream_events(runtime_factory(), goal):
+                if isinstance(event, dict) and event.get("type") == "result":
+                    # Persist to the shared usage ledger so browser runs show up in
+                    # the Usage dashboard alongside CLI/MCP runs. Best-effort.
+                    record_run(event, goal=goal, prefer=None, source="webui")
+                yield f"data: {json.dumps(event)}\n\n"
+
+        # The slot is released by the response's BACKGROUND task, not by a `finally`
+        # inside the generator. Starlette runs `background` after its task group
+        # unwinds, which covers the disconnect path as well as normal completion; a
+        # generator that the client walked away from is merely ABANDONED, and its
+        # finally then runs whenever CPython gets round to finalizing it. That was
+        # measurable rather than theoretical: the same probe returned the slot with an
+        # explicit gc.collect() and never returned it without one. At the default
+        # max_concurrent_runs=2, two page reloads wedged the UI until restart.
         return StreamingResponse(
             gen(),
             media_type="text/event-stream",
             headers={"X-Accel-Buffering": "no"},
+            background=BackgroundTask(release),
         )
 
     @app.get("/usage", response_class=HTMLResponse)

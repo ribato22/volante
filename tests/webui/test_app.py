@@ -171,3 +171,102 @@ def test_webui_run_is_recorded_to_the_ledger(
 def test_create_app_rejects_bad_usage_limit() -> None:
     with pytest.raises(ValueError, match="usage_limit"):
         create_app(demo_runtime_factory(), usage_limit=0)
+
+
+# --- three defects the 0.4.0 review surfaced --------------------------------- #
+# Two of these need a raw ASGI call rather than TestClient: a cooperative HTTP
+# client will not send a non-ASCII header (httpx refuses to encode it) and will not
+# disconnect before the first chunk. uvicorn produces both — it decodes header bytes
+# as latin-1, and a browser that navigates away mid-request disconnects.
+
+_UI_HOST = "ui.example"
+
+
+def _origin_client(**kw) -> TestClient:
+    app = create_app(demo_runtime_factory(), allowed_hosts=[_UI_HOST], **kw)
+    return TestClient(app, base_url=f"http://{_UI_HOST}")
+
+
+async def _raw_call(app, method: str, path: str, *, headers, disconnect=False):
+    """Drive the ASGI app the way uvicorn would, bypassing the client's own rules."""
+    sent: list[dict] = []
+    started = {"n": 0}
+
+    async def receive():
+        if disconnect:
+            return {"type": "http.disconnect"}
+        started["n"] += 1
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+        "method": method, "scheme": "http", "path": path,
+        "raw_path": path.encode(), "query_string": b"", "root_path": "",
+        "headers": [(b"host", _UI_HOST.encode()), *headers],
+        "client": ("203.0.113.9", 5000), "server": (_UI_HOST, 80),
+    }
+    await app(scope, receive, send)
+    start = [m for m in sent if m["type"] == "http.response.start"]
+    return start[0]["status"] if start else None
+
+
+def test_a_tls_terminating_proxy_is_not_treated_as_cross_origin() -> None:
+    # 0.4.0 added VOLANTE_UI_TRUST_PROXY=1 and blessed exactly this deployment: a
+    # proxy terminates TLS and forwards to the app over http. The browser then sends
+    # `Origin: https://host` while request.url.scheme is "http", and the guard
+    # compared the two verbatim — so the configuration the release recommended was
+    # the one it rejected. uvicorn only rewrites the scheme from X-Forwarded-Proto
+    # when the peer is in forwarded_allow_ips, which defaults to 127.0.0.1, so this
+    # is every Docker, k8s or CDN deployment.
+    r = _origin_client().post(
+        "/runs", json={"goal": "hello"}, headers={"Origin": f"https://{_UI_HOST}"}
+    )
+
+    assert r.status_code == 201
+
+
+def test_a_different_host_is_still_cross_origin() -> None:
+    # The boundary: the CSRF property comes from the HOST matching, and forgiving the
+    # scheme must not forgive the host.
+    r = _origin_client().post(
+        "/runs", json={"goal": "hello"}, headers={"Origin": "https://attacker.example"}
+    )
+
+    assert r.status_code == 403
+
+
+async def test_a_browser_that_leaves_before_the_stream_starts_returns_its_slot() -> None:
+    # `active += 1` ran in the handler; `active -= 1` ran in the generator's finally.
+    # A client that disconnects before the generator's first iteration — a page
+    # reload right after the POST — never runs the generator, so the slot was gone
+    # for the life of the process. At the default max_concurrent_runs=2, two reloads
+    # wedge the UI permanently.
+    import asyncio
+
+    app = create_app(
+        demo_runtime_factory(), allowed_hosts=[_UI_HOST],
+        max_concurrent_runs=1, pending_ttl_s=0.2,
+    )
+    client = TestClient(app, base_url=f"http://{_UI_HOST}")
+    run_id = client.post("/runs", json={"goal": "one"}).json()["run_id"]
+
+    await _raw_call(app, "GET", f"/runs/{run_id}/events", headers=[], disconnect=True)
+    await asyncio.sleep(0.4)  # every pending reservation has expired by now
+
+    assert client.post("/runs", json={"goal": "two"}).status_code == 201
+
+
+async def test_a_non_ascii_credential_is_rejected_not_a_crash() -> None:
+    # hmac.compare_digest raises TypeError on a str holding a non-ASCII character,
+    # and uvicorn decodes header bytes as latin-1 — so a single high byte in
+    # Authorization escaped the guard as a 500 with a traceback instead of a 401.
+    app = create_app(demo_runtime_factory(), allowed_hosts=[_UI_HOST], auth_token="secret")
+
+    status = await _raw_call(
+        app, "GET", "/api/usage", headers=[(b"authorization", b"Bearer \xfc")]
+    )
+
+    assert status == 401
