@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -90,6 +91,30 @@ def test_run_capacity_counts_pending_runs() -> None:
     client = TestClient(create_app(demo_runtime_factory(), max_concurrent_runs=1))
     assert client.post("/runs", json={"goal": "one"}).status_code == 201
     assert client.post("/runs", json={"goal": "two"}).status_code == 429
+
+
+def test_slot_returns_when_the_stream_body_raises() -> None:
+    """A failure while producing the stream must not cost a slot permanently.
+
+    The slot is released by the response's BACKGROUND task, which Starlette runs only
+    after the body completes. Anything that raises while producing it — a
+    runtime_factory that cannot build a provider, a registry error, a bad model
+    override — skips that release, and the count never comes back down. At the default
+    max_concurrent_runs=2 the UI then serves 429 to everyone until it is restarted,
+    with nothing running and no way for a user to tell why.
+    """
+
+    def exploding_factory():
+        raise RuntimeError("provider stack could not be built")
+
+    client = TestClient(create_app(exploding_factory, max_concurrent_runs=1))
+    run_id = client.post("/runs", json={"goal": "one"}).json()["run_id"]
+    with contextlib.suppress(RuntimeError):
+        with client.stream("GET", f"/runs/{run_id}/events") as r:
+            r.read()
+
+    # The failed run holds nothing, so the next one must be admitted.
+    assert client.post("/runs", json={"goal": "two"}).status_code == 201
 
 
 def test_build_runtime_factory_demo_when_no_providers(monkeypatch) -> None:

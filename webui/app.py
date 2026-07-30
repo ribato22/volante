@@ -1154,27 +1154,48 @@ def create_app(
             goal = item[0]
             active += 1
 
+        released = False
+
         async def release() -> None:
-            nonlocal active
+            # Idempotent, because two different unwind paths can reach it and exactly
+            # one of them must count. Both take state_lock, so the check and the
+            # decrement cannot interleave.
+            nonlocal active, released
             async with state_lock:
+                if released:
+                    return
+                released = True
                 active -= 1
 
         async def gen():
-            async for event in stream_events(runtime_factory(), goal):
-                if isinstance(event, dict) and event.get("type") == "result":
-                    # Persist to the shared usage ledger so browser runs show up in
-                    # the Usage dashboard alongside CLI/MCP runs. Best-effort.
-                    record_run(event, goal=goal, prefer=None, source="webui")
-                yield f"data: {json.dumps(event)}\n\n"
+            try:
+                async for event in stream_events(runtime_factory(), goal):
+                    if isinstance(event, dict) and event.get("type") == "result":
+                        # Persist to the shared usage ledger so browser runs show up in
+                        # the Usage dashboard alongside CLI/MCP runs. Best-effort.
+                        record_run(event, goal=goal, prefer=None, source="webui")
+                    yield f"data: {json.dumps(event)}\n\n"
+            finally:
+                # Covers the path the background task cannot: Starlette runs
+                # `background` only after the body COMPLETES, so anything that raises
+                # while producing it — a runtime_factory that cannot build a provider,
+                # a registry error — skipped the release entirely and the slot was gone
+                # for the life of the process. An exception propagating out of an async
+                # generator runs this finally deterministically; that is what makes it a
+                # sound second path, and why it does not contradict the note below.
+                await release()
 
-        # The slot is released by the response's BACKGROUND task, not by a `finally`
-        # inside the generator. Starlette runs `background` after its task group
-        # unwinds, which covers the disconnect path as well as normal completion; a
-        # generator that the client walked away from is merely ABANDONED, and its
-        # finally then runs whenever CPython gets round to finalizing it. That was
-        # measurable rather than theoretical: the same probe returned the slot with an
-        # explicit gc.collect() and never returned it without one. At the default
-        # max_concurrent_runs=2, two page reloads wedged the UI until restart.
+        # The BACKGROUND task is what covers DISCONNECT. Starlette runs `background`
+        # after its task group unwinds; a generator the client walked away from is
+        # merely ABANDONED, and its finally then runs whenever CPython gets round to
+        # finalizing it. That was measurable rather than theoretical: the same probe
+        # returned the slot with an explicit gc.collect() and never returned it
+        # without one. At the default max_concurrent_runs=2, two page reloads wedged
+        # the UI until restart.
+        #
+        # Neither path subsumes the other — background misses the raising body,
+        # finally misses the abandoned generator — so both are wired and `release` is
+        # idempotent.
         return StreamingResponse(
             gen(),
             media_type="text/event-stream",
