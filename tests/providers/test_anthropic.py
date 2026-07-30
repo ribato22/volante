@@ -350,3 +350,60 @@ async def test_default_timeout_is_120(monkeypatch):
     monkeypatch.setattr(anthropic, "AsyncAnthropic", _StubClient)
     AnthropicProvider(api_key="k", model="claude-test")
     assert captured["timeout"] == 120.0
+
+
+# --- the system prompt actually reaches the wire ----------------------------- #
+# Anthropic takes the system prompt as a TOP-LEVEL parameter, not as a message in the
+# list, so `_split_messages` has to lift it out — and if that lift is dropped the SDK
+# call is still perfectly valid, just missing every instruction Volante gave the
+# model. No test ever sent a system message, so the whole path (`_split_messages`
+# extraction, `kwargs["system"]` in complete and in stream) could be deleted with the
+# suite green. Every Volante request puts the goal and the role instruction there:
+# Projector, Supervisor and Synthesizer all do.
+
+
+@pytest.mark.asyncio
+async def test_complete_lifts_the_system_prompt_to_the_top_level_param(
+    monkeypatch,
+) -> None:
+    msgs = _FakeMessages(
+        result=_FakeResponse([_FakeTextBlock("ok")], _FakeUsage(1, 1))
+    )
+    provider = _provider_with(msgs, monkeypatch)
+
+    await provider.complete(
+        CanonicalRequest(
+            messages=[
+                text("system", "You are a careful assistant."),
+                text("user", "hello"),
+            ],
+            max_tokens=16,
+        )
+    )
+
+    sent = msgs.calls[0]
+    assert sent["system"] == "You are a careful assistant."
+    # and it must NOT also be left in the message list, where the API would either
+    # reject it or silently treat it as a user turn.
+    assert [m["role"] for m in sent["messages"]] == ["user"]
+
+
+@pytest.mark.asyncio
+async def test_multiple_system_messages_are_joined_not_dropped(monkeypatch) -> None:
+    msgs = _FakeMessages(
+        result=_FakeResponse([_FakeTextBlock("ok")], _FakeUsage(1, 1))
+    )
+    provider = _provider_with(msgs, monkeypatch)
+
+    await provider.complete(
+        CanonicalRequest(
+            messages=[
+                text("system", "first"),
+                text("system", "second"),
+                text("user", "hi"),
+            ],
+            max_tokens=16,
+        )
+    )
+
+    assert msgs.calls[0]["system"] == "first\nsecond"

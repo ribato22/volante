@@ -97,12 +97,45 @@ def test_both_sandboxes_write_through_the_guarded_helper() -> None:
 
 
 @pytest.mark.skipif(not hasattr(os, "O_NOFOLLOW"), reason="POSIX only")
-def test_helper_uses_nofollow() -> None:
-    # The unlink closes the common case; O_NOFOLLOW closes the race where a link
-    # reappears between the unlink and the open.
-    import inspect
+def test_a_link_planted_between_the_unlink_and_the_open_is_refused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Drive the race the flags exist for, instead of reading the source for them.
 
-    assert "O_NOFOLLOW" in inspect.getsource(write_model_code)
+    This replaces `assert "O_NOFOLLOW" in inspect.getsource(write_model_code)`, which
+    the docstring satisfied on its own: the word appears once in the prose and once in
+    the code, so deleting the flag from the `os.open` call left the assertion — and
+    the whole suite — green while the defence was gone. Verified by mutation: with
+    the flags cut back to O_WRONLY|O_CREAT|O_TRUNC the old test still passed.
+
+    The unlink closes the common case. This is the gap after it, which is the only
+    part the flags are responsible for: something re-plants the link before the open.
+    """
+    victim = tmp_path / "precious"
+    victim.write_text("do not overwrite me", encoding="utf-8")
+    target = tmp_path / "_snippet.py"
+
+    real_unlink = os.unlink
+    planted = False
+
+    def _unlink_then_plant(path, *args, **kwargs):
+        nonlocal planted
+        try:
+            real_unlink(path, *args, **kwargs)
+        except FileNotFoundError:
+            pass
+        if not planted and os.fspath(path) == os.fspath(target):
+            planted = True
+            os.symlink(victim, target)  # the attacker wins the race
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr(os, "unlink", _unlink_then_plant)
+
+    with pytest.raises(OSError):
+        write_model_code(target, "secret = 1")
+
+    assert planted, "the race was never actually staged"
+    assert victim.read_text(encoding="utf-8") == "do not overwrite me"
 
 
 # --- the read side ---------------------------------------------------------- #

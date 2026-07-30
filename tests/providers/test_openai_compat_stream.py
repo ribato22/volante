@@ -5,7 +5,13 @@ import asyncio
 import pytest
 
 from volante.providers.openai_compat import OpenAICompatProvider
-from volante.types import CanonicalRequest, TextBlock, ToolUseBlock, text
+from volante.types import (
+    CanonicalRequest,
+    TextBlock,
+    ToolSpec,
+    ToolUseBlock,
+    text,
+)
 
 
 class _D:
@@ -174,3 +180,58 @@ async def test_stream_merges_tool_call_deltas(monkeypatch) -> None:
     assert isinstance(tu, ToolUseBlock)
     assert tu.id == "c1" and tu.name == "run_python"
     assert tu.input == {"code": "x"}
+
+
+# --- what the streamed request actually carries ------------------------------ #
+# The stream path assembles its own kwargs, so it can lose the tool declarations
+# independently of `complete`. Nothing asserted it: mutation showed `tools` could be
+# deleted from the streamed request with the whole suite green. That failure is
+# silent — the model simply answers without the tools it was supposed to have, and
+# the run looks successful.
+
+
+@pytest.mark.asyncio
+async def test_streamed_request_carries_the_tool_declarations(monkeypatch) -> None:
+    captured: dict = {}
+    chunks = [
+        _chunk(content="ok"),
+        _chunk(finish_reason="stop", usage=_D(prompt_tokens=1, completion_tokens=1)),
+    ]
+
+    class _Completions:
+        async def create(self, **kw):
+            captured.update(kw)
+            return _aiter(chunks)
+
+    class _Chat:
+        completions = _Completions()
+
+    class _Client:
+        chat = _Chat()
+
+    monkeypatch.setattr(
+        "volante.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client()
+    )
+    provider = OpenAICompatProvider(
+        base_url="http://x/v1", api_key="k", model="kimi-x"
+    )
+
+    await provider.stream(
+        CanonicalRequest(
+            messages=[text("system", "be exact"), text("user", "go")],
+            max_tokens=16,
+            tools=[
+                ToolSpec(
+                    name="run_python",
+                    description="run code",
+                    input_schema={"type": "object", "properties": {}},
+                )
+            ],
+        ),
+        lambda _chunk: None,
+    )
+
+    names = [t["function"]["name"] for t in captured["tools"]]
+    assert names == ["run_python"]
+    # The system prompt travels as a message here, unlike Anthropic's top-level param.
+    assert [m["role"] for m in captured["messages"]] == ["system", "user"]

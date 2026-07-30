@@ -3,7 +3,13 @@ from __future__ import annotations
 import pytest
 
 from volante.providers.anthropic import AnthropicProvider
-from volante.types import CanonicalRequest, TextBlock, ToolUseBlock, text
+from volante.types import (
+    CanonicalRequest,
+    TextBlock,
+    ToolSpec,
+    ToolUseBlock,
+    text,
+)
 
 
 class _Blk:
@@ -128,3 +134,55 @@ async def test_stream_final_tool_use(monkeypatch) -> None:
     )
     assert res.stop_reason == "tool_use"
     assert isinstance(res.content[0], ToolUseBlock)
+
+
+# --- what the streamed request actually carries ------------------------------ #
+# The stream path builds its own kwargs, so it can lose the system prompt or the tool
+# declarations independently of `complete`. Nothing asserted either: mutation showed
+# both could be deleted from `stream` with the whole suite green. A streamed run that
+# silently drops its tools does not fail — it just quietly produces an answer the
+# model had no way to compute.
+
+
+@pytest.mark.asyncio
+async def test_streamed_request_carries_the_system_prompt_and_tools(
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+    final = _Final([_Blk(type="text", text="ok")])
+
+    class _Msgs:
+        def stream(self, **kw):
+            captured.update(kw)
+            return _StreamCtx(["ok"], final)
+
+    class _Client:
+        def __init__(self):
+            self.messages = _Msgs()
+
+    monkeypatch.setattr(
+        "volante.providers.anthropic.anthropic.AsyncAnthropic", lambda **kw: _Client()
+    )
+    provider = AnthropicProvider(api_key="k", model="claude-x")
+
+    await provider.stream(
+        CanonicalRequest(
+            messages=[
+                text("system", "Follow the plan exactly."),
+                text("user", "go"),
+            ],
+            max_tokens=16,
+            tools=[
+                ToolSpec(
+                    name="run_python",
+                    description="run code",
+                    input_schema={"type": "object", "properties": {}},
+                )
+            ],
+        ),
+        lambda _chunk: None,
+    )
+
+    assert captured["system"] == "Follow the plan exactly."
+    assert [t["name"] for t in captured["tools"]] == ["run_python"]
+    assert [m["role"] for m in captured["messages"]] == ["user"]
