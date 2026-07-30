@@ -16,6 +16,24 @@ from volante.types import CanonicalRequest, TextBlock, text
 _DEFAULT_CONTEXT_WINDOW = 32_768
 _DEFAULT_MAX_OUTPUT_TOKENS = 2_048
 
+# What a synthesis may be asked to emit, as a function of what it has to carry.
+#
+# A summary needs no more than _DEFAULT_MAX_OUTPUT_TOKENS, and asking for more only
+# widens the window in which a slow non-streaming generation crosses the caller's
+# timeout — that is the whole reason the flat 2048 cap was introduced. But a flat cap
+# also means the final answer can never exceed ~2048 tokens no matter how much work
+# the workers did, because every run funnels through one synthesis call. Assembling
+# 60k characters of artifacts inside 8k characters is not a summary, it is a loss, and
+# it put the one class of work orchestration has a structural reason to win — work
+# larger than a single response — out of reach architecturally rather than merely
+# unmeasured.
+#
+# So the budget follows the artifacts, and the ceiling keeps the original guard: at
+# realistic generation rates 8192 tokens still completes well inside Runtime's 180 s
+# synthesis deadline, where the model's own 64k/128k ceiling would not.
+_ASSEMBLY_MAX_OUTPUT_TOKENS = 8_192
+_CHARS_PER_TOKEN = 4
+
 
 def _trim(content: str, budget: int, label: str) -> str:
     if len(content) <= budget:
@@ -73,9 +91,15 @@ class Synthesizer:
         # tokens on a NON-STREAMING request. Long before that finished it would
         # cross the client timeout and fail — after the tokens were generated and
         # billed. A synthesis is a summary; it does not need the model's ceiling.
+        # Enough room to carry the artifacts through, never more than the ceiling
+        # above, and never more than the model or its context actually allows.
+        artifact_chars = sum(
+            len(str(payload)) for payload in bb.current_artifacts().values()
+        )
+        needed = artifact_chars // _CHARS_PER_TOKEN
         output_tokens = min(
             self._max_output_tokens,
-            _DEFAULT_MAX_OUTPUT_TOKENS,
+            max(_DEFAULT_MAX_OUTPUT_TOKENS, min(needed, _ASSEMBLY_MAX_OUTPUT_TOKENS)),
             max(1, self._context_window // 2),
         )
         char_budget = model_input_char_budget(

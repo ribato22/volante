@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+- **A synthesis budget that follows the work, instead of a flat 2048-token cap.** Every run funnels
+  through one synthesis call, so that cap was also a ceiling on Volante's FINAL ANSWER: no matter
+  how much the workers produced, or how large the configured model was, the answer could never
+  exceed ~2048 tokens. Measured directly — a model with a 1M context and a 128k output cap was
+  still asked for 2048. Assembling 60k characters of artifacts inside 8k characters is not a
+  summary, it is a loss, and it put the one class of work orchestration has a structural reason to
+  win — work larger than a single response — out of reach architecturally rather than merely
+  unmeasured. The budget now scales with the artifacts it has to carry (2048 floor, 8192 ceiling),
+  and the ceiling keeps the guard the flat cap existed for: at realistic generation rates 8192
+  tokens still finishes well inside Runtime's 180 s synthesis deadline, where a model's own 64k or
+  128k ceiling would not. Ordinary goals are unaffected; a short answer still gets 2048.
+
 ## [0.4.1] - 2026-07-30
 
 Seven defects, none of them from a scanner: they came from pointing a fan-out of

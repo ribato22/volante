@@ -283,3 +283,64 @@ async def test_synthesizer_call_gate_runs_immediately_before_provider() -> None:
     await synth.synthesize("Write a report", _bb_with_artifacts())
 
     assert calls == ["synth-model"]
+
+
+# --- the output budget has to fit the work, not just the summary ------------- #
+# `min(..., 2048, ...)` was a deliberate guard: with the real 128k output caps in
+# the registry, half of a 1M window left the model's own ceiling as the only bound,
+# and a NON-STREAMING synthesis could be asked for 128k tokens — crossing the client
+# timeout after the tokens were generated and billed.
+#
+# But it also means Volante's final answer can never exceed ~2048 tokens however
+# much work the workers did, because everything funnels through one synthesis call.
+# The class of work orchestration has the clearest reason to win — work larger than
+# one response — was therefore out of reach architecturally, not merely unmeasured.
+
+
+def _bb_with(payloads: list[str]) -> Blackboard:
+    plan = [Task(id=f"t{i}", description="d", type="code", mode="one_shot")
+            for i, _ in enumerate(payloads)]
+    bb = Blackboard(goal="assemble it", plan=plan)
+    for i, payload in enumerate(payloads):
+        bb.append(Entry(run_id="r1", task_id=f"t{i}", attempt=0, kind="artifact",
+                        payload=payload, model_id="m", usage=None, timestamp=float(i)))
+    return bb
+
+
+def _budget(bb: Blackboard, *, context_window=200_000, max_output_tokens=64_000) -> int:
+    synth = Synthesizer(provider=_CapturingProvider(_resp("x")), model_id="m",
+                        cost_meter=CostMeter())
+    synth.set_model_limits(context_window=context_window, max_output_tokens=max_output_tokens)
+    return synth._build_prompt("assemble it", bb)[2]
+
+
+async def test_a_short_answer_still_gets_a_summary_sized_budget() -> None:
+    # No change for ordinary goals: a handful of small artifacts is a summary, and
+    # asking for more room would only widen the window in which a slow generation
+    # crosses the caller's timeout.
+    assert _budget(_bb_with(["a short finding", "another one"])) == 2048
+
+
+async def test_artifacts_too_large_to_carry_raise_the_budget() -> None:
+    # 60k characters of worker output cannot be reassembled inside ~8k characters,
+    # so the ceiling was deciding the answer's shape before the model saw it.
+    big = _bb_with(["x" * 20_000, "y" * 20_000, "z" * 20_000])
+
+    assert _budget(big) > 2048
+
+
+async def test_the_budget_is_still_bounded_well_below_the_model_ceiling() -> None:
+    # The original guard's reason survives: a non-streaming synthesis must not be
+    # able to ask for the model's full 64k/128k output and blow the 180 s
+    # synthesis timeout after generating and billing every token.
+    enormous = _bb_with(["x" * 400_000])
+
+    assert _budget(enormous) <= 8192
+
+
+async def test_a_small_model_output_cap_still_wins() -> None:
+    # A model that cannot emit more than 1000 tokens is never asked for more,
+    # however much there is to assemble.
+    big = _bb_with(["x" * 60_000])
+
+    assert _budget(big, context_window=32_000, max_output_tokens=1000) == 1000
