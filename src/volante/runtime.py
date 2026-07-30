@@ -15,7 +15,12 @@ from volante.agent import AgenticWorker
 from volante.blackboard import Blackboard
 from volante.cost import CostMeter
 from volante.projector import Projector
-from volante.providers.base import IncompleteOutputError, LLMProvider, ProviderError
+from volante.providers.base import (
+    EmptyOutputError,
+    IncompleteOutputError,
+    LLMProvider,
+    ProviderError,
+)
 from volante.registry import Registry
 from volante.router import NoEligibleModelError, Router
 from volante.supervisor import Supervisor, validate_plan
@@ -350,7 +355,9 @@ class Runtime:
             return "context_unavailable"
         if phase == "planning" and isinstance(error, ValueError):
             return "invalid_plan"
-        if isinstance(error, IncompleteOutputError):
+        if isinstance(error, IncompleteOutputError | EmptyOutputError):
+            # Before the retryable branch below, which would otherwise relabel an
+            # empty completion as an outage now that it is (correctly) retryable.
             return error.error_code
         if isinstance(error, ProviderError):
             if error.quota_exhausted:
@@ -359,6 +366,8 @@ class Runtime:
                 return "candidate_unavailable"
             if error.provider_unavailable or error.retryable:
                 return "provider_unavailable"
+            # Kept for provider adapters that report emptiness as a plain
+            # ProviderError rather than through the type above.
             if "empty" in str(error).lower():
                 return "invalid_output"
         return None
@@ -736,12 +745,19 @@ class Runtime:
                             timeout=self.call_timeout,
                         )
                         if not _text_of(resp.content).strip():
-                            raise ProviderError(
-                                "worker model returned empty text output",
-                                retryable=False,
-                            )
+                            raise EmptyOutputError(phase="worker model")
                     except (ProviderError, TimeoutError) as err:
                         last_err = err
+                        # A blank completion advances to the next candidate at once.
+                        # Retrying is the one response that cannot help — at
+                        # temperature 0 the same model returns the same nothing, and
+                        # each attempt is billed — and failing the run discards every
+                        # sibling artifact already paid for. This is what the synthesis
+                        # path has always done with the identical condition.
+                        if isinstance(err, EmptyOutputError):
+                            reroute = True
+                            reroute_reason = err.error_code
+                            break
                         # Known model/provider unavailability advances immediately;
                         # depleted subscription quota likewise must not back off.
                         if isinstance(err, ProviderError) and (

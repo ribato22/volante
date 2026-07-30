@@ -1186,3 +1186,91 @@ async def test_cancelled_run_still_releases_the_runtime_cleanly(tmp_path: Path) 
     with pytest.raises(RuntimeError, match="single-use"):
         await runtime.aexecute("goal two")
     assert not (tmp_path / "runs").exists() or not any((tmp_path / "runs").iterdir())
+
+
+# --- a blank completion is a candidate failure, not a bad request ------------ #
+# The rule "blank output must not count as a result" is enforced in three places —
+# the worker (runtime), the synthesizer, and the agentic loop — and two of them used
+# to kill the run outright while the third failed over. A model that terminates
+# normally with no text has not rejected the request: the same request routinely
+# succeeds on the next candidate. Rerouting is the only reading consistent with
+# having ranked candidates at all.
+
+
+@pytest.mark.asyncio
+async def test_worker_blank_output_reroutes_to_the_next_candidate(
+    monkeypatch,
+) -> None:
+    """The healthy candidate the router ranked must actually be tried.
+
+    Unfixed, the run died with 'worker model returned empty text output' after ONE
+    call to the first candidate: no retry, no reroute, no final answer — while the
+    byte-identical condition in synthesis failed over cleanly.
+    """
+
+    slept: list[float] = []
+
+    async def _no_sleep(delay: float) -> None:
+        slept.append(delay)
+
+    monkeypatch.setattr("volante.runtime.asyncio.sleep", _no_sleep)
+
+    meter = CostMeter()
+    registry = Registry([_model("blank", tier=4), _model("healthy", tier=2)])
+    # Exactly ONE response. A same-model retry would pop from an empty list and blow
+    # up the test — which is the assertion: there must not be one.
+    blank = _Provider("blank", [_response("   ", "blank")])
+    healthy = _Provider("healthy", [_response("real artifact", "healthy")])
+    runtime = Runtime(
+        _Supervisor(
+            [Task(id="task", description="work", type="code", mode="one_shot")]
+        ),
+        _RankedRouter(["blank", "healthy"]),
+        Projector(registry),
+        Worker({"blank": blank, "healthy": healthy}, meter),
+        _Synthesis(),
+        registry,
+        meter,
+    )
+
+    result = await runtime.aexecute("goal")
+
+    assert result.status == "success"
+    assert result.partial_artifacts["task"] == "real artifact"
+    assert healthy.calls == 1, "the ranked fallback was never tried"
+    # No retry in place and no backoff: at temperature 0 the same model returns the
+    # same nothing, so every extra attempt is billed for a foregone conclusion.
+    assert blank.calls == 1
+    assert slept == []
+
+
+@pytest.mark.asyncio
+async def test_blank_output_is_classified_as_invalid_output_not_unavailable() -> None:
+    """The trace must say WHY, and 'provider_unavailable' would be a lie.
+
+    The provider answered; it just answered with nothing. Reusing the outage reason
+    would send an operator looking at their endpoint instead of at the model.
+    """
+    meter = CostMeter()
+    registry = Registry([_model("blank", tier=4), _model("healthy", tier=2)])
+    blank = _Provider("blank", [_response("", "blank")])
+    healthy = _Provider("healthy", [_response("final from healthy", "healthy")])
+    runtime = Runtime(
+        _Supervisor(
+            [Task(id="task", description="work", type="code", mode="one_shot")]
+        ),
+        _RankedRouter(["healthy"]),
+        Projector(registry),
+        Worker({"healthy": _Provider("w", [_response("artifact", "healthy")])}, meter),
+        Synthesizer(blank, "blank", meter),
+        registry,
+        meter,
+        phase_providers={"blank": blank, "healthy": healthy},
+        synthesis_model_ids=["blank", "healthy"],
+    )
+
+    result = await runtime.aexecute("goal")
+
+    assert result.status == "success"
+    events = result.routing_decisions["__synthesis__"]["fallback_events"]
+    assert [e["reason"] for e in events] == ["invalid_output"]

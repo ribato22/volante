@@ -7,8 +7,8 @@ from volante.blackboard import Blackboard
 from volante.cost import CostMeter
 from volante.projector import model_input_char_budget
 from volante.providers.base import (
+    EmptyOutputError,
     LLMProvider,
-    ProviderError,
     call_provider,
     ensure_complete_response,
 )
@@ -208,8 +208,5 @@ class Synthesizer:
         parts = [b.text for b in resp.content if isinstance(b, TextBlock)]
         final = "".join(parts)
         if not final.strip():
-            raise ProviderError(
-                "synthesizer model returned empty text output",
-                retryable=False,
-            )
+            raise EmptyOutputError(phase="synthesizer model")
         return final

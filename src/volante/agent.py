@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from volante.cost import CostMeter
 from volante.providers.base import (
+    EmptyOutputError,
     LLMProvider,
     OnText,
     ProviderError,
@@ -278,10 +279,7 @@ class AgenticWorker:
                         "agentic model completed without invoking any configured tool"
                     )
                 if not final.strip():
-                    raise ProviderError(
-                        "agentic model returned empty final text",
-                        retryable=False,
-                    )
+                    raise EmptyOutputError(phase="agentic model final text")
                 turns.append(TurnRecord(i, "final", final, resp.usage, model_id))
                 return AgenticResult(
                     final,

@@ -73,6 +73,38 @@ class ProviderError(Exception):
         self.provider_unavailable = provider_unavailable
 
 
+class EmptyOutputError(ProviderError):
+    """A provider terminated normally and returned no text at all.
+
+    Its own error class because the alternative was three hand-written raises with
+    three different messages and three different policies. The worker and the agentic
+    loop failed the whole run; only synthesis failed over, and it decided to by
+    sniffing the substring "empty" out of the message. The condition is identical in
+    all three.
+
+    It is NOT an invalid request, which is the reading that made the other two fail
+    fast. Nothing was rejected — the model stopped with `end_turn` and produced
+    nothing, which happens on a thinking-only turn or when a CLI agent writes no
+    stdout. A refusal, a content filter or a truncation never arrives here at all:
+    `ensure_complete_response` catches every non-terminal stop reason first. What is
+    left is model-specific, so the same request usually succeeds on a DIFFERENT
+    candidate. Failing the run instead throws away every sibling artifact already paid
+    for and returns nothing.
+
+    `retryable=False` deliberately, even though the condition is not the caller's
+    fault: retrying is the one response that cannot help. Volante runs at temperature
+    0, so the same model given the same prompt returns the same nothing, and each
+    attempt is billed. Runtime reroutes on this directly, which is also what the
+    synthesis path has always done — fail over at once, never retry in place.
+    """
+
+    error_code = "invalid_output"
+
+    def __init__(self, *, phase: str) -> None:
+        self.phase = phase
+        super().__init__(f"{phase} returned empty text output", retryable=False)
+
+
 class IncompleteOutputError(ProviderError):
     """A provider returned text but did not report a successful terminal stop."""
 

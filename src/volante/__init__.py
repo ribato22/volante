@@ -29,6 +29,7 @@ from volante.inventory import (
     summarize_inventory,
 )
 from volante.providers.base import (
+    EmptyOutputError,
     IncompleteOutputError,
     LLMProvider,
     ProviderError,
@@ -60,6 +61,7 @@ apply_legacy_env()
 __all__ = [
     "InventoryConfigError",
     "InventorySummary",
+    "EmptyOutputError",
     "IncompleteOutputError",
     "InvalidGoalError",
     "InvalidRoutingRequest",
