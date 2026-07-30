@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from volante_mcp import server as server_mod
 from volante_mcp.server import _default_runtime_factory, format_result, run_goal
 
 
@@ -185,3 +186,79 @@ def test_format_result_omits_the_notice_when_fully_capable() -> None:
         }
     )
     assert "notice:" not in text
+
+
+# --- the factory is built to be reused; the MCP server threw it away ---------- #
+# bootstrap.make_verified_runtime_factory runs a LIVE plan-gate probe — one real
+# `claude -p` spawn on a subscription-only setup — and its own comment records that
+# "a verified factory may serve multiple runs. The live gate happened once, so charge
+# it exactly once to the first Runtime created from it". The Web UI reuses it. The MCP
+# server rebuilt it per tool call, so an IDE agent paid an extra interactive-quota
+# call and ~5 s of latency on every single volante_run, forever, re-verifying what the
+# previous call verified seconds earlier.
+
+
+async def test_default_factory_is_built_once_and_reused(monkeypatch) -> None:
+    builds = 0
+    sentinel = lambda: _FakeRuntime(_FakeResult())  # noqa: E731
+
+    monkeypatch.setattr(
+        "volante.bootstrap.build_providers_from_env",
+        lambda **kwargs: ("registry", "providers", "baseline"),
+    )
+
+    async def _verified(registry, providers, model_id, *, prefer):
+        nonlocal builds
+        builds += 1
+        return sentinel
+
+    monkeypatch.setattr("volante.bootstrap.make_verified_runtime_factory", _verified)
+    server_mod._reset_factory_cache()
+
+    for _ in range(3):
+        assert await server_mod._default_runtime_factory(None) is sentinel
+
+    assert builds == 1, f"the live preflight ran {builds} times for 3 calls"
+
+
+async def test_a_different_objective_gets_its_own_factory(monkeypatch) -> None:
+    """`prefer` changes the Router the factory builds, so the cache is keyed by it."""
+    seen: list[str] = []
+
+    monkeypatch.setattr(
+        "volante.bootstrap.build_providers_from_env",
+        lambda **kwargs: ("registry", "providers", "baseline"),
+    )
+
+    async def _verified(registry, providers, model_id, *, prefer):
+        seen.append(prefer)
+        return lambda: _FakeRuntime(_FakeResult())
+
+    monkeypatch.setattr("volante.bootstrap.make_verified_runtime_factory", _verified)
+    server_mod._reset_factory_cache()
+
+    await server_mod._default_runtime_factory("quality")
+    await server_mod._default_runtime_factory("cheap")
+    await server_mod._default_runtime_factory("quality")
+
+    assert seen == ["quality", "cheap"]
+
+
+async def test_unknown_objective_is_rejected_before_anything_is_paid_for(
+    monkeypatch,
+) -> None:
+    """A wrong guess must not cost a live CLI-agent call.
+
+    Validation used to happen inside Router.__init__, one line AFTER the awaited
+    preflight, so `prefer="fast"` burnt a real interactive-quota call and ~5 s before
+    reporting a name it could have rejected instantly.
+    """
+
+    def _explode(**kwargs):
+        raise AssertionError("providers were built for an invalid objective")
+
+    monkeypatch.setattr("volante.bootstrap.build_providers_from_env", _explode)
+    server_mod._reset_factory_cache()
+
+    with pytest.raises(ValueError, match="fast"):
+        await run_goal("do a thing", prefer="fast")
