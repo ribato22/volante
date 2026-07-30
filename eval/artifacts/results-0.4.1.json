@@ -1,0 +1,482 @@
+{
+  "generated_at": "2026-07-30T08:49:16+00:00",
+  "inventory": [
+    "openai/gpt-4o-mini"
+  ],
+  "k": 5,
+  "planner_model_id": "openai/gpt-4o-mini",
+  "result": {
+    "aggregate": {
+      "agentic_errors": 5,
+      "any_estimated": false,
+      "cost_total": {
+        "agentic": 0.15521264999999998,
+        "baseline": 0.029787299999999996,
+        "orchestration": 0.21666224999999997
+      },
+      "ties": 0,
+      "unmeasured_goals": [],
+      "verdict": "baseline",
+      "wins": {
+        "agentic": 0,
+        "baseline": 9,
+        "orchestration": 0
+      }
+    },
+    "per_goal": [
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.47999999999999987,
+            "cost": 0.013305449999999998,
+            "error_sample": "ProviderError: agentic loop exhausted after 8 iters",
+            "errors": 1,
+            "estimated": false,
+            "measured": true,
+            "ms": 39726
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.0022544999999999996,
+            "estimated": false,
+            "measured": true,
+            "ms": 10936
+          },
+          "orchestration": {
+            "composite": 0.8,
+            "cost": 0.0191988,
+            "estimated": false,
+            "measured": true,
+            "ms": 55940
+          }
+        },
+        "id": "slugify",
+        "scores": {
+          "agentic": {
+            "code": 0.6,
+            "composite": 0.47999999999999987,
+            "has_readme": 0.2,
+            "has_tests": 0.2
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 0.8,
+            "composite": 0.8,
+            "has_readme": 0.8,
+            "has_tests": 0.8
+          }
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.7,
+            "cost": 0.019350149999999997,
+            "error_sample": null,
+            "errors": 0,
+            "estimated": false,
+            "measured": true,
+            "ms": 59124
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.00336765,
+            "estimated": false,
+            "measured": true,
+            "ms": 12548
+          },
+          "orchestration": {
+            "composite": 0.86,
+            "cost": 0.019677899999999998,
+            "estimated": false,
+            "measured": true,
+            "ms": 51146
+          }
+        },
+        "id": "roman",
+        "scores": {
+          "agentic": {
+            "code": 1.0,
+            "composite": 0.7,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 0.8,
+            "composite": 0.86,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          }
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.37333333333333335,
+            "cost": 0.01919595,
+            "error_sample": null,
+            "errors": 0,
+            "estimated": false,
+            "measured": true,
+            "ms": 76600
+          },
+          "baseline": {
+            "composite": 0.9650000000000001,
+            "cost": 0.00348855,
+            "estimated": false,
+            "measured": true,
+            "ms": 15144
+          },
+          "orchestration": {
+            "composite": 0.55,
+            "cost": 0.035978699999999995,
+            "estimated": false,
+            "measured": true,
+            "ms": 121497
+          }
+        },
+        "id": "calc",
+        "scores": {
+          "agentic": {
+            "code": 0.5333333333333333,
+            "composite": 0.37333333333333335,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 0.95,
+            "composite": 0.9650000000000001,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 0.4,
+            "composite": 0.55,
+            "has_readme": 1.0,
+            "has_tests": 0.8
+          }
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.82,
+            "cost": 0.02050575,
+            "error_sample": "ProviderError: agentic loop exhausted after 8 iters",
+            "errors": 1,
+            "estimated": false,
+            "measured": true,
+            "ms": 62891
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.0036241499999999996,
+            "estimated": false,
+            "measured": true,
+            "ms": 16732
+          },
+          "orchestration": {
+            "composite": 0.6,
+            "cost": 0.02872995,
+            "estimated": false,
+            "measured": true,
+            "ms": 78635
+          }
+        },
+        "id": "csv_stats",
+        "scores": {
+          "agentic": {
+            "code": 1.0,
+            "composite": 0.82,
+            "has_readme": 0.4,
+            "has_tests": 0.4
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 0.6,
+            "composite": 0.6,
+            "has_readme": 0.6,
+            "has_tests": 0.6
+          }
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.7,
+            "cost": 0.010796849999999997,
+            "error_sample": null,
+            "errors": 0,
+            "estimated": false,
+            "measured": true,
+            "ms": 33229
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.00233895,
+            "estimated": false,
+            "measured": true,
+            "ms": 11864
+          },
+          "orchestration": {
+            "composite": 0.6599999999999999,
+            "cost": 0.025813799999999998,
+            "estimated": false,
+            "measured": true,
+            "ms": 52842
+          }
+        },
+        "id": "json_flatten",
+        "scores": {
+          "agentic": {
+            "code": 1.0,
+            "composite": 0.7,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 0.6,
+            "composite": 0.6599999999999999,
+            "has_readme": 0.8,
+            "has_tests": 0.8
+          }
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.27999999999999997,
+            "cost": 0.0223404,
+            "error_sample": "ProviderError: agentic loop exhausted after 8 iters",
+            "errors": 3,
+            "estimated": false,
+            "measured": true,
+            "ms": 66506
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.0031562999999999995,
+            "estimated": false,
+            "measured": true,
+            "ms": 16969
+          },
+          "orchestration": {
+            "composite": 1.0,
+            "cost": 0.018930149999999996,
+            "estimated": false,
+            "measured": true,
+            "ms": 46679
+          }
+        },
+        "id": "textkit",
+        "scores": {
+          "agentic": {
+            "code": 0.4,
+            "composite": 0.27999999999999997,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          }
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.8800000000000001,
+            "cost": 0.0114582,
+            "error_sample": null,
+            "errors": 0,
+            "estimated": false,
+            "measured": true,
+            "ms": 39305
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.00332865,
+            "estimated": false,
+            "measured": true,
+            "ms": 25403
+          },
+          "orchestration": {
+            "composite": 1.0,
+            "cost": 0.019032,
+            "estimated": false,
+            "measured": true,
+            "ms": 64486
+          }
+        },
+        "id": "ledger",
+        "scores": {
+          "agentic": {
+            "code": 1.0,
+            "composite": 0.8800000000000001,
+            "has_readme": 0.6,
+            "has_tests": 0.6
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          }
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.6946153846153846,
+            "cost": 0.02372025,
+            "error_sample": null,
+            "errors": 0,
+            "estimated": false,
+            "measured": true,
+            "ms": 82583
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.005051699999999999,
+            "estimated": false,
+            "measured": true,
+            "ms": 27775
+          },
+          "orchestration": {
+            "composite": 0.2,
+            "cost": 0.03484695,
+            "estimated": false,
+            "measured": true,
+            "ms": 95209
+          }
+        },
+        "id": "toolbelt",
+        "scores": {
+          "agentic": {
+            "code": 0.9923076923076923,
+            "composite": 0.6946153846153846,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 0.2,
+            "composite": 0.2,
+            "has_readme": 0.2,
+            "has_tests": 0.2
+          }
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.63,
+            "cost": 0.01453965,
+            "error_sample": null,
+            "errors": 0,
+            "estimated": false,
+            "measured": true,
+            "ms": 42715
+          },
+          "baseline": {
+            "composite": 0.9720000000000001,
+            "cost": 0.00317685,
+            "estimated": false,
+            "measured": true,
+            "ms": 15491
+          },
+          "orchestration": {
+            "composite": 0.818,
+            "cost": 0.014453999999999998,
+            "estimated": false,
+            "measured": true,
+            "ms": 46479
+          }
+        },
+        "id": "debug_gauntlet",
+        "scores": {
+          "agentic": {
+            "code": 0.9,
+            "composite": 0.63,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 0.96,
+            "composite": 0.9720000000000001,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 0.74,
+            "composite": 0.818,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          }
+        },
+        "winner": "baseline"
+      }
+    ]
+  },
+  "suite": [
+    "slugify",
+    "roman",
+    "calc",
+    "csv_stats",
+    "json_flatten",
+    "textkit",
+    "ledger",
+    "toolbelt",
+    "debug_gauntlet"
+  ],
+  "volante_version": "0.4.1"
+}

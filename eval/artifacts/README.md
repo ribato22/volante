@@ -21,6 +21,22 @@ names are historical and `results-final.json` was **not** the last run:
 | 3 | `results-k5.json` | 0.3.0 | 5 | baseline | orchestration takes 1 goal |
 | 4 | `results-final.json` | 0.3.0 | 5 | baseline | orchestration takes 0 |
 | 5 | `results-nudge2.json` | 0.3.0 | 5 | baseline | after the second stall nudge; orchestration takes 1 |
+| 6 | `results-0.4.1.json` | 0.4.1 | 5 | baseline | re-run after 38 engine fixes; verdict unchanged, 9-0 |
+
+The 0.4.1 re-run exists because every earlier comparison was produced by 0.3.0, and
+several defects fixed since then penalised the arms that lost — codex discarding a
+paid correct answer, a garbled CLI reply accepted as complete, a failed required tool
+counted as satisfied. The verdict did not move: baseline 0.993, orchestration 0.721,
+agentic 0.618, and baseline wins all nine goals at a seventh of the cost.
+
+**Do not read the orchestration means as comparable between runs.** A targeted A/B on
+the three goals that moved most found a within-condition standard deviation of 0.43 —
+the same goal, the same code, temperature 0, scoring `[0.0, 0.3, 1.0]` on one arm and
+`[1.0, 0.0, 0.0]` on the other. The orchestration arm is bimodal: it either completes
+the goal or fails it outright. At k=5 nothing finer than about ±0.2 is measurable, so
+the 0.919 → 0.721 movement between 0.3.0 and 0.4.1 is very probably noise. What the
+suite does support is the coarse result: baseline is consistently near 1.0 with small
+variance, and orchestration is not.
 
 Every run reaches the same verdict: **baseline wins**. The README states the limits
 that verdict carries — baseline scores 1.00 on 7 of 9 goals, so on most of this
