@@ -116,9 +116,36 @@ async def main(argv: list[str] | None = None) -> None:
             "difference from run-to-run noise; raise it before believing a narrow result"
         ),
     )
+    parser.add_argument(
+        "--suite",
+        choices=("eval", "depth"),
+        default="eval",
+        help=(
+            "which goals to run (default eval, the nine-goal suite every published "
+            "artifact measured). 'depth' is the guardkit goal, which scores stated "
+            "edge-case requirements rather than the happy path"
+        ),
+    )
+    parser.add_argument(
+        "--synthesis",
+        choices=("summarize", "assemble"),
+        default="summarize",
+        help=(
+            "how the orchestration arm turns artifacts into a final answer (default "
+            "summarize). 'assemble' concatenates them with no model call, which is "
+            "what a goal whose PRODUCT is the artifact wants — a summarising pass "
+            "would funnel every worker's output back through one bounded call"
+        ),
+    )
     args = parser.parse_args(argv)
     if args.k < 1:
         raise SystemExit("--k must be at least 1")
+    if args.suite == "depth":
+        from eval.tasks_depth import DEPTH_SUITE
+
+        suite = DEPTH_SUITE
+    else:
+        suite = EVAL_SUITE
 
     # The agentic arm executes model-written code, so the suite cannot run without a
     # sandbox. Check BEFORE any provider call: failing here costs nothing, while failing
@@ -130,9 +157,11 @@ async def main(argv: list[str] | None = None) -> None:
         raise SystemExit(f"eval needs a code-execution sandbox: {reason}")
 
     registry, providers, model_id = build_providers_from_env()
-    make_runtime = make_runtime_factory(registry, providers, model_id)
+    make_runtime = make_runtime_factory(
+        registry, providers, model_id, synthesis=args.synthesis
+    )
     result = await run_suite(
-        EVAL_SUITE, make_runtime, providers[model_id], model_id, registry, k=args.k
+        suite, make_runtime, providers[model_id], model_id, registry, k=args.k
     )
     print(format_report(result))
     if args.json:
@@ -145,7 +174,11 @@ async def main(argv: list[str] | None = None) -> None:
             "planner_model_id": model_id,
             "inventory": sorted(m.id for m in registry.all()),
             "k": args.k,
-            "suite": [t.id for t in EVAL_SUITE],
+            # Recorded because they change what the number MEANS: a score is only
+            # comparable to another score from the same goals and the same synthesis.
+            "suite_name": args.suite,
+            "synthesis": args.synthesis,
+            "suite": [t.id for t in suite],
             "result": result,
         }
         path = Path(args.json).expanduser()
