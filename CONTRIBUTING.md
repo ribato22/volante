@@ -30,6 +30,16 @@ uv run pytest -m integration     # opt in (needs provider keys / a Docker daemon
 - **Be honest about security.** If a change touches isolation or the eval scorer, state the exact
   guarantee and its limits (see [SECURITY.md](SECURITY.md)); don't overclaim.
 
+## Reading the `§N` citations
+
+You will find comments citing sections like `(§6.4)` or `(§8.3)`. Those point at the private
+design spec this engine was built from, which is **not published**. You are not missing anything
+you need: the citation is provenance, not a dependency, and the reasoning it refers to is always
+written out in the comment itself. They are dropped as the files around them are rewritten.
+
+If a comment ever leaves you needing the spec to understand the code, that comment is the bug —
+please open an issue for it.
+
 ## Pull requests
 
 1. Branch off `main`.

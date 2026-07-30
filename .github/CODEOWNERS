@@ -1,0 +1,13 @@
+# Default owner for everything.
+*                       @ribato22
+
+# Surfaces where a mistake is expensive or hard to reverse: isolation boundaries,
+# the security policy, the published distribution manifests, and the workflow that
+# holds PyPI publish rights.
+/SECURITY.md            @ribato22
+/src/volante/tools/     @ribato22
+/.github/workflows/     @ribato22
+/server.json            @ribato22
+/smithery.yaml          @ribato22
+/mcpb/                  @ribato22
+/plugins/               @ribato22

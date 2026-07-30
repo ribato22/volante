@@ -1,0 +1,28 @@
+# This project shipped a dead MCP server once, in 0.3.1: an unbounded `mcp>=1.2`
+# resolved to a 2.0.0 release that removed the module `volante_mcp` imports, and
+# every published install path died while CI stayed green because uv.lock pinned an
+# older version. A version-bump PR that CI must pass is the cheapest guard against
+# the next one.
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps(dev)"
+
+  # Every `uses:` in this repo is pinned to a full commit SHA on purpose, including
+  # the OIDC-privileged publish action. Dependabot keeps those pins current instead
+  # of letting them rot into "pinned to something ancient".
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
