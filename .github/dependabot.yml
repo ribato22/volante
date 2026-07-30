@@ -13,6 +13,15 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: "development"
+    ignore:
+      # `mcp` 2.0.0 removed `mcp.server.fastmcp`, which volante_mcp imports. The
+      # `<2` ceiling in pyproject.toml IS the 0.3.2 fix for every published install
+      # path being dead, and Dependabot proposed widening it to `<3` within an hour
+      # of this file existing (PR #4, closed). CI caught it, which is the system
+      # working -- but a major bump here is a MIGRATION, not a version bump, and it
+      # only happens after volante_mcp stops importing that module.
+      - dependency-name: "mcp"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "deps"
       prefix-development: "deps(dev)"
