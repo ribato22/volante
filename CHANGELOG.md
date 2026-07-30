@@ -6,6 +6,66 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+- **A CLI-agent call could hang forever, and the streaming path could not be cancelled out of it.**
+  `Process.wait()` resolves only once every pipe transport has disconnected. The child runs in its
+  own session so `killpg` reaches its descendants, but a descendant that starts ITS OWN session
+  escapes that group while still holding the inherited stdout/stderr — which is what a `claude -p`
+  hook or an MCP helper launched with `setsid` does. The child died on SIGKILL, the pipes stayed
+  open, and every post-kill path then sat in an unbounded `await proc.wait()`: the cleanup that
+  exists to ENFORCE the deadline outlived it, so the configured 120 s provider timeout silently
+  became "however long some detached helper decides to live". Measured with a 0.5 s runner timeout
+  inside a 0.5 s outer deadline: the non-streaming path defeated its own timeout but was still
+  recoverable by the caller's; the streaming path — the one `CliAgentProvider.stream` uses — blew
+  both and was still pending at 10 s. There the awaits sat inside the `except` handlers, so an
+  outer `wait_for`'s CancelledError escaped into the `finally`, which then awaited a stderr drain
+  nobody had cancelled: `Runtime.call_timeout` could not recover the run, Ctrl-C did not unwind it,
+  and the provider's concurrency slot stayed held, blocking every later task on that provider. The
+  settle is now bounded everywhere, and on expiry the transport is closed — which is what actually
+  releases the wait, since it drops our ends of the pipes no matter who inherited the write ends.
+- **A timed-out sandbox run overran its own deadline by a fixed ~10 seconds.** Same root cause,
+  in the code that runs model-authored programs — and model code is untrusted by construction, so
+  daemonising a helper is one line of it. `Sandbox(timeout_s=0.3)` returned at 10.31 s, every time:
+  two unrelated 5 s waits running back to back. A sandbox timeout is a budget the agentic loop
+  plans around, and that dead time was charged against the caller's own deadline. Now ~1.3 s worst
+  case, with the healthy path unchanged.
+- **A blank completion killed the whole run instead of trying the next model.** The rule "blank
+  output must not count as a result" was enforced in three places with two different policies:
+  synthesis failed over, while the worker and the agentic loop failed the run outright. Measured:
+  one call to the first candidate, no retry, no reroute, and the healthy candidate the router had
+  deliberately ranked behind it was never tried — the user pays for the run and gets an error
+  instead of an answer. A model that terminates normally with no text has not rejected the request
+  (a refusal, a content filter or a truncation never reaches that branch — `ensure_complete_response`
+  catches every non-terminal stop reason first); it is model-specific, and the same request usually
+  succeeds elsewhere. All three sites now raise `EmptyOutputError`, which is exported, and Runtime
+  reroutes on it without retrying in place — at temperature 0 the same model returns the same
+  nothing and each attempt is billed. The trace says `invalid_output`, not `provider_unavailable`:
+  the provider answered, it answered with nothing, and the outage reason would send an operator to
+  look at their endpoint instead of at the model.
+- **The Web UI leaked a concurrency slot whenever the stream body raised.** The slot was released
+  only by the response's background task, which Starlette runs after the body COMPLETES, so a
+  `runtime_factory` that could not build its providers skipped it. At the default
+  `max_concurrent_runs=2` the UI then served 429 to everyone with nothing running, until restart.
+  Both unwind paths now release, idempotently — neither subsumes the other.
+- **The no-key demo recorded invented cash in the usage ledger.** One browser run with no API
+  keys appended `"billed_usd": 0.000676, "cost_estimated": false` to `~/.volante/usage.jsonl` for
+  a provider that makes no network calls — a ledger README documents as real cash spent and
+  `volante --usage` totals. The demo model is priced at zero now, because it costs zero.
+
+### Changed
+- **The MCP server builds its verified runtime factory once, instead of on every tool call.**
+  `make_verified_runtime_factory` runs a LIVE plan-gate probe, which on a subscription-only setup
+  is a real `claude -p` spawn — measured at 5.03 s and one interactive-quota unit. Rebuilding it
+  per `volante_run` added +33% wall time and +33% quota to every invocation, re-verifying what the
+  previous call had verified seconds earlier. The engine was already written for reuse and this was
+  the only long-lived surface ignoring it. Memoised per objective, behind a lock so two concurrent
+  calls on a cold cache cannot both run the gate.
+- **`prefer` is a published enum, and an invalid value is now free.** It shipped as a bare string
+  with its legal values named nowhere the calling agent could see them, and was validated inside
+  `Router.__init__` — one line after the awaited preflight — so a guess like `"fast"` cost a real
+  CLI-agent call and ~5 s before being rejected. The tool schema now carries the enum, the
+  docstring names all four objectives, and validation happens before anything is built.
+
 ### Added
 - **A second synthesis strategy: assemble the artifacts instead of writing about them.**
   Every orchestration run funnels its workers' output through one synthesis call, and that call has
