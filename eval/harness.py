@@ -332,6 +332,27 @@ def score_for(task, output: str) -> float:
     return score_text(output, task.checks)
 
 
+def score_for_calibration(task, output: str) -> float | None:
+    """Score a goal for a CALIBRATION file, where ``None`` writes JSON ``null``.
+
+    `volante.calibrate` documents ``null`` as "this run produced nothing usable" and
+    counts those runs separately from graded ones, deliberately: a crash is evidence
+    about RELIABILITY, a low score is evidence about QUALITY, and grading a crash 0.0
+    makes the reliability component a copy of the quality one. Nothing in this
+    harness could ever emit it — ``score_for`` calls ``score_code``, which throws away
+    the ``measured`` flag that ``_score_reference`` computes for exactly this
+    distinction — so `reliability_score` was unreachable from our own pipeline.
+
+    The 3-arm path (``compare_arms``) already carries ``measured`` through and uses it
+    to spot a broken reference runner. This is the same idea on the calibration path,
+    which is the one whose numbers reach the router.
+    """
+    if task.task_type == "code":
+        score, measured = _score_reference(output, task.reference_test)
+        return score if measured else None
+    return score_text(output, task.checks)
+
+
 def score_task(output: str, reference_test: str) -> dict[str, float]:
     """Skor komposit berbobot: code .7 / has_tests .15 / has_readme .15.
 

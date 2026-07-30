@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Fixed
+- **The calibration harness could not emit the `null` its own consumer documents.**
+  `volante.calibrate` reads `null` in a score list as "this run produced nothing usable" and counts
+  it toward RELIABILITY instead of grading it — deliberately, because grading a crash 0.0 makes the
+  reliability component a copy of the quality component. The harness that writes those files
+  recorded every exception as `0.0`, and `score_for` discarded the `measured` flag that
+  `_score_reference` computes for exactly this distinction. So `reliability_score` was structurally
+  unreachable from this repo's own pipeline, and no model in the published profiles has one. The
+  same conflation already cost this project once: a 120 s client timeout recorded as a model
+  failing to analyse. Calibration now writes `null` for a run that raised or could not be graded,
+  the console summary reports unmeasured runs separately instead of averaging them as zero, and a
+  measured wrong answer is still a graded `0.0` — the boundary both directions.
 - **The Web UI rejected the reverse-proxy deployment 0.4.0 had just blessed.** `require_same_origin`
   compared `scheme://host` verbatim, and behind a TLS-terminating proxy the browser sends
   `Origin: https://host` while the app is served over http — uvicorn only rewrites the scheme from

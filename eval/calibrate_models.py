@@ -38,7 +38,7 @@ import json
 import os
 from pathlib import Path
 
-from eval.harness import run_baseline, score_for
+from eval.harness import run_baseline, score_for_calibration
 from eval.tasks import EVAL_SUITE
 from eval.tasks_text import TEXT_SUITE
 
@@ -71,6 +71,19 @@ def _registry_for(model_id: str) -> Registry:
     )
 
 
+def _summarize(task_type: str, scores: list[float | None]) -> str:
+    """Report the mean of the GRADED runs and, separately, how many were unmeasured.
+
+    Averaging `null` as zero would put the conflation this change removes straight
+    back into the line a human reads.
+    """
+    graded = [s for s in scores if s is not None]
+    unmeasured = len(scores) - len(graded)
+    mean = sum(graded) / len(graded) if graded else 0.0
+    tail = f" unmeasured={unmeasured}" if unmeasured else ""
+    return f"{task_type}={mean:.3f}(n={len(graded)}){tail}"
+
+
 async def measure(
     models: list[str],
     k: int,
@@ -97,23 +110,29 @@ async def measure(
         provider = OpenAICompatProvider(
             base_url=base_url, api_key=api_key, model=wire, timeout=timeout_s
         )
-        by_type: dict[str, list[float]] = {}
+        # `float | None`: None is written as JSON null, which volante.calibrate reads
+        # as "this run produced nothing usable" and counts toward RELIABILITY instead
+        # of grading it. Recording 0.0 here filed our own timeouts and crashed runners
+        # as the model being wrong -- the same conflation that once recorded a 120 s
+        # client timeout as a failure to analyse.
+        by_type: dict[str, list[float | None]] = {}
         goals = [t for t in [*EVAL_SUITE, *TEXT_SUITE] if only in (None, t.task_type)]
         for task in goals:
             bucket = by_type.setdefault(task.task_type, [])
             for run in range(k):
                 try:
                     result = await run_baseline(task.goal, provider, model_id, registry)
-                    score = score_for(task, result.output)
-                except Exception as exc:  # a failed run is evidence too
+                    score = score_for_calibration(task, result.output)
+                except Exception as exc:  # the run produced nothing: not a zero
                     print(f"  {wire:<14} {task.id:<15} run{run + 1}  ERROR {type(exc).__name__}")
-                    bucket.append(0.0)
+                    bucket.append(None)
                     continue
                 bucket.append(score)
-                print(f"  {wire:<14} {task.id:<15} run{run + 1}  {score:.2f}")
+                shown = "unmeasured" if score is None else f"{score:.2f}"
+                print(f"  {wire:<14} {task.id:<15} run{run + 1}  {shown}")
         measurements[model_id] = by_type
         summary = "  ".join(
-            f"{t}={sum(v) / len(v):.3f}(n={len(v)})" for t, v in sorted(by_type.items())
+            _summarize(t, v) for t, v in sorted(by_type.items())
         )
         print(f"  -> {model_id}: {summary}\n")
     return measurements
