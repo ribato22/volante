@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import signal
 import stat
@@ -244,6 +245,32 @@ def _killpg(proc: asyncio.subprocess.Process) -> None:
         pass
 
 
+# A dead process is reaped in milliseconds. This bound is only ever reached when
+# `wait()` is being held open by something we cannot kill, and in that case waiting
+# longer yields nothing: the drains have already read every buffered byte, because
+# their EOF depends on the same write ends that are being held.
+_KILL_SETTLE_S = 1.0
+
+
+def _release_pipes(proc: asyncio.subprocess.Process) -> None:
+    """Drop our ends of the child's pipes (twin of providers/cli_agent._release_pipes).
+
+    asyncio resolves `Process.wait()` only once every pipe transport has reported
+    connection_lost, so a process outside our group holding the inherited stdout or
+    stderr keeps it pending indefinitely — killpg cannot reach that holder, which is
+    the whole point of the session it created. Closing the transport ends the wait
+    regardless of who else holds the write ends.
+
+    `_transport` is private because asyncio exposes no public accessor: StreamReader
+    has no close(), and only the transport owns the read ends.
+    """
+    transport = getattr(proc, "_transport", None)
+    if transport is None:
+        return
+    with contextlib.suppress(Exception):
+        transport.close()
+
+
 async def _terminate_process_group(proc: asyncio.subprocess.Process) -> None:
     _killpg(proc)
     if proc.returncode is None:
@@ -252,9 +279,16 @@ async def _terminate_process_group(proc: asyncio.subprocess.Process) -> None:
         except ProcessLookupError:
             pass
     try:
-        await asyncio.wait_for(proc.wait(), timeout=5.0)
+        await asyncio.wait_for(proc.wait(), timeout=_KILL_SETTLE_S)
+        return
     except TimeoutError:
         pass
+    # The child is dead and still not reaped: its pipes are held from outside. Let go
+    # of our ends, or this wait and stop_and_settle's run back to back and the caller's
+    # timeout is overrun by their sum — 0.3 s configured, 10.3 s observed.
+    _release_pipes(proc)
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(proc.wait(), timeout=_KILL_SETTLE_S)
 
 
 class Sandbox:

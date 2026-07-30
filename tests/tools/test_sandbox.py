@@ -73,3 +73,41 @@ async def test_cancellation_raises_and_kills(tmp_path):
 def test_rejects_invalid_output_limit(tmp_path: Path, value: object) -> None:
     with pytest.raises(ValueError, match="max_output_bytes"):
         Sandbox(tmp_path, max_output_bytes=value)  # type: ignore[arg-type]
+
+
+# --- the deadline must survive its own cleanup ------------------------------- #
+# Same root cause as providers/cli_agent._settle. `Process.wait()` resolves only once
+# every pipe transport has disconnected, so model code that leaves a detached process
+# holding stdout/stderr keeps it pending after the child is already dead. Two waits
+# then run back to back — _terminate_process_group's, then stop_and_settle's — and the
+# configured timeout is overrun by their sum, not by anything the code did.
+#
+# Model code is untrusted by construction; daemonising a helper is one line of it.
+_DETACHED_PIPE_HOLDER = (
+    "import subprocess, sys, time\n"
+    "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(20)'],"
+    " start_new_session=True)\n"
+    "time.sleep(30)\n"
+)
+
+
+async def test_timeout_holds_when_model_code_leaves_a_detached_pipe_holder(
+    tmp_path: Path,
+) -> None:
+    """A sandbox timeout is a budget an agentic loop plans around, not a suggestion.
+
+    Unfixed this returned at 10.3 s for a 0.3 s timeout — a fixed ~10 s of dead time
+    per occurrence, charged against the caller's own deadline, which is how a
+    per-task budget silently becomes unenforceable.
+    """
+    import time as _time
+
+    start = _time.monotonic()
+    r = await asyncio.wait_for(
+        Sandbox(tmp_path, timeout_s=0.3).run(_DETACHED_PIPE_HOLDER),
+        timeout=20.0,  # watchdog: fail the test rather than wedge the suite
+    )
+    elapsed = _time.monotonic() - start
+
+    assert r.timed_out is True
+    assert elapsed < 3.0, f"cleanup overran the deadline it enforces: {elapsed:.1f}s"
