@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from volante.agent import AgenticWorker
+from volante.assembler import ArtifactAssembler
 from volante.cost import CostMeter
 from volante.inventory import (
     apply_model_overrides,
@@ -766,8 +767,25 @@ def _runtime_factory(
     prefer: str,
     preflight_meter: CostMeter | None = None,
     preflight_subscription_calls: int = 0,
+    synthesis: str = "summarize",
 ) -> Callable[[], Runtime]:
-    """Construct the actual factory after planner compatibility is established."""
+    """Construct the actual factory after planner compatibility is established.
+
+    ``synthesis`` picks how the final answer is produced. ``"summarize"`` writes it
+    with a model, which is right when the answer is ABOUT the work. ``"assemble"``
+    concatenates the workers' artifacts with no model call, which is right when the
+    answer IS the work — a module, a suite, a document in parts — because a single
+    synthesis call is bounded and so would cap the product at what one response could
+    have produced anyway.
+
+    Explicit rather than inferred: guessing from the artifacts would silently turn a
+    report into a concatenation, and only the caller knows what the goal produces.
+    """
+
+    if synthesis not in ("summarize", "assemble"):
+        raise ValueError(
+            f"unknown synthesis strategy {synthesis!r}: expected 'summarize' or 'assemble'"
+        )
 
     preflight_pending = preflight_subscription_calls > 0
     allowed_domains = [
@@ -891,7 +909,11 @@ def _runtime_factory(
             router=Router(registry, prefer=prefer),
             projector=Projector(registry),
             worker=Worker(providers, cost_meter),
-            synthesizer=Synthesizer(providers[planner_id], planner_id, cost_meter),
+            synthesizer=(
+                ArtifactAssembler()
+                if synthesis == "assemble"
+                else Synthesizer(providers[planner_id], planner_id, cost_meter)
+            ),
             registry=registry,
             cost_meter=cost_meter,
             agentic_worker=AgenticWorker(providers, cost_meter, max_iters=agentic_max_iters),
@@ -913,6 +935,7 @@ def make_runtime_factory(
     model_id: str,
     *,
     prefer: str = "quality",
+    synthesis: str = "summarize",
 ) -> Callable[[], Runtime]:
     """Factory giving a fresh Runtime per call (Supervisor is non-re-entrant, CostMeter
     is per-run) while sharing registry + providers. Supervisor/Synthesizer use the
@@ -931,7 +954,9 @@ def make_runtime_factory(
             "subscription-only planner setup requires the live compatibility gate; "
             "use `await make_verified_runtime_factory(...)`"
         )
-    return _runtime_factory(registry, providers, planner_id, prefer=prefer)
+    return _runtime_factory(
+        registry, providers, planner_id, prefer=prefer, synthesis=synthesis
+    )
 
 
 async def make_verified_runtime_factory(

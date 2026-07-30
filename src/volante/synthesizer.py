@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Protocol, runtime_checkable
 
 from volante.blackboard import Blackboard
 from volante.cost import CostMeter
@@ -12,6 +13,29 @@ from volante.providers.base import (
     ensure_complete_response,
 )
 from volante.types import CanonicalRequest, TextBlock, text
+
+
+@runtime_checkable
+class SynthesisStrategy(Protocol):
+    """What Runtime actually needs to turn a finished blackboard into an answer.
+
+    Runtime was typed against the concrete `Synthesizer`, but it only ever calls
+    `synthesize` and probes the two setters with `getattr`. Naming the real contract
+    lets a second strategy exist — `ArtifactAssembler`, which concatenates rather than
+    generates — without widening anything that was genuinely required.
+    """
+
+    async def synthesize(
+        self,
+        goal: str,
+        bb: Blackboard,
+        on_text: Callable[[str], None] | None = None,
+    ) -> str: ...
+
+    def set_call_gate(self, before_call: Callable[[str], None] | None) -> None: ...
+
+    def set_model_limits(self, *, context_window: int, max_output_tokens: int) -> None: ...
+
 
 _DEFAULT_CONTEXT_WINDOW = 32_768
 _DEFAULT_MAX_OUTPUT_TOKENS = 2_048

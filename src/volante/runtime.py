@@ -19,7 +19,7 @@ from volante.providers.base import IncompleteOutputError, LLMProvider, ProviderE
 from volante.registry import Registry
 from volante.router import NoEligibleModelError, Router
 from volante.supervisor import Supervisor, validate_plan
-from volante.synthesizer import Synthesizer
+from volante.synthesizer import SynthesisStrategy, Synthesizer
 from volante.tools.base import ToolRegistry
 from volante.tools.run_python import RunPythonTool
 from volante.tools.sandbox import Sandbox, sandbox_for
@@ -89,7 +89,7 @@ class Runtime:
         router: Router,
         projector: Projector,
         worker: Worker,
-        synthesizer: Synthesizer,
+        synthesizer: SynthesisStrategy,
         registry: Registry,
         cost_meter: CostMeter,
         max_retries: int = 2,
@@ -456,7 +456,10 @@ class Runtime:
         deadline = asyncio.get_running_loop().time() + self.synthesis_timeout
         last_error: Exception | None = None
         for index, model_id in enumerate(model_ids):
-            component: Synthesizer
+            # Either strategy at index 0; the fallback candidates are always a
+            # real Synthesizer, since only a model call can suffer the provider
+            # outage this loop exists to survive.
+            component: SynthesisStrategy
             if index == 0:
                 component = self.synthesizer
             else:

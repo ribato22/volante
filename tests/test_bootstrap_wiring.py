@@ -706,3 +706,42 @@ async def test_a_locally_run_model_is_not_flagged_for_being_free(monkeypatch) ->
         )
 
         assert factory().capability_notice is None, model_id
+
+
+def test_synthesis_strategy_defaults_to_summarising(monkeypatch):
+    # No silent behaviour change: a caller that says nothing gets what it always got.
+    from volante.synthesizer import Synthesizer
+
+    _clear_all_provider_env(monkeypatch)
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    registry, providers, model_id = build_providers_from_env()
+
+    runtime = bootstrap.make_runtime_factory(registry, providers, model_id)()
+
+    assert isinstance(runtime.synthesizer, Synthesizer)
+
+
+def test_a_caller_can_ask_for_mechanical_assembly_instead(monkeypatch):
+    # Explicit, not inferred from the artifacts. Guessing wrong degrades the normal
+    # case — a report assembled by concatenation is worse than one written — so the
+    # choice belongs to whoever knows what the goal produces.
+    from volante.assembler import ArtifactAssembler
+
+    _clear_all_provider_env(monkeypatch)
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    registry, providers, model_id = build_providers_from_env()
+
+    runtime = bootstrap.make_runtime_factory(
+        registry, providers, model_id, synthesis="assemble"
+    )()
+
+    assert isinstance(runtime.synthesizer, ArtifactAssembler)
+
+
+def test_an_unknown_synthesis_strategy_is_refused(monkeypatch):
+    _clear_all_provider_env(monkeypatch)
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    registry, providers, model_id = build_providers_from_env()
+
+    with pytest.raises(ValueError, match="synthesis"):
+        bootstrap.make_runtime_factory(registry, providers, model_id, synthesis="magic")

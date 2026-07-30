@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- **A second synthesis strategy: assemble the artifacts instead of writing about them.**
+  Every orchestration run funnels its workers' output through one synthesis call, and that call has
+  to be bounded — so the final answer could never be larger than what a single model response could
+  have produced anyway, which removes the only structural reason to decompose the work. That is the
+  right shape when the answer is ABOUT the work. It is the wrong shape when the answer IS the work:
+  a module, a test suite, a document in parts. `ArtifactAssembler` concatenates the workers'
+  artifacts with no model call, so the total is bounded by the sum of the workers' budgets rather
+  than by one of them. Choose it with `make_runtime_factory(..., synthesis="assemble")`.
+  Deliberately explicit rather than inferred from the artifacts: guessing wrong would silently turn
+  a report into a concatenation, and only the caller knows what the goal produces. It does not
+  reconcile the parts — two workers defining the same name, or contradicting each other, is the
+  planner's problem, and a goal whose parts must be reconciled wants the summarising strategy.
+  `Runtime` is now typed against a `SynthesisStrategy` protocol, which is what it always actually
+  required: it calls `synthesize` and probes the two setters with `getattr`.
+
 ### Changed
 - **A synthesis budget that follows the work, instead of a flat 2048-token cap.** Every run funnels
   through one synthesis call, so that cap was also a ceiling on Volante's FINAL ANSWER: no matter
