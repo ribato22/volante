@@ -117,3 +117,24 @@ So the honest reading of every "baseline wins" result this project has published
 narrower than it looked. It is not evidence that decomposition does not help. It is
 evidence that THIS PLANNER, on goals shaped like a library deliverable, produces a
 plan with no isolation benefit to collect.
+
+### The gap is the plan, and only the plan
+
+Before changing anything, the ceiling was measured: feed Volante's OWN synthesis the
+ideal decomposition (a matcher artifact and a precedence artifact, produced by the same
+model at temperature 0) and score what comes out, n=6.
+
+| | code score |
+|---|---|
+| ideal plan + `Synthesizer` (a model call) | **0.819** |
+| ideal plan + `ArtifactAssembler` (concatenation) | **0.819** |
+| manual three-call decomposition, n=28 | 0.790 |
+| Volante's real orchestration | 0.292 |
+
+Both strategies produce genuinely different text — 4,996 characters of rewritten module
+versus 2,718 characters of concatenation — and score identically, because both preserve
+the semantics of the two parts they were given. That is the point: synthesis is not
+where anything is lost.
+
+So the whole 0.292 -> 0.819 gap sits in the plan. Nothing downstream needs changing,
+and any fix that does not change what `Supervisor.plan()` emits cannot help.
