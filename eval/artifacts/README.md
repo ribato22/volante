@@ -57,3 +57,47 @@ The score moves 0.704 → 0.795, which is sampling variance between k=3 and k=5 
 than decontamination, and the ranking does not change: `glm` is still last at code
 by a wide margin, and `debug_gauntlet` fails 0/5 — a real, reproducible capability
 limit, not an artefact.
+
+## depth suite (2026-07-31): where orchestration loses, and why
+
+`results-depth-0.4.1.json` (`--synthesis assemble`) and `results-depth-summarize.json`
+(`--synthesis summarize`), both `--suite depth --k 3`, planner `openai/gpt-4o-mini`.
+
+On the `resolve` goal, scoring the CODE only (the composite mixes in has_tests and
+has_readme, which every arm earns and which hide the result):
+
+| | code score |
+|---|---|
+| manual decomposition, n=28 | **0.790** |
+| baseline | 0.396 – 0.562 |
+| a constant answer, reads nothing | 0.250 |
+| Volante orchestration, `summarize` | 0.292 |
+| Volante orchestration, `assemble` | 0.132 |
+
+A hand-written three-call decomposition of this goal beats baseline by +0.225
+(paired t=4.73, p<0.001, 22/28). Volante's own orchestration scores at or below a
+constant answer. The gap is the ENGINE, not the goal.
+
+The cause is one `Supervisor.plan()` call away, and it is not subtle:
+
+```
+[1] one_shot code   Implement the resolve function in solution.py
+[2] one_shot write  Write pytest test cases ...           deps=[1]
+[3] one_shot write  Create a README ...                   deps=[1]
+```
+
+**It decomposes by DELIVERABLE, not by SUB-PROBLEM.** Task 1 carries the entire
+difficulty in a single worker call, so it is baseline with extra steps; tasks 2 and 3
+produce artifacts the code score does not measure. The decomposition that wins splits
+the *problem* (pattern matcher / precedence resolver / assemble), which is what makes
+the matcher correct — 19 of 28 baseline runs get the goal's own worked example wrong,
+and none of them factor the matcher out.
+
+`assemble` is additionally wrong here and its own docstring says why: it does not
+reconcile the parts, so concatenating solution + tests + README yields a module that
+fails more cases than a one-line stub.
+
+So the honest reading of every "baseline wins" result this project has published is
+narrower than it looked. It is not evidence that decomposition does not help. It is
+evidence that THIS PLANNER, on goals shaped like a library deliverable, produces a
+plan with no isolation benefit to collect.

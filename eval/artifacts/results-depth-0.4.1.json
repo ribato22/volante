@@ -1,0 +1,134 @@
+{
+  "generated_at": "2026-07-31T01:16:40+00:00",
+  "inventory": [
+    "openai/gpt-4o-mini"
+  ],
+  "k": 3,
+  "planner_model_id": "openai/gpt-4o-mini",
+  "result": {
+    "aggregate": {
+      "agentic_errors": 4,
+      "any_estimated": false,
+      "cost_total": {
+        "agentic": 0.05186969999999999,
+        "baseline": 0.008367299999999998,
+        "orchestration": 0.04025205
+      },
+      "ties": 0,
+      "unmeasured_goals": [],
+      "verdict": "tie",
+      "wins": {
+        "agentic": 0,
+        "baseline": 1,
+        "orchestration": 1
+      }
+    },
+    "per_goal": [
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.0,
+            "cost": 0.024436649999999997,
+            "error_sample": "IncompleteOutputError: agentic worker output is incomplete: provider stopped with 'max_tokens'",
+            "errors": 3,
+            "estimated": false,
+            "measured": true,
+            "ms": 136992
+          },
+          "baseline": {
+            "composite": 0.6766666666666666,
+            "cost": 0.005491949999999999,
+            "estimated": false,
+            "measured": true,
+            "ms": 35889
+          },
+          "orchestration": {
+            "composite": 0.7688888888888888,
+            "cost": 0.032270099999999996,
+            "estimated": false,
+            "measured": true,
+            "ms": 57784
+          }
+        },
+        "id": "guardkit",
+        "scores": {
+          "agentic": {
+            "code": 0.0,
+            "composite": 0.0,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 0.9666666666666667,
+            "composite": 0.6766666666666666,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "orchestration": {
+            "code": 0.9555555555555554,
+            "composite": 0.7688888888888888,
+            "has_readme": 0.6666666666666666,
+            "has_tests": 0.0
+          }
+        },
+        "winner": "orchestration"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.18958333333333333,
+            "cost": 0.027433049999999997,
+            "error_sample": "IncompleteOutputError: agentic worker output is incomplete: provider stopped with 'max_tokens'",
+            "errors": 1,
+            "estimated": false,
+            "measured": true,
+            "ms": 123597
+          },
+          "baseline": {
+            "composite": 0.6937500000000001,
+            "cost": 0.0028753499999999996,
+            "estimated": false,
+            "measured": true,
+            "ms": 14615
+          },
+          "orchestration": {
+            "composite": 0.3923611111111111,
+            "cost": 0.00798195,
+            "estimated": false,
+            "measured": true,
+            "ms": 27432
+          }
+        },
+        "id": "resolve",
+        "scores": {
+          "agentic": {
+            "code": 0.2708333333333333,
+            "composite": 0.18958333333333333,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 0.5625,
+            "composite": 0.6937500000000001,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          },
+          "orchestration": {
+            "code": 0.13194444444444445,
+            "composite": 0.3923611111111111,
+            "has_readme": 1.0,
+            "has_tests": 1.0
+          }
+        },
+        "winner": "baseline"
+      }
+    ]
+  },
+  "suite": [
+    "guardkit",
+    "resolve"
+  ],
+  "suite_name": "depth",
+  "synthesis": "assemble",
+  "volante_version": "0.4.1"
+}
