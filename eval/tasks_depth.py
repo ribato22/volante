@@ -337,8 +337,192 @@ main()
 sys.exit(0)
 '''
 
+
+# --------------------------------------------------------------------------- #
+# The `resolve` goal — the first shape in this project with MEASURED headroom AND a
+# measured decomposition win.
+#
+# Six hypotheses about what defeats a single temperature-0 pass were probed against
+# this harness. Four died. Diagnosis-is-harder-than-writing scored baseline 1.000 and
+# is simply false at this model and scale; cross-cutting invariants 0.933; training-
+# data gravity 0.860; constraint satisfaction 0.822. Two survived, and this is the
+# cleaner one — the other (tracing a stack machine) is confounded, because baseline
+# fails it partly by running out of output tokens mid-trace rather than by reasoning
+# wrongly.
+#
+# WHAT BREAKS. Seven precedence rules that genuinely overlap, so most inputs are
+# matched by two or more rules and the answer depends on which one WINS. The model
+# reproduces each rule correctly in isolation and composes them wrongly. Concretely,
+# and this is worth stating because it is not subtle: 19 of 28 baseline runs produced
+# code that gets the WORKED EXAMPLE PRINTED IN THE GOAL wrong —
+# resolve(["allow:a/b/**", "deny:*/*/*"], "a/b/c") returned "allow" instead of "deny".
+# None of them factored the pattern matcher into its own function; matching is inlined
+# into `resolve`, so when matching is wrong the error is spread through the whole
+# function rather than sitting in one place.
+#
+# WHAT DECOMPOSITION DOES, measured against the same runner, same model, temperature
+# 0, sub-prompts copied character-for-character out of this goal (only the interface
+# each part must expose is added), assembled by a third call:
+#
+#     n=28 paired          baseline    decomposed
+#     mean                    0.565         0.790     (+0.225, paired t=4.73, p<0.001)
+#     wins                                  22/28
+#     BEST case               0.938         0.938     <- identical
+#     fell below 0.50         19/28          0/28
+#
+# Read that table carefully, because the mean overstates it. Decomposition does not
+# raise the ceiling — the best single pass matches the best decomposed run exactly.
+# It removes the failure mode. Asking for the matcher as its own deliverable is what
+# makes the matcher correct; the gain is isolation of a concern, not more capability.
+#
+# One honest caveat about absolute numbers: between two batches run hours apart,
+# BOTH arms moved together (baseline 0.706 -> 0.509, decomposed 0.865 -> 0.760).
+# Only within-batch comparisons mean anything here, and the advantage held in both
+# (+0.159 and +0.251).
+#
+# STILL UNMEASURED, and the reason no claim about Volante itself is made above: this
+# is a MANUAL decomposition, standing in for what a planner would produce. Whether
+# Volante's own Supervisor emits this split is a separate question, and the only
+# thing that answers it is the real three-arm run.
+
+RESOLVE_GOAL: str = """\
+Implement a Python function `resolve(rules: list[str], path: str) -> str` in solution.py.
+
+Given an access-control rule list, it returns the EFFECT of the single rule that wins for `path`,
+written exactly as that rule writes it: one of "allow", "deny", "allow!", "deny!".
+
+INPUT FORMAT.
+`path` is a non-empty string of one or more segments joined by "/", e.g. "a/b/c". Every path
+segment is a plain literal (lowercase letters and digits); a path never contains a wildcard,
+and never has a leading or trailing "/".
+
+Each element of `rules` is a string "EFFECT:PATTERN". EFFECT is exactly one of
+"allow", "deny", "allow!", "deny!". PATTERN is one or more segments joined by "/", where each
+segment is either a literal, or "*", or "**". "**" may appear only as the LAST segment of a
+pattern (a pattern may be just "**"). Rules are given in no particular order, and their order
+in the list must NOT affect the answer.
+
+MATCHING.
+- A literal pattern segment matches exactly that path segment.
+- "*" matches exactly ONE path segment, any literal. It never matches across a "/", and it
+  never matches zero segments.
+- "**" as the final pattern segment matches ONE OR MORE remaining path segments. It never
+  matches zero segments: the pattern "a/**" matches "a/b" and "a/b/c" but does NOT match "a".
+- A pattern with no "**" matches only paths with exactly the same number of segments.
+
+PRECEDENCE. Several rules will match at once. Apply these seven rules, in this order, to decide
+which one wins.
+
+R1. Rules whose pattern does not match `path` are discarded and play no further part.
+R2. If no rule matches, return "deny" (deny by default).
+R3. Any matching pattern that contains NO "**" beats EVERY matching pattern that contains "**",
+    whatever their effects and whatever their literal counts. Discard the "**" patterns whenever
+    at least one non-"**" pattern matched.
+R4. Among the rules that survive R3, the winner is the one with the most LITERAL segments in its
+    pattern ("*" and "**" segments are not literals). Discard the rest.
+R5. If two or more rules survive R4 and disagree, "deny" beats "allow". If the tie is between the
+    plain and the "!" form of the same effect, the "!" form is the winner.
+R6. EXCEPTION to R5: at such a tie, "allow!" beats "deny". R6 only ever applies at a tie left by
+    R4 — an "allow!" rule that lost on R3 or R4 stays lost, and a plain "deny" that is strictly
+    more specific than an "allow!" still wins.
+R7. EXCEPTION to R6: at such a tie, "deny!" beats "allow!".
+
+The return value is the winning rule's effect string verbatim, "!" included when the winning rule
+was written with one.
+
+Worked example: resolve(["allow:a/b/**", "deny:*/*/*"], "a/b/c") returns "deny", because both
+patterns match but "*/*/*" has no "**" and therefore wins under R3, even though "a/b/**" has more
+literal segments.
+
+Reply with the complete solution.py. Also add a pytest test module (functions named test_*)
+covering the precedence rules, and a short README."""
+
+
+RESOLVE_REFERENCE_TEST: str = '''\
+from __future__ import annotations
+
+import json
+import sys
+
+# 48 cases, TWELVE per possible answer. The balance is the point: with four effects and
+# a lopsided case list, `return "deny"` scored 0.423 — 42% of the goal for one line that
+# reads nothing. Every constant answer now scores exactly 0.25, so the score measures
+# resolution rather than a guess at the most common outcome.
+#
+# Every case past the first block has AT LEAST TWO matching rules, so it is decided by
+# precedence rather than by matching. That is where a single pass fails: it reproduces
+# each rule correctly in isolation and then composes them wrongly.
+CASES = [
+    (["allow:a/b/c"], "a/b/c", "allow"),
+    ([], "a", "deny"),
+    (["allow:x/**"], "a/b", "deny"),
+    (["allow:a/**"], "a", "deny"),
+    (["allow:a/**"], "a/b", "allow"),
+    (["allow:a/*"], "a/b/c", "deny"),
+    (["allow:a/b/**", "deny:*/*/*"], "a/b/c", "deny"),
+    (["deny:a/b/c/**", "allow:a/b/c/*"], "a/b/c/d", "allow"),
+    (["deny:a/b/**", "allow:a/b/c"], "a/b/c", "allow"),
+    (["allow:**", "deny:a/**", "allow!:a/b/c"], "a/b/c", "allow!"),
+    (["deny!:a/**", "allow:a/b/c"], "a/b/c", "allow"),
+    (["allow:a/**", "deny:a/b/**"], "a/b/c", "deny"),
+    (["deny:a/**", "allow:a/b/**"], "a/b/c/d", "allow"),
+    (["allow:a/*/**", "deny:a/b/**"], "a/b/c/d", "deny"),
+    (["allow:**", "deny:a/*/c/**"], "a/b/c/d/e", "deny"),
+    (["allow:*/**", "deny:a/b/**"], "a/b", "allow"),
+    (["allow!:a/*/*", "deny:a/b/c"], "a/b/c", "deny"),
+    (["allow:a/b/*", "deny:a/*/c"], "a/b/c", "deny"),
+    (["deny:a/*/c", "allow!:a/b/*"], "a/b/c", "allow!"),
+    (["allow!:a/b/*", "deny!:a/*/c"], "a/b/c", "deny!"),
+    (["allow:a/b/*", "deny:a/*/c", "allow!:*/b/c"], "a/b/c", "allow!"),
+    (["allow:a/b/*", "deny:a/*/c", "allow!:*/b/c", "deny!:a/b/*"], "a/b/c", "deny!"),
+    (["allow:a/b/*", "allow:a/*/c"], "a/b/c", "allow"),
+    (["deny!:a/b/**", "allow!:a/*/**"], "a/b/c", "deny!"),
+    (["deny:*/*/*", "allow:a/b/**"], "a/b/c", "deny"),
+    (["allow!:a/b/*", "deny:a/*/c"], "a/b/c", "allow!"),
+    (["allow!:*/*/c", "allow:*/b/c", "deny!:a/b/c/*"], "x/b/c", "allow"),
+    (["allow!:*/*", "allow!:a/b/c/d", "allow:a/*"], "a/b", "allow"),
+    (["allow!:a/b/c/*", "allow:a/b/c/d", "deny:a/**"], "a/b/c/d", "allow"),
+    (["allow:a/b/*", "deny:*/*/*", "deny:a/*"], "a/b/c", "allow"),
+    (["allow!:*/*/*", "allow:a/b/*", "deny!:a/b/c/**", "deny:a/b/c"], "a/b/c", "deny"),
+    (["allow!:a/*/c", "allow!:a/b/c/d", "deny!:*/b/c", "deny:*/*/c"], "a/y/c", "allow!"),
+    (["allow!:*/*/c", "allow:*/b/c", "deny:*/*/*"], "a/y/c", "allow!"),
+    (["allow!:*/b/*", "allow:a/b/*", "deny:*/*/c"], "x/b/c", "allow!"),
+    (["allow!:*/b/*", "allow!:a/b/*", "allow!:a/b/c/*", "allow:a/b/c/*"], "a/b/c", "allow!"),
+    (["allow!:a/**", "allow!:a/*/*", "allow:*/*/*"], "a/y/c", "allow!"),
+    (["allow!:*/b/c", "allow!:a/*/c", "allow:*/*/*"], "a/b/c", "allow!"),
+    (["allow!:**", "allow!:*/*", "allow!:a/b/c", "allow:*/*"], "a/b", "allow!"),
+    (["allow!:a/*/*", "allow!:a/b/**", "allow:a/b/*", "deny!:*/*/*"], "a/y/c", "allow!"),
+    (["deny!:a/b/*", "deny:*/*/c", "deny:*/b/*", "deny:a/*"], "a/b/c", "deny!"),
+    (["allow!:*/*/*", "allow:*/b/*", "allow:a/b/*", "deny!:*/b/c"], "a/b/c", "deny!"),
+    (["allow:a/b/c/d", "deny!:*/*/c", "deny:a/*/*"], "a/y/c", "deny!"),
+    (["allow:*/*/c", "deny!:*/*", "deny!:*/b/c", "deny:*/**"], "x/b/c", "deny!"),
+    (["allow!:**", "allow!:a/*/*", "deny!:a/b/*"], "a/b/c", "deny!"),
+    (["deny!:a/b/c/d", "deny:**", "deny:a/b/c/d"], "a/b/c/d", "deny!"),
+    (["deny!:*/b/c", "deny!:a/*/c"], "a/b/c", "deny!"),
+    (["allow:a/b/c/*", "deny!:*/*/c", "deny:*/*/*", "deny:a/*/c"], "x/b/c", "deny!"),
+    (["allow!:*/b/*", "allow:a/**", "deny!:*/b/c"], "a/b/c", "deny!"),
+]
+
+
+def main() -> None:
+    total = len(CASES)
+    passed = 0
+    for rules, path, expected in CASES:
+        try:
+            if call_solution("resolve", rules, path) == expected:
+                passed += 1
+        except Exception:
+            pass
+    print(_TAG + json.dumps({"passed": passed, "total": total}))
+
+
+main()
+sys.exit(0)
+'''
+
 # Its own suite. Adding it to EVAL_SUITE would silently redefine what every
 # historical comparison measured.
 DEPTH_SUITE: list[EvalTask] = [
     EvalTask("guardkit", GUARDKIT_GOAL, GUARDKIT_REFERENCE_TEST),
+    EvalTask("resolve", RESOLVE_GOAL, RESOLVE_REFERENCE_TEST),
 ]

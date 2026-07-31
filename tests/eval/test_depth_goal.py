@@ -13,8 +13,13 @@ the goal text or the cases cannot quietly break the instrument.
 
 from __future__ import annotations
 
+import pytest
 from eval.harness import score_code
-from eval.tasks_depth import DEPTH_SUITE, GUARDKIT_REFERENCE_TEST
+from eval.tasks_depth import (
+    DEPTH_SUITE,
+    GUARDKIT_REFERENCE_TEST,
+    RESOLVE_REFERENCE_TEST,
+)
 
 GOLDEN = """
 import math, re
@@ -303,5 +308,93 @@ def test_depth_suite_is_not_the_published_suite():
     """The nine-goal artifacts must stay comparable; this goal ships beside them."""
     from eval.tasks import EVAL_SUITE
 
-    assert [t.id for t in DEPTH_SUITE] == ["guardkit"]
-    assert "guardkit" not in {t.id for t in EVAL_SUITE}
+    assert [t.id for t in DEPTH_SUITE] == ["guardkit", "resolve"]
+    published = {t.id for t in EVAL_SUITE}
+    assert not published & {t.id for t in DEPTH_SUITE}
+
+
+# --- the resolve goal ------------------------------------------------------- #
+# This one has measured headroom AND a measured decomposition win, which is why it
+# exists. Its instrument needs a THIRD check the guardkit goal did not: with four
+# possible answers and a lopsided case list, a one-line `return "deny"` collected
+# 0.423 — 42% of the goal for code that reads neither argument. The case list is
+# balanced twelve-per-answer so every constant scores exactly 0.25, and the score
+# measures resolution rather than a guess at the most common outcome.
+
+RESOLVE_GOLDEN = '''from __future__ import annotations
+
+# Total order implied by R5 (deny > allow; "!" form > plain form of same effect),
+# R6 (allow! > deny) and R7 (deny! > allow!).
+_RANK = {"allow": 0, "deny": 1, "allow!": 2, "deny!": 3}
+
+
+def _match(pat, seg):
+    """Recursive segment match. `pat` may end in '**' (>= 1 remaining segment)."""
+    if not pat:
+        return not seg
+    head = pat[0]
+    if head == "**":
+        # '**' is final by contract and swallows one or more remaining segments.
+        return len(seg) >= 1
+    if not seg:
+        return False
+    if head != "*" and head != seg[0]:
+        return False
+    return _match(pat[1:], seg[1:])
+
+
+def resolve(rules, path):
+    segs = path.split("/")
+    live = []
+    for rule in rules:
+        effect, _, pattern = rule.partition(":")
+        pat = pattern.split("/")
+        if not _match(pat, segs):          # R1
+            continue
+        live.append((pat, effect))
+    if not live:                            # R2
+        return "deny"
+    concrete = [r for r in live if "**" not in r[0]]
+    if concrete:                            # R3
+        live = concrete
+    def lits(pat):
+        return len([s for s in pat if s != "*" and s != "**"])
+    top = max(lits(p) for p, _ in live)     # R4
+    live = [r for r in live if lits(r[0]) == top]
+    best = live[0][1]                       # R5 / R6 / R7
+    for _, effect in live[1:]:
+        if _RANK[effect] > _RANK[best]:
+            best = effect
+    return best'''
+
+
+def test_resolve_correct_implementation_reaches_the_ceiling():
+    assert score_code(_fenced(RESOLVE_GOLDEN), RESOLVE_REFERENCE_TEST) == 1.0
+
+
+def test_resolve_empty_module_scores_exactly_zero():
+    assert score_code("```python\n```", RESOLVE_REFERENCE_TEST) == 0.0
+
+
+@pytest.mark.parametrize("effect", ["allow", "deny", "allow!", "deny!"])
+def test_resolve_pays_nothing_for_a_constant_answer(effect):
+    """The regression for the 0.423 floor: no answer that ignores its inputs may beat
+    chance. Four effects, twelve cases each, so chance is exactly 0.25."""
+    stub = f"def resolve(rules, path):\n    return {effect!r}\n"
+    assert score_code(_fenced(stub), RESOLVE_REFERENCE_TEST) == 0.25
+
+
+def test_resolve_cases_are_balanced_across_every_answer():
+    """The property the test above depends on, asserted directly so a later edit that
+    adds cases cannot silently reintroduce a profitable constant."""
+    from collections import Counter
+
+    namespace: dict = {}
+    body = RESOLVE_REFERENCE_TEST.split("def main")[0].replace(
+        "from __future__ import annotations", ""
+    )
+    exec(body, namespace)  # noqa: S102 - our own fixture text, not model output
+    counts = Counter(expected for _rules, _path, expected in namespace["CASES"])
+
+    assert len(counts) == 4
+    assert len(set(counts.values())) == 1, f"unbalanced: {dict(counts)}"
