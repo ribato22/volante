@@ -86,12 +86,28 @@ The cause is one `Supervisor.plan()` call away, and it is not subtle:
 [3] one_shot write  Create a README ...                   deps=[1]
 ```
 
-**It decomposes by DELIVERABLE, not by SUB-PROBLEM.** Task 1 carries the entire
-difficulty in a single worker call, so it is baseline with extra steps; tasks 2 and 3
-produce artifacts the code score does not measure. The decomposition that wins splits
-the *problem* (pattern matcher / precedence resolver / assemble), which is what makes
-the matcher correct — 19 of 28 baseline runs get the goal's own worked example wrong,
-and none of them factor the matcher out.
+Task 1 carries the entire difficulty in a single worker call, so it is baseline with
+extra steps; tasks 2 and 3 produce artifacts the code score does not measure. The
+decomposition that wins splits the *problem* (pattern matcher / precedence resolver /
+assemble), which is what makes the matcher correct — 19 of 28 baseline runs get the
+goal's own worked example wrong, and none of them factor the matcher out.
+
+CORRECTION, from checking three more goals instead of generalising from one. This was
+first written as "the planner decomposes by deliverable, not by sub-problem". That is
+wrong. Given `toolbelt` (five named functions) it emits five code tasks plus tests plus
+README; given `guardkit` (twenty-four named functions) it emits twenty-four. It
+decomposes by sub-problem perfectly well.
+
+What it decomposes by is the goal's own ENUMERATION. `resolve` names ONE function, so
+it plans one code task. The separable structure in this goal — pattern matching versus
+precedence resolution — is INSIDE that single named deliverable, and nothing in the
+planning prompt asks the model to look there. The prompt spends its words on the JSON
+schema and the one_shot/agentic choice and says nothing about how to split work.
+
+So the defect is narrower than first stated, and correspondingly the fix is narrower:
+the planner never decomposes a single hard deliverable by its internal structure. It is
+not choosing deliverables over sub-problems; it is only ever mirroring the list it was
+given.
 
 `assemble` is additionally wrong here and its own docstring says why: it does not
 reconcile the parts, so concatenating solution + tests + README yields a module that
