@@ -182,3 +182,45 @@ usable `resolve`, which would be a pipeline defect independent of planning).
 
 Nothing was shipped from this. Recorded so the seven dead candidates are not written
 an eighth time.
+
+### The grading bug was the story (2026-07-31)
+
+Diagnosing the 0.000 runs found a defect in the SCORER, not in Volante. `extract_python`
+took the first ```python block and closed it at the first ``` — which, when the model
+embeds the requested README inside a triple-quoted string containing a ```bash example,
+lands mid-string-literal. The extracted code ends in an unterminated string, fails to
+import, and all 48 cases fail. Six saved orchestration outputs, re-scored:
+
+    run 0   0.000 -> 0.396      run 3   1.000 -> 1.000
+    run 1   0.000 -> 0.000      run 4   0.000 -> 0.000
+    run 2   0.417 -> 0.417      run 5   0.000 -> 0.875
+                                mean    0.236 -> 0.448
+
+It is not neutral between the arms. It punishes whoever emits ONE self-contained block
+carrying code plus docs — the shape a synthesis pass produces — so it hit orchestration
+far harder than baseline and read as a capability difference.
+
+Re-measured on `resolve` with the fixed scorer, same model, temperature 0, n=8:
+
+| arm | mean | stdev | min | max |
+|---|---|---|---|---|
+| baseline | 0.414 | 0.007 | 0.396 | 0.417 |
+| orchestration, current planner | **0.620** | 0.322 | 0.000 | 0.958 |
+| orchestration, two-stage planner | 0.604 | 0.340 | 0.000 | 0.917 |
+
+**The direction reverses.** Orchestration was recorded at 0.292 against a baseline of
+0.396–0.562; corrected, it is 0.620 against 0.414 — ahead on 6 of 8 runs.
+
+Two honest limits on that. The difference is +0.205 with t=1.81 (df≈7), so it is NOT
+significant at n=8: baseline is astonishingly consistent (stdev 0.007) while
+orchestration swings from 0.000 to 0.958, and that spread is what costs the p-value.
+Settling it needs more n, and reducing the spread is worth more than raising the mean.
+
+And the planner change this investigation set out to build is **unnecessary**: two-stage
+planning scores 0.604 against 0.620, a difference of -0.016 (t=-0.09). The seven failed
+prompt candidates and the two-stage design were all chasing a gap that the scorer had
+manufactured.
+
+Every orchestration number published before commit cd94390 is a LOWER BOUND. The new
+extraction returns the first candidate that parses, and falls back to the old behaviour
+when none does, so by construction new >= old.
