@@ -905,7 +905,7 @@ def _runtime_factory(
             initial_subscription_calls = preflight_subscription_calls
             preflight_pending = False
         return Runtime(
-            supervisor=Supervisor(providers[planner_id], planner_id, cost_meter),
+            supervisor=Supervisor(providers[planner_id], planner_id, cost_meter, prefer=prefer),
             router=Router(registry, prefer=prefer),
             projector=Projector(registry),
             worker=Worker(providers, cost_meter),

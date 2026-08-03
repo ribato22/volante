@@ -110,3 +110,49 @@ async def test_it_satisfies_what_runtime_asks_of_a_synthesizer() -> None:
     a = ArtifactAssembler()
     a.set_call_gate(lambda _model_id: None)
     a.set_model_limits(context_window=200_000, max_output_tokens=64_000)
+
+
+async def test_files_stay_separated_so_a_readme_cannot_break_the_module() -> None:
+    """The defect this exists to prevent, measured: 6 runs of 6 scored 0.000.
+
+    Three workers produce a module, a test module and a README. Stripping the fences
+    concatenated the README's prose into the middle of the Python and left nothing
+    marking where one file ended — a syntax error every time, in an answer that looks
+    complete.
+    """
+    import ast
+
+    from eval.harness import extract_python
+
+    bb = _bb(
+        {
+            "t1": "Here you go.\n\n```python\ndef resolve(rules, path):\n    return 'allow'\n```\n",
+            "t2": "```python\ndef test_resolve():\n    assert resolve([], 'a') == 'allow'\n```",
+            "t3": "```markdown\n# Resolver\n\nThis module resolves rules based on precedence.\n```",
+        }
+    )
+
+    assembled = await ArtifactAssembler().synthesize("goal", bb)
+
+    ast.parse(extract_python(assembled))
+    assert "This module resolves rules" not in extract_python(assembled)
+    assert "```markdown" in assembled
+
+
+async def test_an_unfenced_artifact_is_fenced_rather_than_bled_into_the_next() -> None:
+    """A worker that answers bare must not contaminate the file after it."""
+    import ast
+
+    from eval.harness import extract_python
+
+    bb = _bb(
+        {
+            "t1": "```python\nx = 1\n```",
+            "t2": "# Notes\n\nJust some prose, no fence at all.",
+        }
+    )
+
+    assembled = await ArtifactAssembler().synthesize("goal", bb)
+
+    assert ast.parse(extract_python(assembled)) is not None
+    assert "Just some prose" not in extract_python(assembled)

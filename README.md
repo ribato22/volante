@@ -246,19 +246,42 @@ The claim needs a goal with headroom. `resolve` (in `eval/tasks_depth.py`, run w
 rules, graded on 48 cases balanced twelve-per-answer so a constant answer scores exactly 0.25.
 Same model, temperature 0, n=8:
 
-| arm | mean | stdev | unparsable output |
-|---|---|---|---|
-| baseline | 0.414 | 0.007 | — |
-| orchestration | **0.742** | 0.212 | 0/8 |
+| arm | runs | mean | stdev | unparsable output |
+|---|---|---|---|---|
+| baseline | 16 | 0.453 | 0.130 | — |
+| orchestration | 8 | **0.742** | 0.212 | 0/8 |
 
-That is +0.328, Welch t=4.38 (df~7), p<0.005 — the first result on this project where
+Baseline is pooled over two batches run hours apart. A single batch of 8 gave mean 0.414
+with stdev 0.007, and quoting that alone would overstate how consistent it is: a second
+batch contained one run at 0.938. The pooled figure is the honest one, and the shape it
+hides is worth stating — baseline scores below 0.50 on **15 of 16 runs**, so it is not
+noisy so much as reliably wrong with one lucky exception.
+
+That is +0.289, Welch t=3.54 (df~10), p<0.005 — the first result on this project where
 orchestration beats a strong single model on quality rather than tying it. Note how it was won: not
 by better answers, but by removing failures. Before the reliability work the same arm scored 0.620
 with stdev 0.322 and returned a module that does not parse in 2 runs of 8; the mean moved 0.12 and
 the standard deviation moved 0.11, and it was the second number that bought the significance.
 
 Everything above is one model on one class of small coding tasks, and orchestration costs **7.7x**
-baseline. Whether it pays off for a stronger model, a larger task, or work that genuinely exceeds
+baseline. `--prefer cheap` now buys that back where it is not earning anything: it asks the planner
+to split only when splitting helps. Measured, n=5 per arm —
+
+| goal | baseline | `--prefer quality` | `--prefer cheap` |
+|---|---|---|---|
+| `slugify` (baseline already perfect) | 1.000 · $0.00046 | 1.000 · **10.6x** | 1.000 · **4.7x** |
+| `resolve` (headroom) | 0.708 · $0.00093 | 0.721 · 4.8x | **0.525** · 4.6x |
+
+On a goal one model already aces it halves the bill for identical output. On the goal with
+headroom it costs 0.20 of score and saves nothing — which is the trade the flag is *for*, and why
+it is opt-in rather than the default.
+
+It is opt-in for a measured reason: choosing automatically does not work. Three signals were tried
+and all three failed. The planner's own difficulty labels give `resolve` the same profile
+(`medium:2, easy:1`) as `csv_stats`, where baseline already scores 1.00. Told it may return a single
+task for a simple goal, it never abstains. Shown its own answer and asked to check it against the
+goal, it replies `OK` on work scoring 0.417. There is no signal at this tier, so the choice belongs
+to whoever knows what the task is worth. Whether it pays off for a stronger model, a larger task, or work that genuinely exceeds
 one context window is **unmeasured, and this project does not claim it.** The agentic arm still
 failed 2 of its 27 runs.
 

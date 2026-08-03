@@ -30,11 +30,22 @@ from collections.abc import Callable
 
 from volante.blackboard import Blackboard
 
-# ```python … ``` — the fence a model puts round code when asked for it. Only the
-# body is kept: the prose a worker wraps round its answer ("Here is the function you
-# asked for") is commentary on the artifact, not part of it, and concatenating it
-# would put English in the middle of a module.
-_FENCE = re.compile(r"```[^\S\r\n]*[a-zA-Z0-9_+-]*[^\S\r\n]*\r?\n(.*?)```", re.DOTALL)
+# ```python … ``` — the fence a model puts round code when asked for it. The TAG is
+# captured as well as the body, and both are kept.
+#
+# Stripping the fences was a defect, not a simplification. On a goal asking for a
+# module plus tests plus a README, the workers produce one artifact each; dropping
+# the fences concatenated the README's prose straight into the middle of the Python
+# and left nothing to mark where one file ended. Measured on `resolve`: 6 runs out of
+# 6 scored 0.000, every one of them a syntax error inside the README text. Keeping
+# the fences separates the files, which is the same shape `Synthesizer` is told to
+# produce — the two strategies should not disagree about what an answer looks like.
+#
+# The prose a worker wraps round its answer ("Here is the function you asked for") is
+# still dropped: it is commentary on the artifact, not part of it.
+_FENCE = re.compile(
+    r"```[^\S\r\n]*([a-zA-Z0-9_+-]*)[^\S\r\n]*\r?\n(.*?)```", re.DOTALL
+)
 
 
 class ArtifactAssembler:
@@ -55,10 +66,15 @@ class ArtifactAssembler:
         parts: list[str] = []
         for _task_id, payload in artifacts:
             text = str(payload)
-            fenced = [block.strip() for block in _FENCE.findall(text)]
+            fenced = [
+                f"```{tag}\n{body.strip()}\n```"
+                for tag, body in _FENCE.findall(text)
+                if body.strip()
+            ]
             # No fence means the worker answered with the artifact bare. Keeping the
             # whole thing is the only safe reading; dropping it would lose the task.
-            parts.extend(fenced if fenced else [text.strip()])
+            # It is fenced too, so a bare README cannot bleed into the next file.
+            parts.extend(fenced if fenced else [f"```\n{text.strip()}\n```"])
 
         assembled = "\n\n".join(part for part in parts if part)
         if on_text is not None:

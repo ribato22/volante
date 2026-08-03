@@ -826,3 +826,67 @@ async def test_call_gate_runs_for_every_physical_planner_attempt() -> None:
 
     assert calls == [_PLANNER_MODEL, _PLANNER_MODEL]
     assert provider.calls == 2
+
+
+# --- `prefer` governs decomposition DEPTH, not just model choice -------------- #
+# Measured: orchestration costs ~7.7x baseline, and on tasks a single model already
+# solves it buys nothing. Three attempts at deciding automatically which is which all
+# failed — the planner's difficulty labels give `resolve` (where decomposition is worth
+# +0.328) the same profile as goals baseline already aces, it never abstains when told
+# it may, and it answers OK when asked to check work scoring 0.417. With no signal
+# available, the choice belongs to the caller, who at least knows what the task is
+# worth.
+
+
+class _PlanCapture:
+    """Records the system prompt, then returns a minimal valid plan."""
+
+    name = "capture"
+
+    def __init__(self) -> None:
+        self.system = ""
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        self.system = req.messages[0].content[0].text
+        return CanonicalResponse(
+            content=[
+                TextBlock(
+                    text=json.dumps(
+                        [
+                            {
+                                "id": "1",
+                                "description": "do it",
+                                "type": "code",
+                                "mode": "one_shot",
+                                "difficulty": "easy",
+                                "depends_on": [],
+                                "required_tools": [],
+                            }
+                        ]
+                    )
+                )
+            ],
+            usage=Usage(prompt_tokens=1, completion_tokens=1),
+            model="m",
+            stop_reason="end_turn",
+            latency_ms=1,
+        )
+
+
+async def test_cheap_asks_the_planner_to_split_only_when_it_helps() -> None:
+    provider = _PlanCapture()
+    await Supervisor(provider, "m", CostMeter(), prefer="cheap").plan("do a thing")
+
+    assert "Decompose only when it helps" in provider.system
+
+
+async def test_quality_is_unchanged_and_remains_the_default() -> None:
+    """The default must not quietly become the cheap path: on the one goal with
+    measured headroom, full decomposition is what earns the +0.328."""
+    default = _PlanCapture()
+    await Supervisor(default, "m", CostMeter()).plan("do a thing")
+    explicit = _PlanCapture()
+    await Supervisor(explicit, "m", CostMeter(), prefer="quality").plan("do a thing")
+
+    for provider in (default, explicit):
+        assert "Decompose only when it helps" not in provider.system

@@ -50,6 +50,24 @@ _PLAN_SYSTEM = (
 # strict JSON task array, even with _PLAN_SYSTEM. A single-shot plan has no
 # recovery, so plan() retries a bounded number of times with a corrective
 # follow-up before giving up.
+# Sent only when the caller asked for `cheap`. Measured: it cuts total planned tasks
+# across the eval suite by 17% (47 -> 39) without collapsing `resolve`, the one goal
+# where decomposition is known to pay — so it trims the work that was never needed
+# rather than the work that earns its keep.
+#
+# It is NOT the default, and the reason is measured too: three attempts at deciding
+# AUTOMATICALLY whether a goal needs decomposing all failed. The planner's own
+# difficulty labels give `resolve` (orchestration +0.328) the same profile as
+# `csv_stats` (baseline already 1.00); asked to abstain on simple goals it never
+# abstains; and asked to check its own answer against the goal it replies OK on an
+# answer scoring 0.417. There is no signal at this tier, so the choice belongs to the
+# caller, who at least knows what the task is worth.
+_FRUGAL_PLANNING = (
+    "Decompose only when it helps. If one competent pass over the goal would produce "
+    "the whole deliverable, return a SINGLE task covering it — splitting work that "
+    "does not need splitting costs the user money for nothing. "
+)
+
 _MAX_PLAN_ATTEMPTS = 3
 
 # Upper bound on planner-produced task cardinality. Real plans run to a handful;
@@ -79,10 +97,12 @@ class Supervisor:
         provider: LLMProvider,
         model_id: str,
         cost_meter: CostMeter,
+        prefer: str = "quality",
     ) -> None:
         self._provider = provider
         self._model_id = model_id
         self._cost_meter = cost_meter
+        self._prefer = prefer
         self._used = False
         self._before_call: Callable[[str], None] | None = None
         self._context_window = _DEFAULT_CONTEXT_WINDOW
@@ -220,8 +240,9 @@ class Supervisor:
 
     def _build_request(self, goal: str) -> CanonicalRequest:
         validate_goal(goal)
+        frugal = _FRUGAL_PLANNING if self._prefer == "cheap" else ""
         system_prompt = (
-            f"{_PLAN_SYSTEM} Available tools for this run: "
+            f"{_PLAN_SYSTEM} {frugal}Available tools for this run: "
             f"{', '.join(sorted(self._available_tools)) or '(none)'}. "
             "For every agentic task, required_tools must be a non-empty subset "
             "of that list. For one_shot tasks, required_tools must be []."
