@@ -192,30 +192,42 @@ cost: $0.001834
 ```
 
 `demo.py eval` prints the 3-arm table (`format_report`). Here is what it actually printed on the
-last full run — **orchestration lost**:
+last full run:
 
 ```text
 GOAL            WINNER          BASE   ORCH   AGEN
 --------------------------------------------------
-slugify         baseline        1.00   1.00   0.48
-roman           baseline        1.00   0.80   0.70
-calc            baseline        0.99   0.86   0.27
-csv_stats       baseline        1.00   0.84   0.88
-json_flatten    baseline        1.00   0.80   0.70
-textkit         baseline        1.00   1.00   0.42
-ledger          baseline        1.00   1.00   0.88
+slugify         baseline        1.00   1.00   0.67
+roman           baseline        1.00   1.00   0.70
+calc            orchestration   0.96   1.00   0.27
+csv_stats       baseline        1.00   1.00   0.57
+json_flatten    baseline        1.00   1.00   0.70
+textkit         baseline        1.00   1.00   0.47
+ledger          baseline        1.00   1.00   0.80
 toolbelt        baseline        1.00   1.00   0.70
-debug_gauntlet  orchestration   0.93   0.97   0.63
+debug_gauntlet  baseline        0.98   0.98   0.63
 --------------------------------------------------
 wins: baseline=8  orchestration=1  agentic=0  ties=0
-totals: baseline $0.029908  orchestration $0.218879  agentic $0.135432
+totals: baseline $0.018108  orchestration $0.139354  agentic $0.099910
 VERDICT: BASELINE
 ```
 
-`openai/gpt-4o-mini`, 9 goals x 3 arms x k=5 = 135 real runs against a Docker sandbox.
-Orchestration cost **7.3x** baseline and took **4.7x** as long, and tied or lost everywhere but one
-goal. Those numbers were read from `results-nudge2.json`, the self-describing artifact the run
-writes (models, k, per-goal scores, costs).
+`openai/gpt-4o-mini`, 9 goals x 3 arms x k=3 = 81 real runs against a Docker sandbox, read from
+`results-0.4.2-corrected.json` — the self-describing artifact each run writes (models, k, per-goal
+scores, costs).
+
+**"VERDICT: BASELINE" is a cost tie-break, not a quality result.** Orchestration matches baseline on
+eight goals and beats it on one; baseline takes those eight because it reached the same score for
+**7.7x less money**. On quality the suite is a tie at the ceiling: 0.993 baseline vs 0.997
+orchestration.
+
+Earlier releases published orchestration at 0.919 here, losing four goals outright. That was
+substantially a **grading bug of ours**, fixed in `cd94390`: the scorer closed a fenced code block
+at the first ``` even when that fell inside a string literal, so a model that embedded the
+requested README inside its own module scored 0.000 with working code in it. It punished
+single-self-contained-block answers — the shape a synthesis pass emits — and therefore hit the
+orchestration arm far harder than the baseline arm. Every orchestration number published before
+that commit is a lower bound.
 
 Reproduce it — this needs your keys and **spends real money**:
 
@@ -223,15 +235,32 @@ Reproduce it — this needs your keys and **spends real money**:
 uv run python -m eval.run --k 5 --json results.json
 ```
 
-**Read that verdict with its limits, because they are large.** Baseline scored a perfect 1.00 on 7
-of the 9 goals, so on most of this suite there was no headroom to win at all: what the run
-establishes is *"orchestration does not help on tasks one model already solves in a single turn"* —
-much narrower than the claim the idea rests on. The one orchestration win, `debug_gauntlet`, is the
-one goal written so the answer is easier to find by **running** code than by reading it, and its
-margin is 0.04 on a single goal at k=5 — directional, not proof. The agentic arm still failed 3 of
-its 45 runs. All of it is one model on one class of small coding tasks; whether orchestration pays
-off for a stronger model, a larger task, or work that genuinely exceeds one context window is
-**unmeasured, and this project does not claim it.**
+**Read that table with its limits, because they are large.** Both arms now sit at the ceiling on
+this suite — baseline 0.993, orchestration 0.997 — so it can no longer discriminate between them at
+all. A tie at 1.00 is not evidence of equivalence; it is evidence the goals are too easy to measure
+anything. What these nine goals establish is *"orchestration does not lose on tasks one model
+already solves in a single turn"*, which is worth knowing and is not the claim the idea rests on.
+
+The claim needs a goal with headroom. `resolve` (in `eval/tasks_depth.py`, run with
+`--suite depth`) is one: implement a single function governed by seven overlapping precedence
+rules, graded on 48 cases balanced twelve-per-answer so a constant answer scores exactly 0.25.
+Same model, temperature 0, n=8:
+
+| arm | mean | stdev | unparsable output |
+|---|---|---|---|
+| baseline | 0.414 | 0.007 | — |
+| orchestration | **0.742** | 0.212 | 0/8 |
+
+That is +0.328, Welch t=4.38 (df~7), p<0.005 — the first result on this project where
+orchestration beats a strong single model on quality rather than tying it. Note how it was won: not
+by better answers, but by removing failures. Before the reliability work the same arm scored 0.620
+with stdev 0.322 and returned a module that does not parse in 2 runs of 8; the mean moved 0.12 and
+the standard deviation moved 0.11, and it was the second number that bought the significance.
+
+Everything above is one model on one class of small coding tasks, and orchestration costs **7.7x**
+baseline. Whether it pays off for a stronger model, a larger task, or work that genuinely exceeds
+one context window is **unmeasured, and this project does not claim it.** The agentic arm still
+failed 2 of its 27 runs.
 
 The benchmark's most useful output so far was not the score. It found three real engine bugs — a
 deterministic livelock in the agentic loop, an eval arm that failed a model for answering correctly
