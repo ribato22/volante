@@ -224,3 +224,35 @@ manufactured.
 Every orchestration number published before commit cd94390 is a LOWER BOUND. The new
 extraction returns the first candidate that parses, and falls back to the old behaviour
 when none does, so by construction new >= old.
+
+### Reliability, and the first significant win (2026-07-31)
+
+The corrected scorer left orchestration ahead but not significantly: the mean was fine,
+the SPREAD was the problem. Two runs in eight emitted a module that does not parse —
+for someone who just wants working output, the worst possible failure, because the
+answer looks complete and is a Python file with prose in it.
+
+Root cause, from the two failing outputs: asked for a module plus tests plus a README,
+the model put all three inside ONE python fence — once as raw markdown after a
+`# README.md` comment, once inside a `"""` it never closed because the README carried
+its own fence.
+
+Two changes, each measured on `resolve`, n=8, same model, temperature 0:
+
+| | mean | stdev | broken | vs baseline |
+|---|---|---|---|---|
+| baseline | 0.414 | 0.007 | — | — |
+| orchestration, as it was | 0.620 | 0.322 | 2/8 | t=1.81, not significant |
+| + file-layout rule | 0.654 | 0.315 | 1/8 | t=2.15, not significant |
+| + verify-and-retry | **0.742** | **0.212** | **0/8** | **t=4.38, p<0.005** |
+
+The layout rule helps and cannot guarantee — an instruction is probabilistic. What
+closes it is verifying the model's own claim: a block it TAGGED ```python must actually
+parse, checked with `ast`, one retry if it does not, and the first answer kept if the
+retry is no better. Same shape of guarantee as `ensure_complete_response` — verify what
+the provider asserted about its output, do not judge the content.
+
+This is the first time orchestration beats a single strong model on this project at
+p<0.005. It was not won by making the answers better; it was won by removing the
+failures. Mean rose 0.620 -> 0.742 while stdev fell 0.322 -> 0.212, and it is the
+second number that bought the significance.

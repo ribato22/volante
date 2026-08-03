@@ -344,3 +344,132 @@ async def test_a_small_model_output_cap_still_wins() -> None:
     big = _bb_with(["x" * 60_000])
 
     assert _budget(big, context_window=32_000, max_output_tokens=1000) == 1000
+
+
+async def test_file_layout_rule_is_sent_on_a_realistic_model() -> None:
+    """The rule that stops a README being crammed into the python block.
+
+    Measured: without it, a quarter of runs produced a module that does not parse
+    because the model appended the README inside the same fence — once as raw prose,
+    once inside a `\"\"\"` it never closed.
+    """
+    provider = _CapturingProvider(_resp("ok"))
+    synth = Synthesizer(provider, "m", CostMeter())
+    synth.set_model_limits(context_window=128_000, max_output_tokens=4_096)
+    bb = Blackboard("goal", [])
+    bb.append(
+        Entry(
+            run_id="r",
+            task_id="t",
+            attempt=0,
+            kind="artifact",
+            payload="def f(): pass",
+            model_id="m",
+            usage=None,
+            timestamp=1.0,
+        )
+    )
+
+    await synth.synthesize("write a module, tests and a README", bb)
+
+    system = provider.last_req.messages[0].content[0].text
+    assert "ONLY that file's contents" in system
+    assert "never put prose" in system
+
+
+async def test_file_layout_rule_is_dropped_when_it_would_crowd_out_the_evidence() -> None:
+    """A few-hundred-character context cannot emit multi-file output anyway.
+
+    Spending a quarter of that window on layout instructions would displace the
+    artifacts the synthesis exists to combine, which is a worse trade than the
+    failure the rule prevents.
+    """
+    provider = _CapturingProvider(_resp("ok"))
+    synth = Synthesizer(provider, "m", CostMeter())
+    synth.set_model_limits(context_window=200, max_output_tokens=40)
+    bb = Blackboard("goal", [])
+    bb.append(
+        Entry(
+            run_id="r",
+            task_id="t",
+            attempt=0,
+            kind="artifact",
+            payload="x",
+            model_id="m",
+            usage=None,
+            timestamp=1.0,
+        )
+    )
+
+    await synth.synthesize("goal", bb)
+
+    system = provider.last_req.messages[0].content[0].text
+    assert "ONLY that file's contents" not in system
+
+
+class _SequenceProvider:
+    """Returns queued answers in order, recording how many calls it took."""
+
+    name = "seq"
+
+    def __init__(self, answers: list[str]) -> None:
+        self._answers = list(answers)
+        self.calls = 0
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        self.calls += 1
+        return _resp(self._answers.pop(0))
+
+
+_BROKEN = '```python\ndef f():\n    return 1\n\nREADME = """\n# docs\n```\n'
+_GOOD = '```python\ndef f():\n    return 1\n```\n\n```markdown\n# docs\n```\n'
+
+
+async def _synthesize_with(answers: list[str]) -> tuple[str, int]:
+    provider = _SequenceProvider(answers)
+    synth = Synthesizer(provider, "m", CostMeter())
+    synth.set_model_limits(context_window=128_000, max_output_tokens=4_096)
+    return await synth.synthesize("goal", _bb_with_artifacts()), provider.calls
+
+
+async def test_an_unparsable_python_block_is_retried_once() -> None:
+    """A block the model TAGGED python must actually be Python.
+
+    Measured with the layout rule already in place: 1 run in 8 still emitted a
+    ```python block that does not parse, usually a README appended inside it. Nothing
+    downstream recovers that, and it stays invisible until someone runs the file.
+    """
+    final, calls = await _synthesize_with([_BROKEN, _GOOD])
+
+    assert calls == 2
+    assert "```markdown" in final
+
+
+async def test_a_valid_answer_costs_no_extra_call() -> None:
+    """The check is free when the model was honest — no second call on the happy path."""
+    final, calls = await _synthesize_with([_GOOD])
+
+    assert calls == 1
+    assert final == _GOOD
+
+
+async def test_a_still_broken_retry_never_returns_something_worse() -> None:
+    """One retry, not a loop, and the retry may only IMPROVE the answer.
+
+    A persistently broken model costs exactly one extra call, and the caller gets the
+    first answer rather than whatever the second attempt degraded into.
+    """
+    second = '```python\nstill broken(\n```\n'
+    final, calls = await _synthesize_with([_BROKEN, second])
+
+    assert calls == 2
+    assert final == _BROKEN
+
+
+async def test_a_non_python_answer_is_never_syntax_checked() -> None:
+    """Volante is not Python-specific; only a fence the model tagged is a claim."""
+    prose = "Here is the plan:\n\n```text\nnot python at all (((\n```\n"
+    final, calls = await _synthesize_with([prose])
+
+    assert calls == 1
+    assert final == prose
