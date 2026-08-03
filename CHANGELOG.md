@@ -6,6 +6,92 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-31
+
+A minor bump rather than a patch for one specific reason: synthesis now makes an extra
+model call when the answer it produced is broken, so a bill can change without the
+caller changing anything. Everything else is a fix.
+
+### Fixed
+- **The evaluation scorer was marking working solutions as 0.000, and it was not
+  neutral between the arms.** `extract_python` closed a fenced block at the first
+  ``` even when that fell inside a string literal — which is exactly what happens when
+  a model embeds the requested README inside its own module. The extracted code ended
+  in an unterminated string, failed to import, and every test case failed. Re-scoring
+  six saved orchestration outputs moved the mean from 0.236 to 0.448. Because it
+  punishes ONE self-contained block carrying code plus docs — the shape a synthesis
+  pass emits — it hit orchestration far harder than baseline, and read as a capability
+  difference. The closing fence is now CHOSEN: candidates are tried in order and the
+  first that parses wins, falling back to the old behaviour when none does, so
+  genuinely broken code is still graded broken and every previously published
+  orchestration number is a lower bound rather than a wrong one.
+- **A CLI-agent call could hang forever, and the streaming path could not be cancelled
+  out of it.** `Process.wait()` resolves only once every pipe transport disconnects, so
+  a descendant that starts its own session — a `claude -p` hook, an MCP helper launched
+  with setsid — keeps it pending after the child is dead. Every post-kill path then sat
+  in an unbounded await, and the cleanup meant to ENFORCE the deadline outlived it. On
+  the streaming path the awaits sat inside the `except` handlers, so an outer
+  cancellation escaped into the `finally` and `Runtime.call_timeout` could not recover
+  the run; Ctrl-C did not either, and the provider's concurrency slot stayed held.
+  Measured with a 0.5 s deadline: still pending at 10 s. The settle is now bounded
+  everywhere and closes the transport on expiry, which is what actually releases the
+  wait.
+- **A timed-out sandbox run overran its own deadline by a fixed ~10 seconds.** Same
+  root cause, in the code that runs model-authored programs — and model code may
+  daemonise anything. `Sandbox(timeout_s=0.3)` returned at 10.31 s, every time: two
+  unrelated 5 s waits back to back. Now ~1.3 s worst case, healthy path unchanged.
+- **A blank completion killed the whole run instead of trying the next model.** The
+  rule was enforced in three places with two policies: synthesis failed over, while the
+  worker and the agentic loop failed the run outright, discarding every sibling
+  artifact already paid for. A model that terminates normally with no text has not
+  rejected the request — refusals and truncations never reach that branch, because
+  `ensure_complete_response` catches them first. `EmptyOutputError` now carries the
+  condition for all three sites and Runtime reroutes on it without retrying in place,
+  since at temperature 0 the same model returns the same nothing.
+- **The Web UI leaked a concurrency slot whenever the stream body raised**, serving 429
+  to everyone with nothing running until restart. Both unwind paths now release,
+  idempotently — neither subsumes the other.
+- **`--synthesis assemble` produced an unusable answer on any goal that also asked for
+  docs.** It stripped every fence and concatenated the bodies, so a README's prose
+  landed in the middle of the Python: 6 runs of 6 scored 0.000. Fences and their
+  language tags are kept now, which separates the files — the same shape `Synthesizer`
+  is instructed to produce.
+- **The no-key demo recorded invented cash in the usage ledger** — $0.000676 of spend
+  written to `~/.volante/usage.jsonl` for a provider that makes no network calls. The
+  demo model is priced at zero now, because it costs zero.
+
+### Added
+- **Synthesis verifies the model's own ```python claim and repairs it once.** Asked for
+  a module plus tests plus a README, the model would put all three inside one python
+  fence — as raw markdown after a `# README.md` comment, or inside a `"""` it never
+  closed. That is the worst shape a failure can take for a caller who just wants
+  working output: the answer looks complete and is a Python file with prose in it. A
+  block the model TAGGED python must now parse; if it does not, one retry carries the
+  syntax error back, and the first answer is kept if the retry is no better. Narrow by
+  design — it verifies only what the provider asserted, exactly like
+  `ensure_complete_response`, and never syntax-checks a non-Python answer.
+- **`prefer=cheap` now governs decomposition DEPTH, not just model choice.** Measured,
+  n=5: on `slugify`, where one model already scores 1.000, it cuts cost from 10.6x
+  baseline to 4.7x for identical output; on `resolve`, the goal with headroom, it costs
+  0.20 of score and saves nothing. Opt-in for a measured reason — three attempts at
+  deciding automatically all failed. The planner's difficulty labels give `resolve` the
+  same profile as goals baseline already aces; told it may abstain it never does; shown
+  its own answer it replies OK on work scoring 0.417.
+- `EmptyOutputError` is exported alongside `IncompleteOutputError`.
+- A second eval suite (`--suite depth`) carrying goals with measured headroom, and
+  `--synthesis` on the eval runner.
+
+### Changed
+- **The MCP server builds its verified runtime factory once instead of per tool call.**
+  The factory runs a live plan-gate probe — on a subscription-only setup a real
+  `claude -p` spawn, measured at 5.03 s and one interactive-quota unit — so rebuilding
+  it added +33% wall time and +33% quota to every `volante_run`, re-verifying what the
+  previous call had verified seconds earlier.
+- **`prefer` is a published enum and an invalid value is now free.** It shipped as a
+  bare string validated inside `Router.__init__`, one line after the awaited preflight,
+  so a guess like `"fast"` cost a real CLI-agent call and ~5 s before being rejected.
+
+
 ### Fixed
 - **A CLI-agent call could hang forever, and the streaming path could not be cancelled out of it.**
   `Process.wait()` resolves only once every pipe transport has disconnected. The child runs in its
