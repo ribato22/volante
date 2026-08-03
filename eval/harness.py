@@ -187,6 +187,13 @@ _PY_FENCE = re.compile(
     _TRIPLE + r"[^\S\r\n]*python[^\S\r\n]*\r?\n(.*?)" + _TRIPLE,
     re.IGNORECASE | re.DOTALL,
 )
+# Dipisah dari _PY_FENCE: pembuka dan penutup dicari terpisah supaya penutupnya bisa
+# DIPILIH (lihat extract_python), bukan sekadar yang pertama muncul.
+_PY_FENCE_OPEN = re.compile(
+    _TRIPLE + r"[^\S\r\n]*python[^\S\r\n]*\r?\n", re.IGNORECASE
+)
+# Penutup harus di awal baris: ``` di tengah baris adalah bagian dari teks.
+_FENCE_CLOSE = re.compile(r"(?m)^[^\S\r\n]*" + _TRIPLE)
 _README_HEADING = re.compile(r"(?m)^#{1,6}\s+\S")
 
 
@@ -203,9 +210,40 @@ def _extract_text(resp: CanonicalResponse) -> str:
 
 
 def extract_python(text_in: str) -> str:
-    """Isi blok ```python pertama; fallback teks mentah bila tak ada fence."""
-    m = _PY_FENCE.search(text_in)
-    return m.group(1) if m else text_in
+    """Isi blok ```python pertama; fallback teks mentah bila tak ada fence.
+
+    Penutup fence dipilih yang menghasilkan kode YANG BISA DI-PARSE, bukan yang
+    pertama ditemui. Sebabnya terukur pada keluaran orkestrasi nyata: model menulis
+    solution.py lalu menyisipkan README yang diminta ke dalam string triple-quote,
+    dan README itu memuat contoh ```bash. Pencocokan non-greedy berhenti DI SANA —
+    di tengah string literal — sehingga kode terekstrak berakhir dengan string tak
+    tertutup, gagal di-import, dan SELURUH case gagal. Run itu berskor 0,000 dengan
+    `resolve` yang baik-baik saja di dalamnya.
+
+    Yang dihukum adalah penulis SATU blok mandiri, yaitu bentuk keluaran sebuah
+    sintesis, jadi arm orkestrasi terkena jauh lebih sering daripada baseline:
+    artefak penilaian yang terbaca sebagai selisih kemampuan.
+
+    Perilaku lama dipertahankan persis ketika penutup pertama sudah benar — kandidat
+    diuji berurutan, jadi blok pertama yang valid tetap yang menang.
+    """
+    m = _PY_FENCE_OPEN.search(text_in)
+    if m is None:
+        return text_in
+    body = text_in[m.end() :]
+    first: str | None = None
+    for close in _FENCE_CLOSE.finditer(body):
+        candidate = body[: close.start()]
+        if first is None:
+            first = candidate
+        try:
+            ast.parse(candidate)
+        except SyntaxError:
+            continue
+        return candidate
+    # Tak ada kandidat yang parse: kembalikan yang pertama (perilaku lama) agar
+    # kode yang memang rusak tetap dinilai rusak, bukan disembunyikan.
+    return first if first is not None else body
 
 
 def _clean_env() -> dict[str, str]:

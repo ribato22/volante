@@ -724,3 +724,48 @@ async def test_run_eval_runs_k_times_and_returns_compare_dict():
     # GOOD_CODE: code=1.0, tanpa test/README -> composite 0.7 (rata-rata k identik).
     assert result["orch_composite"] == pytest.approx(0.7)
     assert result["base_composite"] == pytest.approx(0.7)
+
+
+# --- a ``` inside a string literal must not truncate the extraction ---------- #
+# Measured on real orchestration output: the model wrote solution.py and then embedded
+# the requested README inside a triple-quoted string. That README contained a ```bash
+# example, so the non-greedy fence match closed THERE — mid-string-literal. The
+# extracted code ended in an unterminated triple-quoted string, failed to import, and
+# every case failed. The run scored 0.000 with a perfectly good `resolve` in it.
+#
+# It penalises whoever writes ONE self-contained block, which is what a synthesis pass
+# produces, so it hit the orchestration arm far harder than the baseline arm — a
+# grading artefact reading as a capability difference.
+_README_INSIDE_A_STRING = '''Here you go.
+
+```python
+def resolve(rules, path):
+    return "allow"
+
+
+README = """
+# Resolver
+
+Run the tests with:
+
+```bash
+pytest
+```
+"""
+```
+
+That covers it.
+'''
+
+
+def test_extract_python_survives_a_fence_inside_a_string_literal():
+    code = extract_python(_README_INSIDE_A_STRING)
+    compile(code, "solution", "exec")  # raises SyntaxError on the truncated version
+    assert "def resolve" in code
+    assert "README" in code
+
+
+def test_extract_python_still_takes_the_first_block_when_it_parses():
+    """The fix must not start preferring a later block. Two candidates, first wins."""
+    doc = "```python\nx = 1\n```\n\n```python\nx = 2\n```\n"
+    assert extract_python(doc).strip() == "x = 1"
