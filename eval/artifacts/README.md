@@ -138,3 +138,47 @@ where anything is lost.
 
 So the whole 0.292 -> 0.819 gap sits in the plan. Nothing downstream needs changing,
 and any fix that does not change what `Supervisor.plan()` emits cannot help.
+
+### Attacking the planner gap: what does not work (2026-07-31)
+
+The gap above is entirely in `Supervisor.plan()`. Seven candidate revisions of
+`_PLAN_SYSTEM` were written and screened on real plans for six goals — inserted before
+the "no prose" sentence so the JSON contract stays closest to the output. They ranged
+from abstract principle ("a deliverable named once is not automatically one task") to
+difficulty-gated ("before emitting a task you would label hard, check whether it
+splits") to concrete shape ("when a function needs a non-trivial helper, plan the
+helper as its own task").
+
+**All seven failed.** Not one produced a `resolve` plan with a matching task separate
+from a precedence task, and three inflated the trivial controls (`calc` 1→2 code
+tasks, `roman` 2→3). Every plan reproduced the three deliverables the goal names in
+its closing sentence.
+
+The mechanism, from a direct probe: asked *"list the separable sub-problems — the parts
+that could be implemented independently"*, the same model at temperature 0 answers
+"Pattern Matching / Rule Filtering / Precedence Handling / Output Formatting" — exactly
+the decomposition that wins. **The capability is there; the single planning turn
+suppresses it**, because the goal's closing deliverable list dominates the same turn
+that would have to do the analysis.
+
+Two-stage planning (analyse, then plan against goal + analysis) does produce the right
+split for `resolve`. Two things then went wrong:
+
+- **The analysis stage cannot abstain.** Told to answer `NONE` when the deliverable is
+  one straightforward function, it returned four sub-problems for `slugify` (a 5-line
+  function) as readily as for `resolve`. It never abstains, on any goal.
+- **End to end, n=4, it is not conclusive.** `resolve` moved 0.344 → 0.453 but both
+  arms contain 0.000 runs, against a spread that wide. Two-stage produced the two
+  highest scores seen (0.958, 0.854) and two zeros.
+
+One assumption of ours was refuted and is worth recording: over-decomposition did NOT
+hurt the score. `slugify` scored 1.000 under both one-stage and two-stage planning
+despite being split into four code tasks. The cost of the extra calls is real; the
+quality penalty we assumed is not there.
+
+What would settle it: higher n, and a diagnosis of the 0.000 runs (a successful run
+whose final answer scores nothing suggests the assembled module sometimes lacks a
+usable `resolve`, which would be a pipeline defect independent of planning).
+
+Nothing was shipped from this. Recorded so the seven dead candidates are not written
+an eighth time.
