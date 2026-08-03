@@ -256,3 +256,50 @@ This is the first time orchestration beats a single strong model on this project
 p<0.005. It was not won by making the answers better; it was won by removing the
 failures. Mean rose 0.620 -> 0.742 while stdev fell 0.322 -> 0.212, and it is the
 second number that bought the significance.
+
+### Execution verification: safe, not yet economical (2026-07-31)
+
+Every gate that asked the MODEL to judge quality failed — difficulty labels, abstention,
+self-check. Execution does not ask. Derive `assert` statements from the goal, run them
+in the sandbox Volante already ships, and read the exit code.
+
+First probe, `resolve` and `slugify`, 9 runs: perfect separation. Every `resolve` answer
+(scores 0.396–0.458) failed its checks; every `slugify` answer (1.000) passed. On the
+same 0.417 answers, the model's own self-check had replied `OK`.
+
+Then the number that decides whether it can be a default — a check that wrongly PASSES a
+wrong answer stops the engine and hands over something broken. Across all 11 code goals,
+2 runs each:
+
+| | count |
+|---|---|
+| passed and correct | 8 |
+| failed and wrong | 4 |
+| false positive (expensive, safe) | 10/22 |
+| **FALSE NEGATIVE (dangerous)** | **0/22** |
+
+Mean score when the check passed: **1.000**. The safety property holds — it never
+approved a wrong answer.
+
+The economics do not, yet. A 45% false-positive rate would escalate nearly half of
+already-perfect answers, which costs more than always orchestrating. Counting individual
+assertions shows why: the derived checks are mostly right and contain a minority of
+wrong ones (0-29% fail). And the failing FRACTION does not separate the cases —
+
+    resolve   score 0.417 (wrong)    5/20 failed   25%
+    calc      score 1.000 (right)    2/12 failed   17%
+    csv_stats score 1.000 (right)    1/8  failed   12%
+    guardkit  score 0.978 (wrong)    2/26 failed    8%
+
+25% versus 17% is not a threshold, it is an overlap. So "escalate when checks fail" is
+the wrong shape.
+
+What the evidence points at instead is the shape 0.5.0 already proved: the `ast` check
+did not GATE anything, it fed the error back and repaired once, taking unparsable output
+from 2 runs in 8 to 0 in 8. Applied here that means always run the cheap path, always
+run the derived checks, and hand any failures to a single repair pass — which tolerates
+wrong assertions, because a model shown a bad assertion can dismiss it. Cost is then flat
+(~3 calls) rather than a bet on a classifier that does not exist.
+
+Unmeasured, and the reason nothing is built yet: whether a repair pass shown its own
+failing assertions actually improves the score, and whether it ever makes it worse.
