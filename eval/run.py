@@ -29,6 +29,40 @@ from volante.bootstrap import (
 )
 
 
+def _pooled_delta(per_goal: list[dict], key: str) -> str | None:
+    """One paired interval over every matched run in the suite.
+
+    Pooling the PAIRS rather than the goal means keeps the pairing that makes the
+    comparison honest: each pair is a baseline and an orchestration run from the same
+    loop iteration, so anything that drifted between iterations moves both and cancels.
+    """
+    from eval.stats import paired_delta
+
+    base: list[float] = []
+    other: list[float] = []
+    arm = key.split("_vs_")[0]
+    for g in per_goal:
+        series = g.get("series")
+        if not series or arm not in series:
+            return None
+        base.extend(series["baseline"])
+        other.extend(series[arm])
+    if len(base) < 2:
+        return None
+    delta = paired_delta(base, other)
+    verdict = (
+        "the interval excludes zero"
+        if delta.significant
+        else "the interval INCLUDES zero — this is not evidence of a difference"
+    )
+    return (
+        f"{delta.mean:+.3f}  [95% CI {delta.ci_low:+.3f}, {delta.ci_high:+.3f}]  "
+        f"n={delta.n} pairs\n"
+        f"  {verdict}. Smallest effect this run could have detected: "
+        f"±{delta.detectable:.3f}"
+    )
+
+
 def format_report(result: dict) -> str:
     """Render hasil run_suite 3-arm jadi tabel per-goal + agregat + baris VERDICT.
 
@@ -66,6 +100,15 @@ def format_report(result: dict) -> str:
         f"agentic ${cost['agentic']:.6f}"
     )
     lines.append(f"VERDICT: {str(agg['verdict']).upper()}")
+
+    # The verdict counts goals; it says nothing about whether any single difference is
+    # real. Three numbers published from this harness had to be corrected downward
+    # because a point estimate read as a finding, so the interval now travels with it.
+    pooled = _pooled_delta(per_goal, "orchestration_vs_baseline")
+    if pooled is not None:
+        lines.append("")
+        lines.append("orchestration - baseline, paired over every run:")
+        lines.append(f"  {pooled}")
     if agg["any_estimated"]:
         lines.append(
             "WARNING: some costs are estimated (a provider returned no usage); "

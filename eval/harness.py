@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from eval.stats import PairedDelta, paired_delta
+
 from volante.agent import AgenticWorker
 from volante.cost import CostMeter
 from volante.providers.base import ProviderError
@@ -666,6 +668,19 @@ async def run_eval(
     )
 
 
+
+def _delta_dict(d: PairedDelta) -> dict[str, Any]:
+    """A paired difference, serialised so an artifact carries its own uncertainty."""
+    return {
+        "n": d.n,
+        "mean": d.mean,
+        "ci_low": d.ci_low,
+        "ci_high": d.ci_high,
+        "detectable": d.detectable,
+        "significant": d.significant,
+    }
+
+
 async def run_suite(
     suite: list[EvalTask],
     make_runtime: Callable[[], Runtime],
@@ -709,6 +724,14 @@ async def run_suite(
             a_scores.append(score_agentic(a_run, t.reference_test))
             if a_run.error is not None:
                 a_errors.append(a_run.error)
+        # The per-iteration composites, kept rather than averaged away: baseline,
+        # orchestration and agentic run inside the SAME loop iteration above, so these
+        # are matched triples and the difference can be analysed pair by pair. Averaging
+        # first throws that away and turns run-to-run drift into apparent effect — which
+        # is how +0.289 was published here and then failed to reproduce.
+        b_series = [s["composite"] for s in b_scores]
+        o_series = [s["composite"] for s in o_scores]
+        a_series = [s["composite"] for s in a_scores]
         b_mean = mean_scores(b_scores)
         o_mean = mean_scores(o_scores)
         a_mean = mean_scores(a_scores)
@@ -717,6 +740,13 @@ async def run_suite(
         b_measured = any(s.get("measured", True) for s in b_scores)
         o_measured = any(s.get("measured", True) for s in o_scores)
         a_measured = any(s.get("measured", True) for s in a_scores)
+        deltas = {
+            "orchestration_vs_baseline": _delta_dict(
+                paired_delta(b_series, o_series)
+            ),
+            "agentic_vs_baseline": _delta_dict(paired_delta(b_series, a_series)),
+        }
+        series = {"baseline": b_series, "orchestration": o_series, "agentic": a_series}
         arms = {
             "baseline": {
                 "composite": b_mean["composite"],
@@ -768,6 +798,11 @@ async def run_suite(
                 "orchestration": o_mean,
                 "agentic": a_mean,
             },
+            # The paired analysis, and the per-iteration series it came from. A mean
+            # without these cannot say whether it is a finding or noise, which is what
+            # produced three corrections in this project.
+            "deltas": deltas,
+            "series": series,
         })
 
     names = ("baseline", "orchestration", "agentic")
