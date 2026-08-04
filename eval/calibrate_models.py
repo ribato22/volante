@@ -36,6 +36,7 @@ import argparse
 import asyncio
 import json
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from eval.harness import run_baseline, score_for_calibration
@@ -101,7 +102,7 @@ async def measure(
 
     measurements: dict[str, dict[str, list[float]]] = {}
     for wire in models:
-        model_id = f"{prefix.lower()}/{wire}"
+        model_id = model_id_for(prefix, wire)
         registry = _registry_for(model_id)
         # Reasoning models spend a long time before their first token, and a
         # trap-laden analyse goal is exactly the kind of prompt they spend it on.
@@ -136,6 +137,27 @@ async def measure(
         )
         print(f"  -> {model_id}: {summary}\n")
     return measurements
+
+
+
+def model_id_for(prefix: str, wire: str, env: Mapping[str, str] | None = None) -> str:
+    """The id the RUNTIME will register for this slot — not a second convention.
+
+    A profile is keyed by model id and the Registry looks it up exactly, rejecting the
+    whole file when a key names no configured model. So an id that differs by one
+    character does not degrade quietly, it stops the process:
+
+        ValueError: quality profiles reference unknown models: [...]
+
+    This built `f"{prefix.lower()}/{wire}"` — `openai_compat/...` — while bootstrap
+    registers `openai-compat/...`. Measuring worked, calibrating worked, and pointing
+    Volante at the result failed at startup every time, which is the whole documented
+    workflow. Both sides read `*_NAME` first for the same reason: it is how a user
+    names a model, and a profile that ignores it describes something that does not
+    exist.
+    """
+    env = os.environ if env is None else env
+    return env.get(f"{prefix}_NAME") or f"openai-compat/{wire}"
 
 
 def main(argv: list[str] | None = None) -> None:

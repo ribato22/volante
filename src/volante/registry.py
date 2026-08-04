@@ -1,6 +1,7 @@
 # src/volante/registry.py
 from __future__ import annotations
 
+import logging
 import math
 from collections import Counter
 from collections.abc import Mapping
@@ -9,6 +10,9 @@ from dataclasses import dataclass, field
 from volante.types import TASK_TYPES, ModelInfo
 
 _BILLING_MODES = frozenset({"card", "plan_credit", "plan_included"})
+
+logger = logging.getLogger(__name__)
+
 
 
 def _validate_model(model: ModelInfo) -> None:
@@ -118,11 +122,29 @@ class Registry:
         self._by_id: dict[str, ModelInfo] = {m.id: m for m in self._models}
         self._quality_profiles = dict(quality_profiles or {})
         unknown_profiles = set(self._quality_profiles) - set(self._by_id)
+        # A profile naming models you do not have is not automatically an error. A
+        # calibration run, or a profile shared between machines, describes the
+        # inventory it MEASURED — and rejecting the whole file for mentioning a model
+        # this process happens not to configure makes such a file unusable anywhere but
+        # its origin. Entries that match nothing cannot affect routing, so they are
+        # dropped and named.
+        #
+        # But a file where NOTHING matches is a different thing: it describes some
+        # other inventory, or every id in it is wrong. Failing fast there keeps the
+        # typo protection this check was added for.
         if unknown_profiles:
-            raise ValueError(
-                "quality profiles reference unknown models: "
-                f"{sorted(unknown_profiles)}"
+            if not (set(self._quality_profiles) & set(self._by_id)):
+                raise ValueError(
+                    "quality profiles reference unknown models: "
+                    f"{sorted(unknown_profiles)}"
+                )
+            logger.warning(
+                "ignoring %d quality profile(s) for models not configured here: %s",
+                len(unknown_profiles),
+                ", ".join(sorted(unknown_profiles)),
             )
+            for stale in unknown_profiles:
+                del self._quality_profiles[stale]
 
     def all(self) -> list[ModelInfo]:
         return list(self._models)

@@ -1,6 +1,8 @@
 # tests/test_registry.py
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from volante.registry import ModelQualityProfile, Registry
@@ -129,3 +131,41 @@ def test_quality_profile_for_unknown_model_fails_fast() -> None:
 def test_quality_profile_scores_are_normalized(score: float) -> None:
     with pytest.raises(ValueError, match="between 0 and 1"):
         ModelQualityProfile(task_scores={"code": score})
+
+
+def test_a_shared_profile_may_name_models_you_do_not_have(caplog) -> None:
+    """A calibration describes the inventory it MEASURED.
+
+    Rejecting the whole file for mentioning one model this process does not configure
+    made such a file unusable anywhere but the machine that produced it — which is
+    every shared profile, and every profile from a run that measured more models than
+    are configured now. Entries that match nothing cannot affect routing.
+    """
+    model = ModelInfo(
+        id="have-it", provider="fake", strengths={"coding"}, context_window=8000,
+        max_output_tokens=1000, supports_tools=False,
+        cost_per_1k_in=0.0, cost_per_1k_out=0.0,
+    )
+    profiles = {
+        "have-it": ModelQualityProfile(overall_score=0.9, source="measured"),
+        "not-configured-here": ModelQualityProfile(overall_score=0.5),
+    }
+
+    with caplog.at_level(logging.WARNING):
+        registry = Registry([model], quality_profiles=profiles)
+
+    assert registry.quality_profile("have-it") is not None
+    assert "not-configured-here" in caplog.text, "a dropped entry must be named"
+
+
+def test_a_profile_matching_nothing_still_fails_fast() -> None:
+    """The typo protection this check exists for. A file where NOTHING matches
+    describes some other inventory, or every id in it is wrong."""
+    model = ModelInfo(
+        id="have-it", provider="fake", strengths={"coding"}, context_window=8000,
+        max_output_tokens=1000, supports_tools=False,
+        cost_per_1k_in=0.0, cost_per_1k_out=0.0,
+    )
+
+    with pytest.raises(ValueError, match="reference unknown models"):
+        Registry([model], quality_profiles={"typo": ModelQualityProfile()})
