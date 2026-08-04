@@ -6,6 +6,60 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-04
+
+**The calibration workflow in 0.7.0 never worked.** Anyone following the documented
+three steps got `ValueError: quality profiles reference unknown models` at startup,
+every time. That is the reason for this release.
+
+### Fixed
+- **`--calibrate` produced ids the runtime does not register.** `eval.calibrate_models`
+  built `openai_compat/...` while bootstrap registers `openai-compat/...`, so the
+  profile named models that did not exist and the Registry rejected the file. Measuring
+  worked, calibrating worked, and pointing Volante at the result failed at startup.
+  Both sides now share one rule — `*_NAME` first — pinned by tests against bootstrap's
+  own output for the default, named and numbered slots. Note the limit: a measurements
+  file written by an older version still carries the old ids, so re-measure or re-key it
+  before calibrating.
+- **A shared profile could not be used anywhere but the machine that produced it.**
+  Naming one model the current process does not configure rejected the whole file. A
+  calibration describes the inventory it MEASURED, so entries matching nothing are now
+  dropped and named in a warning, while a file where NOTHING matches still fails fast —
+  that is the typo protection the check exists for.
+- **A run priced at zero now says so.** The three-variable quickstart leaves
+  `*_COST_IN`/`*_COST_OUT` unset, which prices every call at zero, so the footer read
+  `billed_usd: $0.000000` while real money left the account — the only inaccuracy this
+  meter can produce that LOOKS correct. The warning sits directly under the figure it
+  qualifies and names the setting to fix it. (A table of default prices for known models
+  was considered and rejected: a stale price shipped in a package misleads more than a
+  zero that announces itself.)
+- **The agentic tool rejection names the setting that fixes it.** `*_TOOLS` defaults to
+  False, so an endpoint that supports tool calling is filtered out of every agentic task
+  until declared. The default is deliberate; the message now says `set this model's
+  *_TOOLS=1` rather than leaving the reader to find it.
+
+### Added
+- **`--calibrate` prints suggested tiers, per task type.** At k=5 a profile does not
+  outweigh a tier that disagrees with it — the router blends them by confidence
+  (n/(n+3)) and the tier still carries 37.5%. So the useful output of a calibration is
+  also knowing what to declare. Ranking by the overall score was implemented, measured,
+  and thrown away: it reproduced the guessed tiers exactly, because averaging across
+  task types put the model that measured 0.998 at code BELOW one that measured 0.956.
+  There is no single tier right for two task types, so the table is per type and the
+  caller picks the row matching their work.
+- **`write` and `research` goals**, so a profile can cover every task type — which is
+  what `--calibrate` requires before it will emit `overall_score` at all. Both are
+  graded mechanically and built against the attack that beat this suite's first draft:
+  a RULES block listing what the checks look for IS an answer key. Nothing the checks
+  reward appears in the prompt.
+
+### Changed
+- Published measurements for three model families at k=5 (`eval/artifacts/`), and a
+  correction to the routing figures derived from them: the earlier 0.0017 came from a
+  test script where `confidence` defaults to 1.0, and against the profile a real
+  `--calibrate` writes the routing loss is unchanged from using no profile at all.
+
+
 ## [0.7.0] - 2026-08-04
 
 **One call is now the default.** Volante has always planned, decomposed and synthesised,

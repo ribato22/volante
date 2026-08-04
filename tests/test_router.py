@@ -5,7 +5,7 @@ import logging
 import pytest
 
 from volante.registry import Registry
-from volante.router import Router
+from volante.router import NoEligibleModelError, Router
 from volante.types import ModelInfo, Task
 
 
@@ -367,3 +367,38 @@ def test_local_and_cheap_are_real_objectives():
     for prefer in ("local", "cheap"):
         router = Router(Registry(_tiered_models()), prefer=prefer)
         assert router.route(_task("code", difficulty="medium")) == "ollama/llama3.2"
+
+
+def test_tool_rejection_names_the_setting_that_fixes_it() -> None:
+    """This rejection is reachable straight from the three-variable quickstart.
+
+    `*_TOOLS` defaults to False, so an endpoint that supports tool calling perfectly
+    well is filtered out of every agentic task until the user declares it. The default
+    is deliberate — an arbitrary OpenAI-compatible endpoint should opt in rather than
+    be granted a capability it may not have — but a correct default that leaves
+    someone stuck still owes them the one clause that unsticks them.
+    """
+    model = ModelInfo(
+        id="openai-compat/some-model",
+        provider="openai_compat",
+        strengths={"coding", "reasoning"},
+        context_window=128_000,
+        max_output_tokens=8_192,
+        supports_tools=False,
+        cost_per_1k_in=0.0,
+        cost_per_1k_out=0.0,
+    )
+    task = Task(
+        id="t",
+        description="run it",
+        type="code",
+        mode="agentic",
+        required_tools=["run_python"],
+    )
+
+    with pytest.raises(NoEligibleModelError) as excinfo:
+        Router(Registry([model])).route_ranked(task)
+
+    message = str(excinfo.value)
+    assert "requires tool support" in message
+    assert "_TOOLS=1" in message, "the message must name the setting, not just the fault"

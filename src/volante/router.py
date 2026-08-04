@@ -184,7 +184,17 @@ def _eligibility_reasons(
     if missing:
         reasons.append(f"missing required strengths {sorted(missing)}")
     if needs_tools and not model.supports_tools:
-        reasons.append("task mode 'agentic' requires tool support")
+        # Naming the fix, because this rejection is reachable from the documented
+        # three-variable quickstart: `*_TOOLS` defaults to False, so an endpoint that
+        # supports tool calling perfectly well is filtered out of every agentic task
+        # until the user says it does. The default is deliberate — an arbitrary
+        # OpenAI-compatible endpoint must opt in rather than be granted a capability
+        # it may not have — but a correct default that leaves someone stuck is still
+        # worth one clause of explanation.
+        reasons.append(
+            "task mode 'agentic' requires tool support "
+            "(set this model's *_TOOLS=1 if the endpoint supports tool calling)"
+        )
 
     return tuple(reasons)
 

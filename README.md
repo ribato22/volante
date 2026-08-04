@@ -488,10 +488,10 @@ Install it clone-free (recommended), or from a source checkout:
 
 ```bash
 # clone-free — uv fetches the published package + the `mcp` extra on demand:
-uvx --from "volante[mcp]==0.7.0" volante-mcp
+uvx --from "volante[mcp]==0.8.0" volante-mcp
 
 # or install it and run the console script:
-pip install "volante[mcp]==0.7.0"   # then:
+pip install "volante[mcp]==0.8.0"   # then:
 volante-mcp
 
 # or from a source checkout:
@@ -501,7 +501,7 @@ uv sync --extra mcp && uv run --extra mcp python -m volante_mcp
 Register it with your client. **Claude Code** — one command:
 
 ```bash
-claude mcp add volante -- uvx --from "volante[mcp]==0.7.0" volante-mcp
+claude mcp add volante -- uvx --from "volante[mcp]==0.8.0" volante-mcp
 ```
 
 **Cursor / VS Code / Windsurf** — add to the client's MCP config (e.g. `.cursor/mcp.json`, or
@@ -512,7 +512,7 @@ VS Code's `.vscode/mcp.json` under a `"servers"` key):
   "mcpServers": {
     "volante": {
       "command": "uvx",
-      "args": ["--from", "volante[mcp]==0.7.0", "volante-mcp"]
+      "args": ["--from", "volante[mcp]==0.8.0", "volante-mcp"]
     }
   }
 }
@@ -543,10 +543,10 @@ Requires [`uv`](https://docs.astral.sh/uv/) on your PATH (the plugin launches th
 **Other MCP clients (Codex, Cursor, Windsurf, Gemini CLI, Cline).** These don't have a plugin
 marketplace — they consume MCP servers via config. Point them at the same launch command:
 
-- **OpenAI Codex CLI** — `codex mcp add volante -- uvx --from "volante[mcp]==0.7.0" volante-mcp`
+- **OpenAI Codex CLI** — `codex mcp add volante -- uvx --from "volante[mcp]==0.8.0" volante-mcp`
   (writes an `[mcp_servers.volante]` block to `~/.codex/config.toml`; add providers with repeated
   `--env KEY=VALUE`).
-- **Gemini CLI** — `gemini mcp add volante uvx -- --from "volante[mcp]==0.7.0" volante-mcp`
+- **Gemini CLI** — `gemini mcp add volante uvx -- --from "volante[mcp]==0.8.0" volante-mcp`
   (the `--` is required because Volante's first arg is `--from`).
 - **Cursor / Windsurf / Cline / Roo** — add the standard `mcpServers` entry to the client's MCP
   config (`~/.cursor/mcp.json`, `~/.codeium/windsurf/mcp_config.json`, or the Cline settings):
@@ -554,7 +554,7 @@ marketplace — they consume MCP servers via config. Point them at the same laun
   ```json
   { "mcpServers": { "volante": {
       "command": "uvx",
-      "args": ["--from", "volante[mcp]==0.7.0", "volante-mcp"],
+      "args": ["--from", "volante[mcp]==0.8.0", "volante-mcp"],
       "env": { "CLAUDE_CODE_ENABLED": "1", "ANTHROPIC_API_KEY": "sk-ant-..." }
   } } }
   ```
@@ -573,7 +573,7 @@ endpoint), that's the CLI bundle path, not the "publish a URL" web form:
 npx -y @smithery/cli mcp publish ./volante-<version>.mcpb -n <your-namespace>/volante
 ```
 
-The bundle wraps `uvx --from "volante[mcp]==0.7.0" volante-mcp`, so it runs locally and your
+The bundle wraps `uvx --from "volante[mcp]==0.8.0" volante-mcp`, so it runs locally and your
 subscription CLIs + API keys work as usual (needs `uv` on PATH).
 
 ## Providers
