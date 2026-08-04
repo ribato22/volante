@@ -302,60 +302,69 @@ WRITE_CHECKS = (
 # accident, which is exactly how the first research rubric leaked 83%.
 
 RESEARCH_GOAL = '''\
-A colleague is writing a small command-line tool in Python and wants to use only the
-standard library. Recommend exactly one standard-library module for each of the three
-needs below, and justify each in one sentence.
+A colleague is writing a Python tool and wants to use only the standard library.
+Name exactly one standard-library module or function for each need below, and justify
+each in one sentence.
 
-1. They need to read a settings file that is written as sections with `key = value`
-   lines underneath, the format Python's own tooling has used for decades.
-2. They need to compare two versions of a text file and print the differences in the
-   usual patch-like form, without shelling out to an external program.
-3. They need to run a function repeatedly to measure how long it takes, with the
-   timing loop and the repetition handled for them rather than written by hand.
+1. They read a line of text from an untrusted source that should contain a Python
+   literal — a list, a dict, a number — and need the value it denotes, without any
+   chance of that text executing something.
+2. They compare two floating-point results of the same calculation done two different
+   ways, and need to know whether they agree to within a small tolerance.
+3. They generate a one-time token that goes in a password-reset link, and it must not
+   be predictable by someone who has seen earlier tokens.
+4. They walk a sorted list of records and need to process it in runs of consecutive
+   items that share a key, without writing the grouping loop themselves.
+5. They need a digest of a file's contents that is identical across separate runs of
+   the program and across machines.
 
-For each need give the module name, then the sentence. Do not list alternatives —
-one module per need, the one you would actually use.
+For each need give the name, then the sentence. Do not list alternatives — one answer
+per need, the one you would actually use.
 '''
 
-_R1 = ("configparser",)
-_R2 = ("difflib",)
-_R3 = ("timeit",)
-# Plausible neighbours a shotgun answer reaches for. Naming these alongside the right
-# answer is what "do not list alternatives" forbids, and what a rubric of positive
-# checks alone would happily reward.
-_R_DECOYS = ("json", "yaml", "toml", "tomllib", "argparse", "csv",
-             "filecmp", "subprocess", "time.perf_counter", "cprofile",
-             "profile", "datetime")
-
-
-def _names_module(out: str, wanted: tuple[str, ...]) -> bool:
-    low = out.lower()
-    return any(re.search(rf"\b{re.escape(w)}\b", low) for w in wanted)
+# Each need has a WRONG answer that is the first thing pattern-matching reaches for:
+# eval, ==, random, a hand-written loop, and the builtin hash(). Those are what make
+# this goal separate models rather than measure whether they can read a list — the
+# previous draft scored 1.00 for every model, satisfying the coverage requirement
+# while carrying no signal at all.
+_R_NEEDS = (
+    ("literal_eval", ("ast.literal_eval", "literal_eval")),
+    ("isclose", ("math.isclose", "isclose")),
+    ("secrets", ("secrets",)),
+    ("groupby", ("itertools.groupby", "groupby")),
+    ("hashlib", ("hashlib",)),
+)
+# The plausible-but-wrong answer for each need, plus the neighbours a spray reaches
+# for. `hash(` is the builtin whose value is salted per process — the exact trap in
+# need 5.
+_R_DECOYS = (
+    "eval(", "exec(", "json.loads", "pickle",
+    "round(", "abs(", "decimal", "numpy",
+    "random.", "uuid", "os.urandom", "time.time",
+    "sorted(", "defaultdict", "collections.counter",
+    "hash(", "id(", "md5", "repr(",
+)
 
 
 def _decoys(out: str) -> int:
     low = out.lower()
-    return sum(1 for d in _R_DECOYS if re.search(rf"\b{re.escape(d)}\b", low))
+    return sum(1 for d in _R_DECOYS if d in low)
 
 
-# Exclusivity is folded INTO each positive check rather than left to one negative.
-# Measured on the first draft: a shotgun answer that named all three right modules
-# among eight wrong ones scored 0.83 — three positives are worth more than one
-# negative, so naming everything paid. Requiring "the right module AND not a spray"
-# makes the positive itself unsatisfiable by spraying, which is the only version the
-# goal's own instruction ("do not list alternatives") actually enforces.
-RESEARCH_CHECKS = (
-    TextCheck("configparser", lambda o: _names_module(o, _R1) and _decoys(o) <= 1),
-    TextCheck("difflib", lambda o: _names_module(o, _R2) and _decoys(o) <= 1),
-    TextCheck("timeit", lambda o: _names_module(o, _R3) and _decoys(o) <= 1),
+def _names(out: str, wanted: tuple[str, ...]) -> bool:
+    low = out.lower()
+    return any(w in low for w in wanted)
+
+
+RESEARCH_CHECKS = tuple(
+    TextCheck(name, (lambda w: lambda o: _names(o, w) and _decoys(o) <= 1)(wanted))
+    for name, wanted in _R_NEEDS
+) + (
     TextCheck("not_a_shotgun", _forbids(lambda o: _decoys(o) > 1), negative=True),
-    # Shape, but coupled to substance. Measured: a spray answer failed all three
-    # module checks and the shotgun negative, then still took both length checks —
-    # any verbose text passes them — and landed at 0.33 against a 0.25 ceiling.
-    # Length only means something once the answer has actually chosen; "justified"
-    # is not a property a list of every candidate can have.
-    TextCheck("justified", lambda o: _words(o) >= 45 and _decoys(o) <= 1),
-    TextCheck("not_padded", lambda o: 0 < _words(o) <= 400 and _decoys(o) <= 1),
+    # Shape, coupled to substance: length only means something once the answer has
+    # chosen. "Justified" is not a property a list of every candidate can have.
+    TextCheck("justified", lambda o: _words(o) >= 60 and _decoys(o) <= 1),
+    TextCheck("not_padded", lambda o: 0 < _words(o) <= 450 and _decoys(o) <= 1),
 )
 
 TEXT_SUITE.extend(

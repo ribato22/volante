@@ -25,11 +25,13 @@ CORRECT: dict[str, str] = {
         "are adding automated alerting that warns us before such credentials expire."
     ),
     "stdlib_pick": (
-        "For the settings file, use configparser: it reads that "
-        "sections-with-key-value format directly. For the diff, use difflib: "
-        "unified_diff gives the usual patch-style output with no external process. "
-        "For the measurement, use timeit: it runs the callable repeatedly and "
-        "handles the loop and the repetition for you."
+        "Use ast.literal_eval for the untrusted line: it evaluates only literals and "
+        "cannot execute code. Use math.isclose for the two floating-point results, "
+        "since it compares within a relative tolerance rather than exactly. Use "
+        "secrets for the reset token, because it draws from a cryptographically "
+        "strong source. Use itertools.groupby to walk the sorted records in runs "
+        "sharing a key. Use hashlib for the file digest, whose output is stable "
+        "across runs and machines."
     ),
     "delivery_log": (
         "MEDIAN_MINUTES: 75.0\n"
@@ -51,9 +53,10 @@ SHOTGUN: dict[str, str] = {
     # Every candidate named for every need — the attack that scored 0.83 before
     # exclusivity was folded into each positive check.
     "stdlib_pick": (
-        "configparser or json or tomllib or yaml; difflib or filecmp or subprocess; "
-        "timeit or time.perf_counter or cProfile or profile. Any of these could work "
-        "depending on your needs and preferences."
+        "You could use ast.literal_eval or eval( or json.loads or pickle; "
+        "math.isclose or round( or abs( or decimal; secrets or random. or uuid or "
+        "os.urandom; itertools.groupby or sorted( or defaultdict; hashlib or hash( "
+        "or md5 or repr(. Any of these might suit depending on your needs."
     ) * 2,
     # Hedging in every direction while republishing the internal record verbatim.
     "incident_note": (

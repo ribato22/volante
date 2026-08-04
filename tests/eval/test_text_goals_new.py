@@ -26,15 +26,18 @@ and you were not affected. Service has been fully restored.
 The cause was an expired security credential, which has been replaced. We are adding
 automated alerting that warns us before such credentials expire."""
 
-GOOD_RESEARCH = """For the settings file, use configparser: it reads that
-sections-with-key-value format directly. For the diff, use difflib: unified_diff gives
-the usual patch-style output with no external process. For the measurement, use timeit:
-it runs the callable repeatedly and handles the loop for you."""
+GOOD_RESEARCH = """Use ast.literal_eval for the untrusted line: it evaluates only
+literals and cannot execute code. Use math.isclose for the two floating-point results,
+since it compares within a relative tolerance rather than exactly. Use secrets for the
+reset token, because it draws from a cryptographically strong source. Use
+itertools.groupby to walk the sorted records in runs sharing a key. Use hashlib for the
+file digest, whose output is stable across runs and machines."""
 
 SHOTGUN = (
-    "configparser or json or tomllib or yaml; difflib or filecmp or subprocess; "
-    "timeit or time.perf_counter or cProfile or profile. Any of these could work "
-    "depending on your needs and preferences."
+    "You could use ast.literal_eval or eval( or json.loads or pickle; math.isclose or "
+    "round( or abs( or decimal; secrets or random. or uuid or os.urandom; "
+    "itertools.groupby or sorted( or defaultdict; hashlib or hash( or md5 or repr(. "
+    "Any of these might suit depending on your needs."
 ) * 2
 
 
