@@ -303,3 +303,36 @@ wrong assertions, because a model shown a bad assertion can dismiss it. Cost is 
 
 Unmeasured, and the reason nothing is built yet: whether a repair pass shown its own
 failing assertions actually improves the score, and whether it ever makes it worse.
+
+### The repair pass does not work either (2026-08-04)
+
+Following the evidence from the gate experiment, the proposed shape was: always take the
+cheap path, run the derived checks, and hand any failures to one repair pass — tolerant
+of wrong assertions, because a model shown a bad check can dismiss it.
+
+Measured across all 11 code goals, 2 runs each, 16 repairs actually triggered:
+
+| policy | mean delta | improved | regressed |
+|---|---|---|---|
+| A — always take the repair | **-0.126** | **0** | 3 (worst -1.000) |
+| B — take it only when fewer assertions fail | +0.000 | 0 | 0 |
+
+**Zero improvements in sixteen repairs.** Policy A is actively harmful: `textkit` went
+1.000 -> 0.000 twice, a working module rewritten into a broken one on the strength of a
+single wrong assertion. Policy B is safe and is exactly a no-op — the repair never
+reduced the failing-assertion count (1->1, 3->3, 20->20, 19->19), so B never takes it and
+the extra call buys nothing.
+
+The `resolve` row is the one that matters most. With 19-20 of its assertions failing and
+an answer genuinely scoring 0.417, the repair pass still changed nothing. So this is not
+merely "the evidence was bad". Shown exactly what fails, the model cannot fix it.
+
+That is consistent with everything else measured about this goal: baseline scores below
+0.50 on 15 of 16 runs, its own self-check replies `OK`, and now a repair pass with
+concrete failing checks moves it 0.000. **Decomposition remains the only intervention
+that has ever improved it** (+0.289, p<0.005).
+
+Four designs are now dead: difficulty-gated planning, planner abstention, model
+self-check, and repair-with-evidence. What survives is narrower and worth stating
+precisely — execution verification is a reliable DETECTOR and a useless ACTUATOR. It
+never approved a wrong answer in 22 runs, and it cannot drive a fix.
