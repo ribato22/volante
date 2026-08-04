@@ -489,3 +489,43 @@ unrelated provider errors, leaving four:
 For a caller who does not write tests, "your goal states no expected result, so this
 could not be checked" is more useful than either a false alarm or a false assurance —
 and it names the one thing they can do about it.
+
+### Forbid the calculation, not the derivation (2026-08-04)
+
+Grounding assertions in the goal's literal text fixed the false-positive rate and cost
+12% of goals their verdict entirely — `csv_stats` kept one check, `resolve` kept one,
+and one check cannot confirm anything. The rule was too blunt: it forbade DERIVING an
+expected value, when the failures only ever came from COMPUTING one.
+
+The distinction is visible in the failures themselves. The model transcribes correctly
+and calculates wrongly:
+
+    slug("Hello World") == "hello-world"          direct substitution — right
+    column_widths(...) == [4, 5, 5]               had to count — wrong, is [4,4,5]
+    wrap_text("a" * 10, 5) == ["a"] * 10          had to wrap — wrong
+
+So the rule now permits an assertion the goal's stated rules decide by direct
+substitution, and forbids any that needs arithmetic, counting, sorting, merging, or a
+multi-step transformation.
+
+Measured across 8 goals — and the false-negative test was rebuilt, because it had been
+resting on two goals total. Every goal now also runs against a DELIBERATELY BROKEN copy
+of its own answer:
+
+| derivation | false positives | inconclusive | FALSE NEGATIVES |
+|---|---|---|---|
+| literal-only | 0/8 | 1/8 = 12% | 0/8 |
+| **direct-substitution** | **0/8** | **0/8** | **0/8** |
+
+The loosened rule dominates: as safe, with nothing left unverifiable.
+
+Stated limit: the injected defect is coarse — the first function returns a constant — so
+FN=0 is measured against an easy target. It is a floor on the property, not a proof that
+subtle errors are caught. The one subtle case that has been observed (`resolve` at 0.875)
+was reported inconclusive rather than passed, which is the correct behaviour but is a
+single data point.
+
+An earlier version of this measurement reported FN 0/7 while the mutation silently never
+applied — the regex missed return annotations, so every "broken" answer was the original.
+The number was meaningless and looked fine. It is recorded here because a measurement
+that no-ops is worse than one that fails.

@@ -36,25 +36,36 @@ _PY_OPEN = re.compile(r"```[^\S\r\n]*python[^\S\r\n]*\r?\n", re.IGNORECASE)
 # A close must start its own line; a ``` mid-line is part of the text.
 _FENCE_CLOSE = re.compile(r"(?m)^[^\S\r\n]*```")
 
-# Grounded, because the free-form version's failures were read one by one and almost
-# none of them was the CODE being wrong. `column_widths(...) == [4, 5, 5]` where the
-# answer is [4, 4, 5]; `wrap_text("a"*10, 5)` expecting ten single characters; a bare
-# `from_roman(to_roman(n))` referencing a loop variable that does not exist. The model
-# was working out its own expected values and getting them wrong — 57% of correct
-# answers were flagged. So it is told not to calculate at all.
+# It forbids the COMPUTATION, not the derivation — a distinction the failures dictated.
+# Reading them one by one, almost none was the CODE being wrong:
+# `column_widths(...) == [4, 5, 5]` where the answer is [4, 4, 5]; `wrap_text("a"*10, 5)`
+# expecting ten single characters; a bare `from_roman(to_roman(n))` naming a loop
+# variable that does not exist. The model was working out its own expected values and
+# getting them wrong, and 57% of correct answers were flagged for it.
+#
+# Forbidding invention outright fixed that (57% -> 0%) and broke something worse: with
+# only literal worked examples allowed, `resolve` kept ONE check, passed it at a score
+# of 0.875, and produced the false negative this detector exists to never produce. It
+# also left 12% of goals unverifiable.
+#
+# Allowing direct substitution while forbidding calculation keeps both ends. Measured
+# across 8 goals, each run against its own answer AND a deliberately broken copy:
+# false positives 0/8, false negatives 0/8, nothing inconclusive.
 DERIVE_PROMPT = (
-    "Below is a programming goal. Do NOT solve it, and do NOT compute anything.\n\n"
+    "Below is a programming goal. Do NOT solve it.\n\n"
     "Write ONLY a Python block of `assert` statements, and obey these rules:\n"
-    "- Every expected value must be COPIED from the goal. If the goal does not state "
-    "what a specific input produces, write no assertion for it.\n"
-    "- Never work out an expected value yourself. If you would have to calculate it, "
-    "skip it.\n"
+    "- You may write an assertion when the goal's rules decide the answer by DIRECT "
+    "SUBSTITUTION — copying a worked example, or applying one stated rule to one "
+    "input.\n"
+    "- You must NOT write one when you would have to COMPUTE the answer: no arithmetic, "
+    "no counting, no widths, no sorting or merging in your head, no multi-step "
+    "transformations. If you would have to work it out, skip it.\n"
     "- Every name you use must be a function the goal names. No loop variables, no "
     "helpers, no placeholders.\n"
     "- Assume the functions are already defined in scope. No imports, no definitions, "
     "no prose.\n\n"
-    "It is correct and expected to produce FEW assertions. An assertion you invented "
-    "is worse than one you did not write.\n\nGOAL:\n{goal}"
+    "An assertion you had to calculate is worse than one you did not write.\n\n"
+    "GOAL:\n{goal}"
 )
 
 # Below this many grounded assertions, the goal simply did not state enough for a
