@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+- **One call is now the default; `--orchestrate` opts into the task DAG.** Volante has
+  always planned, decomposed and synthesised, and its own eval says that does not pay.
+  Measured across 72 paired runs, nine goals, both arms in the same session:
+
+  | | mean | total cost |
+  |---|---|---|
+  | one call (router still choosing) | 0.935 | $0.047 |
+  | orchestrated | 0.888 | $0.418 (**8.8x**) |
+
+  The difference is -0.047 with a 95% CI of [-0.135, +0.041]. Read the upper bound
+  rather than the mean: even at its best, orchestration is worth about +0.04 here, and
+  it charges an order of magnitude for that. An earlier run of 18 pairs pointed the
+  other way (+0.104) and could not resolve anything below ±0.198 — which is why the
+  default was left alone then and is being changed now.
+
+  The router is unchanged and still does the half that pays: hard capabilities enforced,
+  eligible models ranked on metadata and evaluation evidence, decision recorded. What is
+  dropped is the planning and synthesis around it. `--orchestrate` remains one flag away
+  and is what a goal needing a TOOL LOOP still wants — running code, reading a file,
+  fetching a URL — which a single call cannot do at all.
+
+
 ## [0.6.0] - 2026-08-04
 
 A minor bump for one addition — `volante --verify`, which checks an answer by running

@@ -11,8 +11,10 @@
 goal across the models *you* configured — enforcing hard capabilities first, ranking the rest on
 explainable metadata and evaluation evidence — and can then verify the result by RUNNING it:
 assertions derived from your goal, executed in a sandbox, reported check by check. Inventory,
-policy, credentials and decision traces stay on your machine. It also decomposes goals into a task
-DAG and runs them one-shot or in an agentic tool loop; see the honest note below on what that buys.
+policy, credentials and decision traces stay on your machine. By default it answers in ONE call —
+across 72 paired runs, planning and synthesising scored -0.047 against that [95% CI -0.135, +0.041]
+at **8.8x the cost**, so the interval bounds its best case near +0.04. `--orchestrate` opts back
+into the task DAG for the work that genuinely needs a tool loop, which one call cannot do.
 
 **What the measurements say, including the parts that do not flatter it.** This project runs a
 3-arm eval against itself and publishes the losses. Orchestration does **not** reliably beat a

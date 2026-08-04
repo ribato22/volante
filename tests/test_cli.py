@@ -551,12 +551,12 @@ def test_usage_listing_marks_estimated_rows_and_totals(
     assert "of which estimated: 1 run(s)" in out  # the aggregate says so too
 
 
-def test_direct_flag_selects_the_one_call_path(monkeypatch, capsys) -> None:
-    """`--direct` must actually change the path, not just the help text.
+def test_the_default_answers_in_one_call(monkeypatch, capsys) -> None:
+    """One call is the DEFAULT, and it must really be taken.
 
-    Volante's own eval says decomposition ties a single call across the suite for 7.7x
-    the cost, so this flag is the honest reading of its own numbers — and a flag that
-    silently still orchestrates would be worse than not shipping one.
+    Across 72 paired runs orchestration scored -0.047 against it [95% CI -0.135,
+    +0.041] at 8.8x the cost — the interval bounds its best case near +0.04. A default
+    that quietly still orchestrated would charge an order of magnitude for that.
     """
     called: dict[str, object] = {}
 
@@ -573,7 +573,7 @@ def test_direct_flag_selects_the_one_call_path(monkeypatch, capsys) -> None:
     runtime = _StubRuntime()
     monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime, {"m": object()}))
 
-    code = cli.main(["--direct", "do one"])
+    code = cli.main(["do one"])
 
     assert code == 0
     assert called["goal"] == "do one"
@@ -581,10 +581,17 @@ def test_direct_flag_selects_the_one_call_path(monkeypatch, capsys) -> None:
     assert "direct answer" in capsys.readouterr().out
 
 
-def test_without_the_flag_the_orchestrated_path_still_runs(monkeypatch) -> None:
+def test_orchestrate_opts_back_into_the_dag_path(monkeypatch) -> None:
+    """Still one flag away, because a tool loop is work a single call cannot do."""
     registry = Registry([])
     runtime = _StubRuntime()
     monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime, None))
 
-    assert cli.main(["do one"]) == 0
+    assert cli.main(["--orchestrate", "do one"]) == 0
     assert runtime.calls == 1
+
+
+def test_the_orchestrate_flag_reaches_the_builder() -> None:
+    """The decision is made in _build; a flag the builder never sees does nothing."""
+    assert cli._parse_args(["--orchestrate", "g"]).orchestrate is True
+    assert cli._parse_args(["g"]).orchestrate is False

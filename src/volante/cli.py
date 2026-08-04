@@ -40,14 +40,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="list every configured/detected model in Volante's routing inventory and exit",
     )
     parser.add_argument(
-        "--direct",
+        "--orchestrate",
         action="store_true",
         help=(
-            "answer in ONE call, with the router still choosing the model. Volante's "
-            "own eval says decomposition does not pay — it ties a single call across "
-            "the suite for 7.7x the cost — while WHICH MODEL answers is the largest "
-            "measured lever by a factor of three. Cannot run tools, so a goal that "
-            "needs code executed still wants the orchestrated path"
+            "plan a task DAG, run the tasks, and synthesize — instead of answering in "
+            "one call. Needed when the goal requires a TOOL LOOP (running code, reading "
+            "a file, fetching a URL), which a single call cannot do. Otherwise it is "
+            "measured at 8.8x the cost for no demonstrated gain: across 72 paired runs "
+            "the difference was -0.047 with a 95%% CI of [-0.135, +0.041], so even its "
+            "best case is bounded at about +0.04"
         ),
     )
     parser.add_argument(
@@ -156,7 +157,11 @@ def _build(
     # Returned rather than attached to the Runtime: the direct path does not use a
     # Runtime at all, and hanging an attribute on one to smuggle providers across would
     # make two paths look like one.
-    direct = providers if getattr(args, "direct", False) else None
+    # Direct is the DEFAULT. Measured across 72 paired runs, orchestration scored
+    # -0.047 against it [95% CI -0.135, +0.041] at 8.8x the cost: the interval bounds
+    # its best case at roughly +0.04, which is not worth an order of magnitude. It stays
+    # one flag away for the work it is genuinely needed for — a tool loop.
+    direct = None if getattr(args, "orchestrate", False) else providers
     return registry, runtime, direct
 
 
