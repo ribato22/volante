@@ -52,7 +52,7 @@ from volante.router import (
 from volante.runtime import Runtime
 from volante.types import InvalidGoalError, ModelInfo, RunResult, Task, validate_goal
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 # Honor configurations written against the pre-rename BATON_* names. Safe to run here:
 # no module reads the environment at import time, so nothing has consulted a setting yet.

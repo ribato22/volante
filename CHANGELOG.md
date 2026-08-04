@@ -6,6 +6,57 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-04
+
+A minor bump for one addition — `volante --verify`, which checks an answer by running
+it. Everything else is a fix or a correction, and several of the corrections are to
+numbers this project itself had published.
+
+### Added
+- **`volante --verify`: check the answer by RUNNING it.** Derives `assert` statements
+  from your goal, executes them against the result in the sandbox Volante already ships,
+  and reports which passed — printing the check TEXT rather than a pass/fail badge,
+  because a failing check is often the CHECK being wrong and only the line shows that.
+  Three states, including *not enough evidence* when the goal states no expected result,
+  which is the honest answer for a goal that cannot be checked and names the one thing
+  the caller can do about it. Measured: 0 false positives and 0 false negatives across 8
+  goals against a coarse defect, 5 of 6 caught against edit-shaped ones — so a clean
+  report is evidence, not a guarantee, and that limit ships in the docstring and in
+  `--help`. Off by default: it costs one extra model call.
+  It reports and does not act, and both exclusions are measured. Gating on it is
+  impossible (the failing fraction does not separate a wrong answer from a wrong check),
+  repairing from it is harmful (0 improvements in 16 attempts, 3 regressions, one
+  1.000 -> 0.000), and escalating on it collapses into always using the strong model
+  while inheriting the strong model's own bad days.
+
+### Fixed
+- **The planner died on large goals.** Asked for ninety functions it enumerated one task
+  per function, exhausted its own output budget mid-array, and the whole run failed with
+  `incomplete_output` before a single worker started. `_MAX_PLAN_TASKS` existed and could
+  not help — it validates the array the model never finished writing. The cap is stated
+  in the prompt now, and a truncated plan is retried with an instruction naming the
+  actual problem. Narrow by design: only `max_tokens` is retried, because a content
+  filter is not a plan that was too long.
+- **`--synthesis assemble` produced unusable output on multi-file goals** — it stripped
+  every fence and concatenated prose into the module. Fences and their language tags are
+  kept now, which separates the files.
+
+### Changed
+- **The eval reports its own statistical power.** Arms were already run inside the same
+  loop iteration, so every iteration was a matched triple — and the pairing was being
+  thrown away by averaging each arm before comparing. Differences are now computed pair
+  by pair with a t interval, and every report prints the interval AND the smallest effect
+  the run could have detected. Without that second number, "we found no difference" and
+  "we could not have seen one" print identically. Added after three published numbers had
+  to be corrected downward, all of them point estimates from designs too small to support
+  them.
+- **The README leads with what survived measurement.** Orchestration does not reliably
+  beat a single strong model — the +0.289 at p<0.005 published in 0.5.0 did not
+  reproduce, and on the goal built to give decomposition headroom a stronger model in the
+  same family scores 0.958 alone. The front page now says so, with a link to the full
+  artifact, and the tagline is a router that checks its own answers.
+
+
 ## [0.5.0] - 2026-07-31
 
 A minor bump rather than a patch for one specific reason: synthesis now makes an extra

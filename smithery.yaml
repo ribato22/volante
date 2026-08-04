@@ -101,7 +101,7 @@ startCommand:
   commandFunction: |-
     (config) => ({
       command: 'uvx',
-      args: ['--from', 'volante[mcp]==0.5.0', 'volante-mcp'],
+      args: ['--from', 'volante[mcp]==0.6.0', 'volante-mcp'],
       env: {
         ANTHROPIC_API_KEY: config.anthropicApiKey ?? '',
         ANTHROPIC_MODELS: config.anthropicModels ?? 'claude-opus-4-8',
