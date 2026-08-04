@@ -412,3 +412,38 @@ defeats them both; it does not separate them.
 That closes the last structural argument this project had. What survives is unchanged
 and does not depend on any comparison between arms: the reliability work, the detector,
 the router, and an eval that now reports what it could and could not have detected.
+
+### Verify-then-escalate: the detector is not precise enough to route on (2026-08-04)
+
+The two halves were separately measured and had never been connected: the detector
+never approved a wrong answer (0 false negatives in 22), and a stronger model in the
+same family is worth +0.462 on a goal the weak one fails. Policy: answer cheap, run the
+derived checks, escalate to the strong model only when they fail.
+
+Three goals (two a cheap model aces, one it fails), n=3 each, paired in one session:
+
+| policy | score | cost | vs always-cheap |
+|---|---|---|---|
+| always cheap | 0.806 | $0.0184 | 1.0x |
+| always strong | 0.923 | $0.0951 | 5.2x |
+| **escalate** | **0.923** | **$0.0907** | **4.9x** |
+
+Escalation reaches always-strong quality at 94% of always-strong cost. That is not a
+policy, it is always-strong with extra steps. The cause is the false-positive rate
+already measured at 45%: **escalation fired on 6 of 9 runs**, including every `roman`
+run, where the cheap model had already scored 1.000.
+
+One row refutes the premise underneath the whole idea:
+
+    roman   cheap 1.000   strong 0.429   escalate 0.429
+
+The stronger model is not uniformly better, and escalation follows it down. And the
+comparison is underpowered anyway: +0.117 [CI -0.166, +0.400], where this design could
+only have detected ±0.392 — most of the variance is BETWEEN GOALS, not between
+policies, which is a flaw in the measurement as much as in the policy.
+
+So the detector cannot be routed on at 45% false positives. It remains what it was
+measured to be and nothing more: a report the user reads, where a failing check is often
+the check being wrong and the text is legible enough to tell. Making escalation pay needs
+the false-positive rate down around 10%, and THAT is the next number to move — not
+another policy on top of a detector this noisy.
