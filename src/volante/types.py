@@ -253,6 +253,11 @@ class RunResult:
     subscription_calls: int = 0
     billed_usd: float = 0.0  # cash out (card); read THIS for budget/cap
     credit_usd: float = 0.0  # value consumed from plan_included/plan_credit (not cash)
+    # What the derived checks did, when verification was enabled. `None` means it was
+    # not run. Deliberately a REPORT and not a verdict: the detector never approved a
+    # wrong answer in 22 measured runs, but 45% of the answers it flags are correct, so
+    # a pass/fail badge would mislead where the failing checks themselves inform.
+    checks: Any | None = None
     # True when any usage was ESTIMATED (the provider sent no token count), so
     # cost_usd/billed_usd/credit_usd are approximations, not authoritative numbers. MUST
     # be shown next to the dollar figures so the "transparent cost" claim stays honest

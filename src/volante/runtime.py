@@ -105,6 +105,7 @@ class Runtime:
         runs_dir: Path | None = None,
         agentic_timeout: float = 600.0,
         tools_factory: Callable[[Path], ToolRegistry] | None = None,
+        verify_answer: bool = False,
         planning_timeout: float = 300.0,
         synthesis_timeout: float = 180.0,
         initial_subscription_calls: int = 0,
@@ -151,6 +152,10 @@ class Runtime:
         self.runs_dir = Path(runs_dir) if runs_dir is not None else Path(".runs")
         self.agentic_timeout = agentic_timeout
         self.tools_factory = tools_factory
+        # Off by default. It costs one extra model call and a sandbox run, and
+        # 45% of the answers it flags are correct — a cost and a noise level the
+        # caller should opt into knowingly rather than inherit.
+        self.verify_answer = verify_answer
         self.planning_timeout = planning_timeout
         self.synthesis_timeout = synthesis_timeout
         self._sub_cap = 16
@@ -1077,6 +1082,57 @@ class Runtime:
             code = f"{phase}_error"
         return code, f"{type(error).__name__}: {error}"
 
+    async def _verify_final(self, goal: str, final: Any, run_id: str) -> Any:
+        """Derive checks from the GOAL, run them against the answer, report what happened.
+
+        Never raises and never changes the answer. It is a detector: across 11 code
+        goals it approved no wrong answer in 22 runs, and a repair pass driven by these
+        same failures produced 0 improvements in 16 attempts with 3 regressions. So this
+        reports, and the caller decides — including the caller deciding the check was
+        the thing that was wrong, which is true 45% of the time it fires.
+        """
+        from volante.types import CanonicalRequest, text
+        from volante.verify import (
+            DERIVE_PROMPT,
+            CheckReport,
+            build_program,
+            extract_python,
+            parse_assertions,
+            read_report,
+        )
+
+        answer = final if isinstance(final, str) else str(final)
+        try:
+            resp = await asyncio.wait_for(
+                self.supervisor._provider.complete(
+                    CanonicalRequest(
+                        messages=[text("user", DERIVE_PROMPT.format(goal=goal))],
+                        max_tokens=900,
+                        temperature=0.0,
+                        run_id="__verify__",
+                        task_id="__verify__",
+                    )
+                ),
+                timeout=self.call_timeout,
+            )
+            derived = _text_of(resp.content)
+            self.cost_meter.add(
+                self.supervisor._model_id, resp.usage, cost_usd=resp.cost_usd
+            )
+            assertions = parse_assertions(derived)
+            if not assertions:
+                return CheckReport()
+            factory = self.sandbox_factory or sandbox_for
+            workspace = _safe_task_workspace(self.runs_dir, run_id, "__verify__")
+            workspace.mkdir(parents=True, exist_ok=True)
+            result = await factory(workspace).run(
+                build_program(extract_python(answer), assertions)
+            )
+            return read_report(result.stdout, result.stderr, assertions)
+        except Exception as exc:  # noqa: BLE001 - a detector must never fail a good run
+            logger.debug("answer verification did not run: %s", exc)
+            return CheckReport(error=f"{type(exc).__name__}: {exc}"[:200])
+
     def _finalize(
         self,
         bb: Blackboard,
@@ -1087,6 +1143,7 @@ class Runtime:
         failed_task: str | None,
         error_code: str | None = None,
         error_message: str | None = None,
+        checks: Any | None = None,
     ) -> RunResult:
         # Cost close-out is used by BOTH paths (success & failure). Two ledgers:
         # billed_usd = cash out (card); credit_usd = value of plan_* usage (not cash).
@@ -1103,6 +1160,7 @@ class Runtime:
             credit_usd=credit,
             error_code=error_code,
             error_message=error_message,
+            checks=checks,
             routing_decisions={
                 task_id: dict(decision)
                 for task_id, decision in self._routing_decisions.items()
@@ -1241,8 +1299,14 @@ class Runtime:
                     error_code=code,
                     error_message=message,
                 )
+            checks = (
+                await self._verify_final(goal, final, run_id)
+                if self.verify_answer
+                else None
+            )
             return self._finalize(
-                bb, started, status="success", final=final, failed_task=None
+                bb, started, status="success", final=final, failed_task=None,
+                checks=checks,
             )
         finally:
             # Covers success, structured failure, validation exceptions,

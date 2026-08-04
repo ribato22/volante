@@ -39,6 +39,17 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="list every configured/detected model in Volante's routing inventory and exit",
     )
     parser.add_argument(
+        "--verify",
+        action="store_true",
+        help=(
+            "check the answer by RUNNING it: derive assertions from your goal, execute "
+            "them against the result in the sandbox, and report which passed. Costs one "
+            "extra model call. It never approved a wrong answer in 22 measured runs, but "
+            "a failing check is often the CHECK being wrong — read them, do not just "
+            "count them"
+        ),
+    )
+    parser.add_argument(
         "--usage",
         action="store_true",
         help="show the recent usage ledger (~/.volante/usage.jsonl) and exit",
@@ -126,7 +137,9 @@ def _build(args: argparse.Namespace) -> tuple[Registry, Runtime]:
             registry, providers, model_id, prefer=args.prefer
         )
     )
-    return registry, make_runtime()
+    runtime = make_runtime()
+    runtime.verify_answer = bool(getattr(args, "verify", False))
+    return registry, runtime
 
 
 def _subscription_models(result: RunResult, registry: Registry) -> int:
@@ -165,6 +178,15 @@ def _summary_lines(result: RunResult, registry: Registry) -> list[str]:
         f"subscription_models: {_subscription_models(result, registry)}   "
         f"subscription_calls: {result.subscription_calls}",
     ]
+    checks = getattr(result, "checks", None)
+    if checks is not None and checks.ran:
+        lines.append(f"checks: {checks.summary()}")
+        for src, why in checks.failed[:5]:
+            # The check itself, not just a count: 45% of the ones that fail are wrong,
+            # and only the text lets a reader tell which kind this is.
+            lines.append(f"  ✗ {src}   {why}")
+        if len(checks.failed) > 5:
+            lines.append(f"  … and {len(checks.failed) - 5} more")
     if result.capability_notice:
         # Print it on success too: a degraded run that never executed code must not read
         # like a full-capability one.
