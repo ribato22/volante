@@ -16,6 +16,21 @@ from eval.harness import score_text
 from eval.tasks_text import TEXT_SUITE
 
 CORRECT: dict[str, str] = {
+    "incident_note": (
+        "We're sorry — signing in did not work for a period this morning.\n\n"
+        "Between 08:52 and 09:31 UTC on 14 March, customers were unable to sign in: "
+        "a disruption of 39 minutes. If you were already signed in, your session kept "
+        "working and you were not affected. Service has been fully restored.\n\n"
+        "The cause was an expired security credential, which has been replaced. We "
+        "are adding automated alerting that warns us before such credentials expire."
+    ),
+    "stdlib_pick": (
+        "For the settings file, use configparser: it reads that "
+        "sections-with-key-value format directly. For the diff, use difflib: "
+        "unified_diff gives the usual patch-style output with no external process. "
+        "For the measurement, use timeit: it runs the callable repeatedly and "
+        "handles the loop and the repetition for you."
+    ),
     "delivery_log": (
         "MEDIAN_MINUTES: 75.0\n"
         "MEAN_MINUTES: 82.4\n"
@@ -33,6 +48,19 @@ CORRECT: dict[str, str] = {
 # Emitting every plausible answer for every key: the failure mode that has no
 # equivalent when grading code, and the one a purely positive rubric rewards.
 SHOTGUN: dict[str, str] = {
+    # Every candidate named for every need — the attack that scored 0.83 before
+    # exclusivity was folded into each positive check.
+    "stdlib_pick": (
+        "configparser or json or tomllib or yaml; difflib or filecmp or subprocess; "
+        "timeit or time.perf_counter or cProfile or profile. Any of these could work "
+        "depending on your needs and preferences."
+    ) * 2,
+    # Hedging in every direction while republishing the internal record verbatim.
+    "incident_note": (
+        "Incident INC-4471 affected auth-edge-7, session-store-b and token-mint. "
+        "The disruption may have lasted 31 minutes or 41 minutes. A certificate in "
+        "the pod pool was stale. Some customers may or may not have been affected."
+    ) * 2,
     "delivery_log": "\n".join(
         f"{key}: 75.0 or 80.0 (or possibly EAST 436)"
         for key in (

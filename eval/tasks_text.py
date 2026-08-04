@@ -223,6 +223,23 @@ def _words(out: str) -> int:
     return len(re.findall(r"[A-Za-z0-9']+", out))
 
 
+def _substantive(out: str) -> bool:
+    """Enough of an answer that "it did not do the forbidden thing" means anything."""
+    return _words(out) >= 20
+
+
+def _forbids(pred):
+    """A negative check that an EMPTY answer cannot satisfy.
+
+    A plain negative passes whenever the forbidden thing is absent — and nothing is
+    present in an empty answer, so saying nothing collected every one of them for
+    free and scored the same as copying the prompt. Reading it as "leaked, OR said
+    nothing" makes both the failures they are, which is what the suite's
+    saying-nothing-earns-nothing contract requires.
+    """
+    return lambda out: (not _substantive(out)) or pred(out)
+
+
 def _has_any(out: str, needles: tuple[str, ...]) -> bool:
     low = out.lower()
     return any(n in low for n in needles)
@@ -234,7 +251,7 @@ WRITE_CHECKS = (
     TextCheck("duration_39", lambda o: bool(re.search(r"\b39\b", o))),
     TextCheck(
         "no_wrong_duration",
-        lambda o: bool(re.search(r"\b(?:31|52|41|40)\s*minute", o, re.I)),
+        _forbids(lambda o: bool(re.search(r"\b(?:31|52|41|40)\s*minute", o, re.I))),
         negative=True,
     ),
     # Existing sessions kept working — stating this is the one fact that stops the
@@ -263,14 +280,17 @@ WRITE_CHECKS = (
                                                           "thank", "regret"))),
     # The negatives are the whole defence. Every one of these strings IS in the
     # prompt, so a model that pads with the internal record scores worse, not better.
-    TextCheck("no_ticket", lambda o: "inc-4471" in o.lower(), negative=True),
+    TextCheck("no_ticket", _forbids(lambda o: "inc-4471" in o.lower()), negative=True),
     TextCheck(
         "no_service_names",
-        lambda o: _has_any(o, ("auth-edge", "session-store", "token-mint")),
+        _forbids(lambda o: _has_any(o, ("auth-edge", "session-store", "token-mint"))),
         negative=True,
     ),
-    TextCheck("no_infra_detail", lambda o: _has_any(o, ("pod", "certificate",
-                                                        "cert ")), negative=True),
+    TextCheck(
+        "no_infra_detail",
+        _forbids(lambda o: _has_any(o, ("pod", "certificate", "cert "))),
+        negative=True,
+    ),
 )
 
 
@@ -328,11 +348,14 @@ RESEARCH_CHECKS = (
     TextCheck("configparser", lambda o: _names_module(o, _R1) and _decoys(o) <= 1),
     TextCheck("difflib", lambda o: _names_module(o, _R2) and _decoys(o) <= 1),
     TextCheck("timeit", lambda o: _names_module(o, _R3) and _decoys(o) <= 1),
-    TextCheck("not_a_shotgun", lambda o: _decoys(o) > 1, negative=True),
-    # One sentence of justification each was asked for, so the answer must be prose
-    # and not three bare words.
-    TextCheck("justified", lambda o: _words(o) >= 45),
-    TextCheck("not_padded", lambda o: _words(o) <= 400),
+    TextCheck("not_a_shotgun", _forbids(lambda o: _decoys(o) > 1), negative=True),
+    # Shape, but coupled to substance. Measured: a spray answer failed all three
+    # module checks and the shotgun negative, then still took both length checks —
+    # any verbose text passes them — and landed at 0.33 against a 0.25 ceiling.
+    # Length only means something once the answer has actually chosen; "justified"
+    # is not a property a list of every candidate can have.
+    TextCheck("justified", lambda o: _words(o) >= 45 and _decoys(o) <= 1),
+    TextCheck("not_padded", lambda o: 0 < _words(o) <= 400 and _decoys(o) <= 1),
 )
 
 TEXT_SUITE.extend(
