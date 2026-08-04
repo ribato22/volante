@@ -172,7 +172,7 @@ deliberately does not ship.
 git clone https://github.com/ribato22/volante
 cd volante
 uv sync --dev            # install deps + dev tools
-uv run pytest            # 800+ tests, no network
+uv run pytest            # 1200+ tests, no network
 uv run ruff check .      # lint
 
 # See it orchestrate end-to-end with ZERO API keys (FakeProvider demo):
@@ -888,7 +888,7 @@ src/volante/     # engine (importable package: `volante`)
 eval/                 # goals, 3-arm harness, forgery-resistant scorer, runner
 examples/             # small runnable library-API scripts (incl. a no-key FakeProvider demo)
 webui/                # optional FastAPI + SSE web UI (uv run python -m webui)
-tests/                # 800+ tests (unit + opt-in integration)
+tests/                # 1200+ tests (unit + opt-in integration)
 docs/                 # internal design/build records — see docs/README.md; not user docs
 demo.py               # end-to-end demo (orchestrate | agentic | eval)
 ```
