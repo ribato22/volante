@@ -447,3 +447,45 @@ measured to be and nothing more: a report the user reads, where a failing check 
 the check being wrong and the text is legible enough to tell. Making escalation pay needs
 the false-positive rate down around 10%, and THAT is the next number to move — not
 another policy on top of a detector this noisy.
+
+### The detector gets precise, by learning to say "not enough evidence" (2026-08-04)
+
+The 45% false-positive rate had killed five policies in a row, so the failures were read
+one by one instead of guessed at. Almost none was the CODE being wrong:
+
+    column_widths([["one","two","three"],["four","five","six"]]) == [4, 5, 5]   # is [4,4,5]
+    wrap_text("a" * 10, 5) == ["a","a","a","a","a","a","a","a","a","a"]         # is ["aaaaa","aaaaa"]
+    from_roman(to_roman(n)) == n                                               # NameError: 'n'
+
+The model was working out its own expected values and getting them wrong. So it is now
+told not to calculate at all: copy every expected value from the goal, and write nothing
+where the goal states nothing.
+
+That alone traded one failure for a worse one:
+
+| derivation | false positives | FALSE NEGATIVES |
+|---|---|---|
+| free-form | 4/7 = 57% | 0/2 |
+| grounded | 0/7 = 0% | **1/2** |
+
+Grounding cut `resolve` from 21 checks to 1. It passed that one and scored 0.875 — a
+false negative, the single outcome that must never happen, and precisely what made the
+detector worth having.
+
+The fix is a third state rather than a better threshold. Below three grounded checks the
+goal did not state enough to judge, and the honest report is "not enough evidence", not
+"fine". Failures still count at any count: thin evidence cannot confirm, but it can
+refute. On the same data that gives 0/7 false positives AND 0/2 false negatives, with
+two goals honestly marked inconclusive.
+
+Confirmed through the real Runtime, though on a small sample — 3 of 7 runs failed for
+unrelated provider errors, leaving four:
+
+    csv_stats  1.000   1 check   -> not enough evidence
+    toolbelt   1.000   6 checks  -> passed
+    slugify    1.000   5 checks  -> passed
+    resolve    0.938   1 check   -> not enough evidence
+
+For a caller who does not write tests, "your goal states no expected result, so this
+could not be checked" is more useful than either a false alarm or a false assurance —
+and it names the one thing they can do about it.

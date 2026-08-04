@@ -36,12 +36,33 @@ _PY_OPEN = re.compile(r"```[^\S\r\n]*python[^\S\r\n]*\r?\n", re.IGNORECASE)
 # A close must start its own line; a ``` mid-line is part of the text.
 _FENCE_CLOSE = re.compile(r"(?m)^[^\S\r\n]*```")
 
+# Grounded, because the free-form version's failures were read one by one and almost
+# none of them was the CODE being wrong. `column_widths(...) == [4, 5, 5]` where the
+# answer is [4, 4, 5]; `wrap_text("a"*10, 5)` expecting ten single characters; a bare
+# `from_roman(to_roman(n))` referencing a loop variable that does not exist. The model
+# was working out its own expected values and getting them wrong — 57% of correct
+# answers were flagged. So it is told not to calculate at all.
 DERIVE_PROMPT = (
-    "Below is a programming goal. Do NOT solve it. Write ONLY a Python block of "
-    "`assert` statements that check the behaviour the goal STATES — especially any "
-    "worked example it prints. Assume the functions are already defined in scope. "
-    "No imports, no definitions, no prose.\n\nGOAL:\n{goal}"
+    "Below is a programming goal. Do NOT solve it, and do NOT compute anything.\n\n"
+    "Write ONLY a Python block of `assert` statements, and obey these rules:\n"
+    "- Every expected value must be COPIED from the goal. If the goal does not state "
+    "what a specific input produces, write no assertion for it.\n"
+    "- Never work out an expected value yourself. If you would have to calculate it, "
+    "skip it.\n"
+    "- Every name you use must be a function the goal names. No loop variables, no "
+    "helpers, no placeholders.\n"
+    "- Assume the functions are already defined in scope. No imports, no definitions, "
+    "no prose.\n\n"
+    "It is correct and expected to produce FEW assertions. An assertion you invented "
+    "is worse than one you did not write.\n\nGOAL:\n{goal}"
 )
+
+# Below this many grounded assertions, the goal simply did not state enough for a
+# verdict. Reporting "passed" on one assertion is how grounding broke the property that
+# made this worth having: with the rule alone, `resolve` kept ONE check, passed it, and
+# scored 0.875 — a false negative, the one outcome that must never happen. The third
+# state is what makes precision affordable: say "not enough evidence", not "fine".
+_MIN_GROUNDED_CHECKS = 3
 
 # Each assertion runs on its own so one failure cannot hide the rest, and the reason is
 # captured so a reader can see whether the CHECK or the CODE was wrong. Runs inside the
@@ -73,14 +94,33 @@ class CheckReport:
         return self.total > 0 or self.error is not None
 
     @property
+    def inconclusive(self) -> bool:
+        """Too few grounded checks to say anything. NOT a pass."""
+        return (
+            self.error is None
+            and not self.failed
+            and 0 < self.total < _MIN_GROUNDED_CHECKS
+        )
+
+    @property
     def all_passed(self) -> bool:
-        return self.total > 0 and not self.failed and self.error is None
+        """Every check passed AND there were enough of them to mean it."""
+        return (
+            self.total >= _MIN_GROUNDED_CHECKS
+            and not self.failed
+            and self.error is None
+        )
 
     def summary(self) -> str:
         if self.error is not None:
             return f"checks could not run: {self.error}"
         if self.total == 0:
-            return "no checks derived"
+            return "no checks derived — the goal states no worked example to check"
+        if self.inconclusive:
+            return (
+                f"only {self.total} check(s) could be grounded in the goal — not enough "
+                "to verify; state an expected result and it can be checked"
+            )
         if not self.failed:
             return f"{self.total}/{self.total} derived checks passed"
         return f"{self.total - len(self.failed)}/{self.total} derived checks passed"

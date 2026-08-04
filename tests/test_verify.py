@@ -215,3 +215,51 @@ async def test_a_derivation_failure_never_fails_the_run() -> None:
     assert result.checks is not None
     assert result.checks.error is not None
     assert not result.checks.all_passed
+
+
+# --- "not enough evidence" is a third answer, and it is what keeps this safe --- #
+# Grounding the assertions in the goal cut false positives from 57% to 0% — and broke
+# the only property that made the detector worth having. With so few checks surviving,
+# `resolve` kept ONE, passed it, and scored 0.875: a false negative, the outcome that
+# must never happen. Reporting "not enough to say" instead of "fine" is what makes the
+# precision affordable.
+
+
+def test_a_single_grounded_check_is_not_a_pass() -> None:
+    report = read_report('VOLANTE_CHECKS {"failed": [], "total": 1}', "", ["a"])
+
+    assert not report.all_passed
+    assert report.inconclusive
+    assert "not enough to verify" in report.summary()
+
+
+def test_enough_grounded_checks_passing_is_a_pass() -> None:
+    report = read_report(
+        'VOLANTE_CHECKS {"failed": [], "total": 3}', "", ["a", "b", "c"]
+    )
+
+    assert report.all_passed
+    assert not report.inconclusive
+
+
+def test_a_failure_counts_even_when_the_checks_are_few() -> None:
+    """Thin evidence cannot confirm, but it can still refute: one check that FAILED is
+    a real signal, while one that passed is not."""
+    report = read_report(
+        'VOLANTE_CHECKS {"failed": [["assert f() == 1", "AssertionError: "]], "total": 1}',
+        "",
+        ["a"],
+    )
+
+    assert not report.all_passed
+    assert not report.inconclusive
+    assert report.failed
+
+
+def test_no_checks_at_all_says_why() -> None:
+    """A goal with no worked example is not a broken run — it is a goal that cannot be
+    checked, and the user can fix that by stating one."""
+    report = read_report('VOLANTE_CHECKS {"failed": [], "total": 0}', "", [])
+
+    assert not report.all_passed
+    assert "states no worked example" in report.summary()
