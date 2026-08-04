@@ -611,17 +611,41 @@ The cheapest model is the best at code, and the 17x dearer one is not. Routing o
 map versus routing on a declared tier, scored as mean loss against the best available
 model per goal:
 
-    tier (guessed)   0.0333
-    map (measured)   0.0017
+    tier (guessed), no profile                 0.0333
+    the profile a real `--calibrate` produces  0.0333
+    tier set to what the map shows, + profile  0.0018
 
-The map moves all nine code goals to gpt-4o-mini and leaves analyze, write and
-research on gpt-4o — which is where the measurements put it.
+**A correction, and it is ours.** An earlier version of this section reported 0.0017
+for the measured profile. That figure came from constructing `ModelQualityProfile`
+directly in a test script, where `confidence` defaults to **1.0**. The profile
+`--calibrate` actually writes at k=5 carries **confidence 0.625**, and the router
+blends a profile with the declared tier prior in proportion to it:
 
-**This supersedes the k=2 figures** (tier 0.0604, map 0.0075). Those were quoted with
-a warning that most of the gap came from `calc`, which had swung 0.96 -> 0.38 between
-two measurements of the same thing. At k=5 `calc` is stable (sd 0.04) and nine of the
-twelve goals have sd exactly 0.00, so the effect is no longer resting on noise. The
-absolute numbers halved; the conclusion did not move.
+    gpt-4o-mini   measured 0.7475 x 0.625 + tier-3 prior 0.75 x 0.375 = 0.7484
+    gpt-4o        measured 0.7848 x 0.625 + tier-4 prior 1.00 x 0.375 = 0.8655
+
+The declared tier carries 37.5% of that component and decides. Measured against the
+REAL profile the routing loss is 0.0333 — identical to using no profile at all.
+
+The blend is deliberate rather than a defect: a small sample should not override
+declared metadata. But the consequence has to be stated plainly. **At k=5, measuring
+does not beat a wrong tier.** Confidence is n/(n+3), so reaching near 1 needs roughly
+27 runs per task type — about 650 calls.
+
+So the map's value is telling you which tier to DECLARE, not overriding it. Setting
+mini to tier 4 and gpt-4o to tier 3 — what the measurements say — gives 0.0018, the
+benefit the profile alone cannot deliver, at no extra cost.
+
+**The k=2 figures are withdrawn** (tier 0.0604, map 0.0075). They were quoted with a
+warning that most of the gap came from `calc`, which had swung 0.96 -> 0.38 between two
+measurements of the same thing — and they carried the same confidence=1.0 flaw as the
+k=5 pair. At k=5 `calc` is stable (sd 0.04) and nine of the twelve goals have sd exactly
+0.00, so the MEASUREMENTS are sound. It was the routing comparison built on top of them
+that was not.
+
+What survives from all of it: the capability map itself. gpt-4o-mini really is the best
+of these three at code, the 17x dearer model really is not, and that is what a user
+should act on — by declaring tiers that match it.
 
 Two limits stay:
 
