@@ -7,12 +7,21 @@
 [![MCP Registry](https://img.shields.io/badge/MCP%20Registry-listed-8b5cf6.svg)](https://registry.modelcontextprotocol.io)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 
-**A transparent, user-owned model router and orchestration control plane (alpha).** A *supervisor*
-model decomposes a goal into a task DAG, *routes* each sub-task across the user's explicitly
-configured models, runs them one-shot or in an agentic tool loop, and *synthesizes* a final answer.
-Hard capabilities are enforced first; explainable metadata and quality evidence rank the eligible
-models. Volante runs locally and keeps inventory, policy, credentials, and decision traces under the
-user's control.
+**A transparent, user-owned model router that checks its own answers (alpha).** Volante routes a
+goal across the models *you* configured — enforcing hard capabilities first, ranking the rest on
+explainable metadata and evaluation evidence — and can then verify the result by RUNNING it:
+assertions derived from your goal, executed in a sandbox, reported check by check. Inventory,
+policy, credentials and decision traces stay on your machine. It also decomposes goals into a task
+DAG and runs them one-shot or in an agentic tool loop; see the honest note below on what that buys.
+
+**What the measurements say, including the parts that do not flatter it.** This project runs a
+3-arm eval against itself and publishes the losses. Orchestration does **not** reliably beat a
+single strong model: an earlier release of this README claimed +0.289 at p<0.005, it failed to
+reproduce, and on the goal built to give decomposition headroom a stronger model in the same family
+scores 0.958 alone. Four predictive gates, a repair pass and a model-escalation policy were all
+built, measured, and discarded. What survived every test is narrower and real — the router, the
+reliability work (unparsable output 2 runs in 8 -> 0 in 8), and the verifier. Full numbers, method
+and corrections: [`eval/artifacts/README.md`](eval/artifacts/README.md).
 
 Selection quality is an evidence-based prediction, not a claim of a universal winner. Volante does
 not yet ship published representative cross-provider benchmarks or automatic score calibration.
@@ -47,12 +56,22 @@ Built without an orchestration framework (no LangChain / CrewAI / LiteLLM).
   with per-task labels for parallel workers and cooperative early-stop.
 - **Optional Web UI.** A small FastAPI + SSE app streams a run live in the browser (plan → per-task
   worker output → synthesis → result); runs with real providers or a no-key demo.
+- **Answers you can check.** `volante --verify` derives `assert` statements from your goal, runs
+  them against the result in the sandbox, and prints which passed and which failed — with the check
+  text, not a badge, because a failing check is often the CHECK being wrong and only the line shows
+  that. It reports three states, including "not enough evidence" when your goal states no expected
+  result. Measured: 0 false positives and 0 false negatives across 8 goals against a coarse defect,
+  5 of 6 caught against edit-shaped ones. A clean report is evidence, not a guarantee.
 - **Cost & honesty.** A `CostMeter` tallies per-model usage and cost, and propagates an *estimated*
   flag when a provider returns no usage.
-- **Forgery-resistant evaluation.** A 3-arm eval (baseline vs. orchestration vs. single-agent) with
-  a scorer that runs untrusted solution code under **process + filesystem separation** so a model
-  cannot fake a passing score.
-- **Tested.** 800+ tests, zero-network by default (`FakeProvider` + local subprocesses), `ruff`-clean.
+- **Forgery-resistant evaluation that reports its own power.** A 3-arm eval (baseline vs.
+  orchestration vs. single-agent) with a scorer that runs untrusted solution code under **process +
+  filesystem separation** so a model cannot fake a passing score. Arms are compared PAIRWISE and
+  every report prints a confidence interval and the smallest effect the run could have detected —
+  added after three published numbers had to be corrected downward, all of them point estimates from
+  designs too small to support them.
+- **Tested.** 1200+ tests, zero-network by default (`FakeProvider` + local subprocesses),
+  `ruff`-clean, `mypy`-clean.
 
 ## Architecture
 
