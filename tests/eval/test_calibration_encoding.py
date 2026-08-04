@@ -80,4 +80,9 @@ async def test_a_run_that_raised_is_recorded_as_null(monkeypatch) -> None:
     measurements = await cm.measure(["wire-1"], k=2, timeout_s=1.0)
 
     recorded = next(iter(measurements.values()))["code"]
-    assert recorded == [None, None], "a client-side failure was filed as a model score"
+    assert [e["score"] for e in recorded] == [None, None], (
+        "a client-side failure was filed as a model score"
+    )
+    # The goal travels with the failure too: dropping it here would leave the task type
+    # looking partly unlabelled, and calibrate.py then cannot verify its breadth.
+    assert [e["goal"] for e in recorded] == ["slugify", "slugify"]

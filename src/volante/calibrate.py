@@ -10,27 +10,48 @@ Deliberately decoupled from `eval/`, which ships only in a source checkout: any 
 that can emit per-model, per-task-type scores can feed this. Volante does not bundle
 benchmark numbers of its own — the evidence stays yours, with your provenance on it.
 
-Measurements format (scores are 0..1, one entry per observed run)::
+Measurements format (scores are 0..1, one entry per observed run). Name the goal each
+run came from — confidence counts DISTINCT GOALS, and an entry without a goal cannot
+be told apart from the same goal measured again::
 
     {
-      "anthropic/claude-opus-4-8": {"code": [1.0, 0.8, 1.0], "analyze": [0.9]},
-      "ollama/qwen-coder":         {"code": [0.4, 0.0]}
+      "anthropic/claude-opus-4-8": {
+        "code":    [{"goal": "slugify", "score": 1.0}, {"goal": "roman", "score": 0.8}],
+        "analyze": [{"goal": "delivery_log", "score": 0.9}]
+      }
     }
+
+A bare number is still accepted for hand-written and third-party files::
+
+    {"ollama/qwen-coder": {"code": [0.4, 0.0]}}
+
+but a task type measured that way has UNKNOWN breadth: its confidence falls back to the
+run count and a warning says so.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from volante.inventory import TASK_TYPES
 
-# Confidence never reaches 1.0: a handful of runs is evidence, not certainty. n/(n+3)
-# gives 0.25 at n=1, 0.50 at n=3, 0.75 at n=9 — and the router blends a profile toward
-# the metadata prior by exactly this factor, so thin evidence moves the score a little
-# and thick evidence moves it a lot.
+logger = logging.getLogger(__name__)
+
+# Confidence never reaches 1.0: a handful of goals is evidence, not certainty.
+# n/(n+3) gives 0.25 at n=1, 0.50 at n=3, 0.75 at n=9 — and the router blends a profile
+# toward the metadata prior by exactly this factor, so thin evidence moves the score a
+# little and thick evidence moves it a lot.
+#
+# `n` counts DISTINCT GOALS, not runs, because the profile's claim is about a TASK TYPE
+# and the goal is the unit that claim generalises over. Measured: five runs of the one
+# `analyze` goal in the bundled suite returned 0.17 every single time — zero variance,
+# so runs two through five carried no information about "analyze" at all, yet counting
+# runs moved confidence from 0.25 to 0.625. Repeat that goal thirty times and the old
+# rule reported 0.9, the ceiling reserved for thick evidence, from a single observation.
 _CONFIDENCE_PRIOR = 3.0
 _MAX_CONFIDENCE = 0.9
 
@@ -39,13 +60,41 @@ class CalibrationError(ValueError):
     """The measurements file is not usable as evidence."""
 
 
-def _scores(raw: Any, *, model_id: str, task_type: str) -> tuple[list[float], int]:
-    """Return ``(graded_scores, failed_runs)``.
+def _entry(item: Any, *, model_id: str, task_type: str) -> tuple[Any, str | None]:
+    """Split one measurement entry into ``(score, goal)``.
 
-    ``null`` in a score list means "this run produced nothing usable". Those runs are
-    counted separately instead of being graded 0.0, because a refusal/crash is evidence
-    about RELIABILITY while a low score is evidence about QUALITY — conflating them makes
-    the reliability component a copy of the quality component.
+    Accepts a bare score (no goal recorded) or ``{"goal": ..., "score": ...}``. Rejects
+    anything else, including extra keys: this file is read from disk, and quietly
+    ignoring a misspelled key would silently discard the breadth it was meant to record.
+    """
+    if not isinstance(item, dict):
+        return item, None
+    fields = set(item)
+    if fields - {"goal", "score"} or "score" not in item or "goal" not in item:
+        raise CalibrationError(
+            f"{model_id}.{task_type} entry must be a score, or an object with exactly "
+            f'"goal" and "score"; got keys {sorted(fields)}'
+        )
+    goal = item["goal"]
+    if not isinstance(goal, str) or not goal.strip():
+        raise CalibrationError(
+            f"{model_id}.{task_type} goal must be a non-empty string, got {goal!r}"
+        )
+    return item["score"], goal.strip()
+
+
+def _scores(
+    raw: Any, *, model_id: str, task_type: str
+) -> tuple[list[float], int, set[str] | None]:
+    """Return ``(graded_scores, failed_runs, distinct_goals)``.
+
+    ``null`` as a score means "this run produced nothing usable". Those runs are counted
+    separately instead of being graded 0.0, because a refusal/crash is evidence about
+    RELIABILITY while a low score is evidence about QUALITY — conflating them makes the
+    reliability component a copy of the quality component.
+
+    ``distinct_goals`` is ``None`` when ANY entry omitted its goal: breadth is then
+    unverifiable for this task type, and a partial count would overstate it.
     """
     if not isinstance(raw, list) or not raw:
         raise CalibrationError(
@@ -53,15 +102,22 @@ def _scores(raw: Any, *, model_id: str, task_type: str) -> tuple[list[float], in
         )
     values: list[float] = []
     failures = 0
+    goals: set[str] = set()
+    unlabelled = False
     for item in raw:
-        if item is None:
+        score, goal = _entry(item, model_id=model_id, task_type=task_type)
+        if goal is None:
+            unlabelled = True
+        else:
+            goals.add(goal)
+        if score is None:
             failures += 1
             continue
-        if isinstance(item, bool) or not isinstance(item, (int, float)):
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
             raise CalibrationError(
-                f"{model_id}.{task_type} contains a non-numeric score: {item!r}"
+                f"{model_id}.{task_type} contains a non-numeric score: {score!r}"
             )
-        value = float(item)
+        value = float(score)
         if not 0.0 <= value <= 1.0:
             raise CalibrationError(
                 f"{model_id}.{task_type} score {value} is outside 0..1"
@@ -72,7 +128,7 @@ def _scores(raw: Any, *, model_id: str, task_type: str) -> tuple[list[float], in
             f"{model_id}.{task_type} has no graded runs (only nulls); a task score "
             "needs at least one completed run"
         )
-    return values, failures
+    return values, failures, None if unlabelled else goals
 
 
 def build_profiles(
@@ -100,14 +156,31 @@ def build_profiles(
             )
         task_scores: dict[str, float] = {}
         per_task_counts: list[int] = []
+        unverified: list[str] = []
         graded_total = 0
         failed_total = 0
         for task_type, raw in raw_tasks.items():
-            values, failures = _scores(raw, model_id=model_id, task_type=task_type)
+            values, failures, goals = _scores(
+                raw, model_id=model_id, task_type=task_type
+            )
             task_scores[task_type] = round(sum(values) / len(values), 4)
-            per_task_counts.append(len(values) + failures)
+            if goals is None:
+                # Breadth is unverifiable, so this keeps the run count these files were
+                # written against rather than silently re-scoring somebody's evidence.
+                unverified.append(task_type)
+                per_task_counts.append(len(values) + failures)
+            else:
+                per_task_counts.append(len(goals))
             graded_total += len(values)
             failed_total += failures
+        if unverified:
+            logger.warning(
+                "%s: %s measured without goal names, so confidence counts runs and may "
+                "overstate breadth (repeating one goal reads as many observations); "
+                'record entries as {"goal": ..., "score": ...} to fix this',
+                model_id,
+                ", ".join(sorted(unverified)),
+            )
         profile: dict[str, Any] = {
             "task_scores": task_scores,
             "source": source,
@@ -162,10 +235,11 @@ def suggest_tiers(
     Two facts force this shape, and both were measured.
 
     First, a profile does not replace the declared tier: the router blends them in
-    proportion to confidence, and confidence is n/(n+3), so a k=5 run leaves the tier
-    carrying 37.5% and deciding. Against a real profile the routing loss was identical
-    to using no profile at all, while declaring tiers that matched the measurements
-    gave the whole benefit for nothing.
+    proportion to confidence, and confidence is goals/(goals+3) — so the bundled suite,
+    which holds ONE goal each for analyze, write and research, leaves the tier carrying
+    75% and deciding, no matter how many times you re-run it. Against a real profile the
+    routing loss was identical to using no profile at all, while declaring tiers that
+    matched the measurements gave the whole benefit for nothing.
 
     Second — and this is why a single number is not offered — one tier cannot express
     what the map found. gpt-4o-mini measured 0.998 at code against gpt-4o's 0.956, and

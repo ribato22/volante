@@ -442,18 +442,19 @@ def _run_calibration(args: argparse.Namespace) -> int:
     )
     # The file alone will not change a routing decision at this sample size, and
     # saying otherwise would be the most useful-sounding lie this command could tell.
-    # The router blends profile with declared tier in proportion to confidence
-    # (n/(n+3)), so a k=5 run leaves the tier carrying 37.5% — measured, the routing
-    # loss with the real profile was identical to using no profile at all, while
-    # declaring these tiers gave the entire benefit for free.
+    # The router blends profile with declared tier in proportion to confidence, which
+    # counts DISTINCT GOALS (goals/(goals+3)) — re-running one goal does not raise it.
+    # Measured, the routing loss with the real profile was identical to using no profile
+    # at all, while declaring these tiers gave the entire benefit for free.
     from volante.calibrate import suggest_tiers
 
     by_task = suggest_tiers(profiles)
     if by_task:
         print(
-            "\nDeclare a tier as well — at this sample size the profile alone will "
-            "not outweigh\na tier that disagrees with it (confidence is n/(n+3); "
-            "~27 runs per task type are\nneeded before it does). One tier cannot "
+            "\nDeclare a tier as well — at this coverage the profile alone will "
+            "not outweigh\na tier that disagrees with it (confidence is "
+            "goals/(goals+3), counting DISTINCT\ngoals; ~27 per task type are needed "
+            "before it does, and re-running one goal does\nnot help). One tier cannot "
             "match every task type, so pick the row\nfor the work you actually run:"
         )
         models = sorted({m for tiers in by_task.values() for m in tiers})

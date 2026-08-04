@@ -225,3 +225,110 @@ def test_partial_coverage_still_keeps_the_evidence_it_does_have() -> None:
 
     assert profile["task_scores"] == {"code": 0.8}
     assert profile["confidence"] > 0.0
+
+
+def _runs(goal: str, *scores: float | None) -> list[dict]:
+    return [{"goal": goal, "score": s} for s in scores]
+
+
+def test_repeating_one_goal_does_not_buy_confidence() -> None:
+    # The defect this replaced, with the numbers that exposed it. The bundled suite has
+    # ONE analyze goal, and five runs of it returned 0.17 every time -- zero variance,
+    # so runs 2..5 said nothing new about "analyze". Counting runs still moved
+    # confidence 0.25 -> 0.625, and thirty repeats reached 0.9, the ceiling meant for
+    # thick evidence. Breadth is what the claim generalises over, so breadth is counted.
+    once = build_profiles({"m": {"analyze": _runs("delivery_log", 0.17)}}, source="s")
+    thirty = build_profiles(
+        {"m": {"analyze": _runs("delivery_log", *([0.17] * 30))}}, source="s"
+    )
+
+    assert once["m"]["confidence"] == thirty["m"]["confidence"] == 0.25
+    assert thirty["m"]["task_scores"]["analyze"] == 0.17  # the score still averages runs
+
+
+def test_measuring_more_goals_does_buy_confidence() -> None:
+    thin = build_profiles({"m": {"code": _runs("slugify", 1.0, 0.9, 0.8)}}, source="s")
+    broad = build_profiles(
+        {
+            "m": {
+                "code": [
+                    *_runs("slugify", 1.0),
+                    *_runs("roman", 0.9),
+                    *_runs("calc", 0.8),
+                ]
+            }
+        },
+        source="s",
+    )
+
+    assert thin["m"]["confidence"] == 0.25
+    assert broad["m"]["confidence"] == 0.5
+    # Same three scores either way: only the breadth differs, and only breadth moved.
+    assert thin["m"]["task_scores"] == broad["m"]["task_scores"]
+
+
+def test_a_failed_run_still_counts_toward_breadth() -> None:
+    # A goal that was attempted was covered, even if that attempt produced nothing --
+    # otherwise a flaky provider would quietly shrink the breadth we did pay for.
+    profile = build_profiles(
+        {"m": {"code": [*_runs("slugify", 1.0), *_runs("roman", None)]}}, source="s"
+    )["m"]
+
+    assert profile["confidence"] == 0.4  # 2 goals
+    assert profile["reliability_score"] == 0.5
+
+
+def test_unlabelled_measurements_keep_working_but_say_so(caplog) -> None:
+    # Hand-written and third-party files predate the goal field and must not break.
+    # They keep the run-count confidence they were written against, and the warning
+    # names the fix rather than leaving the overstatement silent.
+    with caplog.at_level("WARNING"):
+        profile = build_profiles({"m": {"code": [1.0] * 3}}, source="s")["m"]
+
+    assert profile["confidence"] == 0.5  # run count, as before
+    assert "goal" in caplog.text and "m" in caplog.text
+
+
+def test_breadth_is_unverified_when_only_some_entries_name_a_goal(caplog) -> None:
+    # Half a label is no label: counting the two named goals would report breadth 2 for
+    # evidence that could be one goal measured three times.
+    with caplog.at_level("WARNING"):
+        profile = build_profiles(
+            {"m": {"code": [*_runs("slugify", 1.0), *_runs("roman", 0.9), 0.8]}},
+            source="s",
+        )["m"]
+
+    assert profile["confidence"] == 0.5  # 3 runs, not 2 goals
+    assert "goal" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"score": 1.0},  # goal missing
+        {"goal": "slugify"},  # score missing
+        {"goal": "slugify", "score": 1.0, "note": "x"},  # a key we do not understand
+        {"goal": "", "score": 1.0},
+        {"goal": 7, "score": 1.0},
+    ],
+)
+def test_a_malformed_entry_is_rejected_rather_than_read_past(entry: dict) -> None:
+    # This file comes off disk. Skipping an entry we cannot parse would discard exactly
+    # the breadth it was added to record, and do it silently.
+    with pytest.raises(CalibrationError):
+        build_profiles({"m": {"code": [entry]}}, source="s")
+
+
+def test_labelled_profiles_still_load_in_the_strict_loader(tmp_path: Path) -> None:
+    # The loader rejects unknown fields, so the goal names must stay in the MEASUREMENTS
+    # and never leak into the emitted profile.
+    profiles = build_profiles(
+        {"a/model": {"code": _runs("slugify", 1.0), "analyze": _runs("delivery_log", 0.5)}},
+        source="s",
+    )
+    path = tmp_path / "profiles.json"
+    path.write_text(json.dumps(profiles), encoding="utf-8")
+
+    loaded = load_quality_profiles_file(path)
+
+    assert loaded["a/model"].task_scores == {"code": 1.0, "analyze": 0.5}

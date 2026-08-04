@@ -488,10 +488,10 @@ Install it clone-free (recommended), or from a source checkout:
 
 ```bash
 # clone-free — uv fetches the published package + the `mcp` extra on demand:
-uvx --from "volante[mcp]==0.8.0" volante-mcp
+uvx --from "volante[mcp]==0.9.0" volante-mcp
 
 # or install it and run the console script:
-pip install "volante[mcp]==0.8.0"   # then:
+pip install "volante[mcp]==0.9.0"   # then:
 volante-mcp
 
 # or from a source checkout:
@@ -501,7 +501,7 @@ uv sync --extra mcp && uv run --extra mcp python -m volante_mcp
 Register it with your client. **Claude Code** — one command:
 
 ```bash
-claude mcp add volante -- uvx --from "volante[mcp]==0.8.0" volante-mcp
+claude mcp add volante -- uvx --from "volante[mcp]==0.9.0" volante-mcp
 ```
 
 **Cursor / VS Code / Windsurf** — add to the client's MCP config (e.g. `.cursor/mcp.json`, or
@@ -512,7 +512,7 @@ VS Code's `.vscode/mcp.json` under a `"servers"` key):
   "mcpServers": {
     "volante": {
       "command": "uvx",
-      "args": ["--from", "volante[mcp]==0.8.0", "volante-mcp"]
+      "args": ["--from", "volante[mcp]==0.9.0", "volante-mcp"]
     }
   }
 }
@@ -543,10 +543,10 @@ Requires [`uv`](https://docs.astral.sh/uv/) on your PATH (the plugin launches th
 **Other MCP clients (Codex, Cursor, Windsurf, Gemini CLI, Cline).** These don't have a plugin
 marketplace — they consume MCP servers via config. Point them at the same launch command:
 
-- **OpenAI Codex CLI** — `codex mcp add volante -- uvx --from "volante[mcp]==0.8.0" volante-mcp`
+- **OpenAI Codex CLI** — `codex mcp add volante -- uvx --from "volante[mcp]==0.9.0" volante-mcp`
   (writes an `[mcp_servers.volante]` block to `~/.codex/config.toml`; add providers with repeated
   `--env KEY=VALUE`).
-- **Gemini CLI** — `gemini mcp add volante uvx -- --from "volante[mcp]==0.8.0" volante-mcp`
+- **Gemini CLI** — `gemini mcp add volante uvx -- --from "volante[mcp]==0.9.0" volante-mcp`
   (the `--` is required because Volante's first arg is `--from`).
 - **Cursor / Windsurf / Cline / Roo** — add the standard `mcpServers` entry to the client's MCP
   config (`~/.cursor/mcp.json`, `~/.codeium/windsurf/mcp_config.json`, or the Cline settings):
@@ -554,7 +554,7 @@ marketplace — they consume MCP servers via config. Point them at the same laun
   ```json
   { "mcpServers": { "volante": {
       "command": "uvx",
-      "args": ["--from", "volante[mcp]==0.8.0", "volante-mcp"],
+      "args": ["--from", "volante[mcp]==0.9.0", "volante-mcp"],
       "env": { "CLAUDE_CODE_ENABLED": "1", "ANTHROPIC_API_KEY": "sk-ant-..." }
   } } }
   ```
@@ -573,7 +573,7 @@ endpoint), that's the CLI bundle path, not the "publish a URL" web form:
 npx -y @smithery/cli mcp publish ./volante-<version>.mcpb -n <your-namespace>/volante
 ```
 
-The bundle wraps `uvx --from "volante[mcp]==0.8.0" volante-mcp`, so it runs locally and your
+The bundle wraps `uvx --from "volante[mcp]==0.9.0" volante-mcp`, so it runs locally and your
 subscription CLIs + API keys work as usual (needs `uv` on PATH).
 
 ## Providers
@@ -645,12 +645,24 @@ overrides file. These are *your* declarations, not vendor claims Volante bakes i
 profiles file — no provider calls, so it costs nothing:
 
 ```bash
-# measurements.json — one entry per observed run; null means "produced nothing usable":
-#   {"anthropic/opus": {"code": [1.0, 0.8], "write": [0.9]},
-#    "ollama/qwen":    {"code": [0.4, null]}}
+# measurements.json — one entry per observed run, each naming the goal it came from;
+# a null score means "produced nothing usable":
+#   {"anthropic/opus": {"code": [{"goal": "slugify", "score": 1.0},
+#                                {"goal": "roman",   "score": 0.8}],
+#                       "write": [{"goal": "incident_note", "score": 0.9}]},
+#    "ollama/qwen":    {"code": [{"goal": "slugify", "score": 0.4},
+#                                {"goal": "roman",   "score": null}]}}
 uv run volante --calibrate measurements.json --calibrate-out quality-profiles.json
 export VOLANTE_QUALITY_PROFILES_FILE=$PWD/quality-profiles.json
 ```
+
+Name the goal on every entry. `confidence` counts **distinct goals**, not runs, because
+the profile's claim is about a task TYPE and the goal is the unit that claim generalises
+over — measured, five runs of one goal returned the identical score five times, so runs two
+through five carried no information yet moved confidence from 0.25 to 0.625. A bare number
+is still accepted for hand-written files, but a task type recorded that way has unverifiable
+breadth: it keeps the old run-count confidence and `--calibrate` warns that it may be
+overstated.
 
 `--calibrate` averages per task type. It emits `overall_score` **only when every task type was
 measured**, because the router applies that field to every task type — including ones your
@@ -661,7 +673,8 @@ that never looked. When coverage IS complete it macro-averages the per-type mean
 sample (30 `code` runs, one `write` run) describes the model rather than your sampling.
 `confidence` follows the **weakest-sampled** task type and is capped below `1.0` — the router
 applies one confidence to every task type, so unrelated runs must not make a single observation
-read as certain. `reliability_score` is emitted **only** when you recorded `null` runs: deriving it
+read as certain. It is `goals/(goals+3)`, so broadening coverage raises it and re-running the
+same goal does not. `reliability_score` is emitted **only** when you recorded `null` runs: deriving it
 from low scores would make the reliability component a copy of the quality component. Model ids must
 exist in your configured inventory (the loader is strict), and the output replaces rather than
 merges, so calibrate every model you care about in one file.
@@ -677,7 +690,11 @@ uv run volante --calibrate measurements.json --calibrate-out quality-profiles.js
 
 `measurements.json` and `quality-profiles.json` in this repo are a real run of exactly that
 (2026-07-29, 81 calls). Read them as a worked example, not as defaults: they describe three OpenAI
-models you probably do not have, and the router only loads a profile you point it at.
+models you probably do not have, and the router only loads a profile you point it at. They predate
+the `goal` field, so `--calibrate` warns that their breadth is unverifiable and keeps their original
+run-count confidence — the per-run goals were never recorded, and inventing an assignment now would
+fabricate the provenance these files exist to preserve. `eval/artifacts/measurements-k5.json` is a
+fully labelled run if you want to see the current format on real data.
 
 **What the measurements establish.** Three OpenAI models produced a clean monotonic gradient on
 `code` — `gpt-4.1-nano` 0.951, `gpt-4o-mini` 0.990, `gpt-4.1` 1.000 — which agreed with the tier

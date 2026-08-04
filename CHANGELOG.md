@@ -6,6 +6,53 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-04
+
+**Calibration counted the same goal twice.** `confidence` was computed from the number
+of RUNS, so repeating one goal read as accumulating evidence. Measured: the bundled
+suite's single `analyze` goal returned 0.17 on five runs out of five — zero variance,
+therefore zero new information — yet confidence moved 0.25 → 0.625. Thirty repeats
+reached 0.9, the ceiling reserved for thick evidence, from one observation. This was
+reachable through the documented path: `eval.calibrate_models` runs exactly one goal
+each for `analyze`, `write` and `research`.
+
+### Changed
+- **`confidence` counts DISTINCT GOALS, not runs** — `goals/(goals+3)`. The profile's
+  claim is about a task TYPE, and the goal is the unit that claim generalises over;
+  extra runs of one goal reduce measurement error within it but extend the claim to
+  nothing. Broadening coverage now raises confidence and re-running does not.
+- **Measurements may name the goal each run came from**, and `eval.calibrate_models`
+  now records it: `{"goal": "slugify", "score": 1.0}`. A bare number is still accepted
+  for hand-written and third-party files, but a task type recorded that way has
+  unverifiable breadth — it keeps the run-count confidence it was written against and
+  `--calibrate` warns that the figure may be overstated. Entries that mix labelled and
+  unlabelled runs count as unverified: half a label cannot establish breadth.
+- **A malformed entry is rejected rather than read past.** Reading an unknown key as
+  "no goal" would silently discard exactly the breadth the field exists to record.
+
+### Fixed
+- **The published `quality-profiles-k5.json` overstated its own weight.** It claimed
+  `confidence: 0.625`; the honest figure is **0.25**, because three of its four task
+  types rest on one goal each. Every task score is byte-identical — only the weight the
+  router gave them was wrong. The corresponding blend in `eval/artifacts/README.md` is
+  corrected from 37.5% to 75% tier influence. This is the fifth number this project has
+  had to correct downward, and the second on this same artifact.
+- **Every measurements file is re-keyed to `openai-compat/<wire>`.** The 0.8.0 id fix
+  applied to new runs; the files shipped in the repo still carried the old
+  `{prefix}/{wire}` keys, so the worked example the README tells you to run produced a
+  profile matching no configured model. Keys only; no score changed.
+
+### Measured, and it does not flatter the feature
+- **Per-task-type routing is not demonstrated to be worth anything** across the three
+  models mapped at k=5. Routing scores 0.9320 against 0.9140 for always using the best
+  single model, and that entire +0.0180 comes from ONE goal. Broken down: `code`
+  (9 goals) is won outright by the best-overall model, `research` scores exactly 1.000
+  for all three, `write` gives +0.0220 with a 95% CI of [-0.1133, +0.1573] — noise —
+  and only `analyze` is real at +0.1940 [+0.0996, +0.2884]. That interval is narrow only
+  because the runs barely move, and both its numbers are failing scores: 1 of 6 checks
+  against 2 of 6. This is a limit of the INSTRUMENT — the suite cannot currently measure
+  three of the four task types it routes on — not a result about routing.
+
 ## [0.8.0] - 2026-08-04
 
 **The calibration workflow in 0.7.0 never worked.** Anyone following the documented

@@ -58,6 +58,18 @@ than decontamination, and the ranking does not change: `glm` is still last at co
 by a wide margin, and `debug_gauntlet` fails 0/5 — a real, reproducible capability
 limit, not an artefact.
 
+`measurements-k5.json` — the k=5 capability map as a calibration input: three models,
+12 goals, every entry naming the goal it came from. It is the only measurements file
+here in the current format; the 2026-07-29 and 2026-07-30 files predate the `goal`
+field and `--calibrate` warns that their breadth cannot be verified. The per-run goal
+assignment for those runs was never recorded, so labelling them now would fabricate
+the provenance these artifacts exist to preserve.
+
+All measurement files were re-keyed to the `openai-compat/<wire>` ids the runtime
+actually registers. Only the keys changed; every score is byte-identical to the run
+that produced it. The old `{prefix}/{wire}` keys matched no configured model, which is
+the 0.8.0 startup failure preserved in artifact form.
+
 ## depth suite (2026-07-31): where orchestration loses, and why
 
 `results-depth-0.4.1.json` (`--synthesis assemble`) and `results-depth-summarize.json`
@@ -618,19 +630,30 @@ model per goal:
 **A correction, and it is ours.** An earlier version of this section reported 0.0017
 for the measured profile. That figure came from constructing `ModelQualityProfile`
 directly in a test script, where `confidence` defaults to **1.0**. The profile
-`--calibrate` actually writes at k=5 carries **confidence 0.625**, and the router
-blends a profile with the declared tier prior in proportion to it:
+`--calibrate` actually writes carries **confidence 0.25**, and the router blends a
+profile with the declared tier prior in proportion to it:
 
-    gpt-4o-mini   measured 0.7475 x 0.625 + tier-3 prior 0.75 x 0.375 = 0.7484
-    gpt-4o        measured 0.7848 x 0.625 + tier-4 prior 1.00 x 0.375 = 0.8655
+    gpt-4o-mini   measured 0.7454 x 0.25 + tier-3 prior 0.75 x 0.75 = 0.7489
+    gpt-4o        measured 0.7848 x 0.25 + tier-4 prior 1.00 x 0.75 = 0.9462
 
-The declared tier carries 37.5% of that component and decides. Measured against the
+The declared tier carries 75% of that component and decides. Measured against the
 REAL profile the routing loss is 0.0333 — identical to using no profile at all.
 
+**A second correction, same number.** This section previously published **0.625**,
+which is what the old rule returned by counting RUNS. Confidence now counts DISTINCT
+GOALS, and this suite holds exactly one goal each for `analyze`, `write` and
+`research` — so the honest figure is 1/(1+3) = **0.25**, and re-running the suite
+cannot raise it. The old rule made repetition look like breadth: five runs of the one
+`analyze` goal returned 0.17 every single time, zero variance and therefore zero new
+information, yet they moved confidence from 0.25 to 0.625. Thirty repeats reached
+0.9, the ceiling meant for thick evidence, from a single observation. The profile
+values themselves are unchanged; only the weight the router gives them was overstated.
+
 The blend is deliberate rather than a defect: a small sample should not override
-declared metadata. But the consequence has to be stated plainly. **At k=5, measuring
-does not beat a wrong tier.** Confidence is n/(n+3), so reaching near 1 needs roughly
-27 runs per task type — about 650 calls.
+declared metadata. But the consequence has to be stated plainly, and it is now
+stronger than it looked. **Measuring does not beat a wrong tier here** — and no amount
+of re-running fixes that, because confidence is goals/(goals+3). Reaching near 1 needs
+roughly 27 DISTINCT GOALS per task type, not 27 runs.
 
 So the map's value is telling you which tier to DECLARE, not overriding it. Setting
 mini to tier 4 and gpt-4o to tier 3 — what the measurements say — gives 0.0018, the
@@ -657,6 +680,45 @@ and the routing gain lives in `calc`, `debug_gauntlet`, `roman` and `analyze`.
 
 And the map is only evidence about THIS suite. A profile calibrated here describes
 how these models handle small coding and text tasks, not a general ranking.
+
+### Does per-task routing beat just using the best model? (2026-08-04)
+
+The map's whole promise is that no single model is best at everything. Tested directly
+against the k=5 data, picking the best model PER TASK TYPE against always using the
+single best model overall:
+
+    always deepseek-chat-v3.1   0.8075
+    always gpt-4o               0.8987
+    always gpt-4o-mini          0.9140   <- best single
+    route per task type         0.9320   (+0.0180)
+
+Read no further and the +0.0180 looks like the case for routing. It is not, for two
+reasons, and the picks were chosen using the very data that scored them.
+
+Broken down per task type, paired over every run:
+
+    code      9 goals, 45 runs   mini 0.9982 wins outright — routing adds nothing
+    research  1 goal,   5 runs   all three score exactly 1.000 — no signal at all
+    write     1 goal,   5 runs   deepseek +0.0220  [95% CI -0.1133, +0.1573]  NOT shown
+    analyze   1 goal,   5 runs   gpt-4o   +0.1940  [95% CI +0.0996, +0.2884]  real
+
+So `write` is noise — routing on it is fitting the sample. Essentially the entire
++0.0180 comes from ONE goal, `delivery_log`. And that goal's interval is narrow only
+because the runs barely move: mini scored 0.17 five times out of five, gpt-4o 0.33 four
+times and 0.50 once. A near-zero variance makes any constant gap "significant", but it
+generalises to nothing beyond this one goal — there is no second `analyze` goal to
+disagree with it.
+
+Worse, both numbers are failures. 0.17 is one of six checks passed; 0.33 is two of six.
+Routing `analyze` to gpt-4o moves the user from a wrong answer to a wrong answer.
+
+**The honest verdict: across these three models, per-task-type routing is not
+demonstrated to be worth anything.** The one statistically real win is on a goal every
+model fails, and three of the four task types are measured by a single goal each — one
+of which (`research`) is saturated and another (`write`) is noise. This is a limit of
+the INSTRUMENT, not a result about routing: the suite cannot currently measure three of
+the four task types it routes on. Whether routing pays needs a genuinely heterogeneous
+inventory and more than one goal per type; neither exists here yet.
 
 ### One tier cannot hold the map (2026-08-04)
 

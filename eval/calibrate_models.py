@@ -72,17 +72,20 @@ def _registry_for(model_id: str) -> Registry:
     )
 
 
-def _summarize(task_type: str, scores: list[float | None]) -> str:
-    """Report the mean of the GRADED runs and, separately, how many were unmeasured.
+def _summarize(task_type: str, entries: list[dict]) -> str:
+    """Report the mean of the GRADED runs, how many were unmeasured, and the BREADTH.
 
     Averaging `null` as zero would put the conflation this change removes straight
-    back into the line a human reads.
+    back into the line a human reads. The goal count is shown next to the run count
+    because it, not the run count, is what confidence is computed from: `goals=1`
+    says this number describes one goal however many times it was run.
     """
-    graded = [s for s in scores if s is not None]
-    unmeasured = len(scores) - len(graded)
+    graded = [e["score"] for e in entries if e["score"] is not None]
+    unmeasured = len(entries) - len(graded)
     mean = sum(graded) / len(graded) if graded else 0.0
     tail = f" unmeasured={unmeasured}" if unmeasured else ""
-    return f"{task_type}={mean:.3f}(n={len(graded)}){tail}"
+    goals = len({e["goal"] for e in entries})
+    return f"{task_type}={mean:.3f}(goals={goals}, n={len(graded)}){tail}"
 
 
 async def measure(
@@ -100,7 +103,7 @@ async def measure(
     if not base_url or not api_key:
         raise SystemExit(f"{prefix}_BASE_URL and {prefix}_KEY must be set")
 
-    measurements: dict[str, dict[str, list[float]]] = {}
+    measurements: dict[str, dict[str, list[dict]]] = {}
     for wire in models:
         model_id = model_id_for(prefix, wire)
         registry = _registry_for(model_id)
@@ -111,12 +114,14 @@ async def measure(
         provider = OpenAICompatProvider(
             base_url=base_url, api_key=api_key, model=wire, timeout=timeout_s
         )
-        # `float | None`: None is written as JSON null, which volante.calibrate reads
-        # as "this run produced nothing usable" and counts toward RELIABILITY instead
-        # of grading it. Recording 0.0 here filed our own timeouts and crashed runners
-        # as the model being wrong -- the same conflation that once recorded a 120 s
-        # client timeout as a failure to analyse.
-        by_type: dict[str, list[float | None]] = {}
+        # Each entry carries its goal id. `score: None` is written as JSON null, which
+        # volante.calibrate reads as "this run produced nothing usable" and counts
+        # toward RELIABILITY instead of grading it. Recording 0.0 here filed our own
+        # timeouts and crashed runners as the model being wrong -- the same conflation
+        # that once recorded a 120 s client timeout as a failure to analyse. The goal id
+        # is what lets confidence count DISTINCT GOALS: without it, this suite's single
+        # analyze goal run k times was indistinguishable from k different analyze goals.
+        by_type: dict[str, list[dict]] = {}
         goals = [t for t in [*EVAL_SUITE, *TEXT_SUITE] if only in (None, t.task_type)]
         for task in goals:
             bucket = by_type.setdefault(task.task_type, [])
@@ -126,9 +131,9 @@ async def measure(
                     score = score_for_calibration(task, result.output)
                 except Exception as exc:  # the run produced nothing: not a zero
                     print(f"  {wire:<14} {task.id:<15} run{run + 1}  ERROR {type(exc).__name__}")
-                    bucket.append(None)
+                    bucket.append({"goal": task.id, "score": None})
                     continue
-                bucket.append(score)
+                bucket.append({"goal": task.id, "score": score})
                 shown = "unmeasured" if score is None else f"{score:.2f}"
                 print(f"  {wire:<14} {task.id:<15} run{run + 1}  {shown}")
         measurements[model_id] = by_type

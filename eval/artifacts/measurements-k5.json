@@ -1,0 +1,752 @@
+{
+  "openai-compat/deepseek/deepseek-chat-v3.1": {
+    "analyze": [
+      {
+        "goal": "delivery_log",
+        "score": 0.3333333333333333
+      },
+      {
+        "goal": "delivery_log",
+        "score": 0.3333333333333333
+      },
+      {
+        "goal": "delivery_log",
+        "score": 0.3333333333333333
+      },
+      {
+        "goal": "delivery_log",
+        "score": 0.3333333333333333
+      },
+      {
+        "goal": "delivery_log",
+        "score": 0.3333333333333333
+      }
+    ],
+    "code": [
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "roman",
+        "score": 0.0
+      },
+      {
+        "goal": "roman",
+        "score": 1.0
+      },
+      {
+        "goal": "roman",
+        "score": 1.0
+      },
+      {
+        "goal": "roman",
+        "score": 1.0
+      },
+      {
+        "goal": "roman",
+        "score": 0.0
+      },
+      {
+        "goal": "calc",
+        "score": 0.6666666666666666
+      },
+      {
+        "goal": "calc",
+        "score": 0.25
+      },
+      {
+        "goal": "calc",
+        "score": 1.0
+      },
+      {
+        "goal": "calc",
+        "score": 1.0
+      },
+      {
+        "goal": "calc",
+        "score": 1.0
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "csv_stats",
+        "score": 0.0
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 0.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 0.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 0.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 0.9
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 1.0
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 1.0
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 0.9
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 0.9
+      }
+    ],
+    "research": [
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      },
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      },
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      },
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      },
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      }
+    ],
+    "write": [
+      {
+        "goal": "incident_note",
+        "score": 0.6666666666666666
+      },
+      {
+        "goal": "incident_note",
+        "score": 0.9166666666666666
+      },
+      {
+        "goal": "incident_note",
+        "score": 0.9166666666666666
+      },
+      {
+        "goal": "incident_note",
+        "score": 0.75
+      },
+      {
+        "goal": "incident_note",
+        "score": 0.9166666666666666
+      }
+    ]
+  },
+  "openai-compat/openai/gpt-4o": {
+    "analyze": [
+      {
+        "goal": "delivery_log",
+        "score": 0.3333333333333333
+      },
+      {
+        "goal": "delivery_log",
+        "score": 0.3333333333333333
+      },
+      {
+        "goal": "delivery_log",
+        "score": 0.5
+      },
+      {
+        "goal": "delivery_log",
+        "score": 0.3333333333333333
+      },
+      {
+        "goal": "delivery_log",
+        "score": 0.3333333333333333
+      }
+    ],
+    "code": [
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "roman",
+        "score": 0.42857142857142855
+      },
+      {
+        "goal": "roman",
+        "score": 1.0
+      },
+      {
+        "goal": "roman",
+        "score": 1.0
+      },
+      {
+        "goal": "roman",
+        "score": 1.0
+      },
+      {
+        "goal": "roman",
+        "score": 1.0
+      },
+      {
+        "goal": "calc",
+        "score": 0.75
+      },
+      {
+        "goal": "calc",
+        "score": 0.75
+      },
+      {
+        "goal": "calc",
+        "score": 0.9166666666666666
+      },
+      {
+        "goal": "calc",
+        "score": 0.9166666666666666
+      },
+      {
+        "goal": "calc",
+        "score": 0.75
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 0.9
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 0.9
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 0.9
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 0.9
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 0.9
+      }
+    ],
+    "research": [
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      },
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      },
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      },
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      },
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      }
+    ],
+    "write": [
+      {
+        "goal": "incident_note",
+        "score": 0.75
+      },
+      {
+        "goal": "incident_note",
+        "score": 0.75
+      },
+      {
+        "goal": "incident_note",
+        "score": 0.75
+      },
+      {
+        "goal": "incident_note",
+        "score": 0.8333333333333334
+      },
+      {
+        "goal": "incident_note",
+        "score": 1.0
+      }
+    ]
+  },
+  "openai-compat/openai/gpt-4o-mini": {
+    "analyze": [
+      {
+        "goal": "delivery_log",
+        "score": 0.16666666666666666
+      },
+      {
+        "goal": "delivery_log",
+        "score": 0.16666666666666666
+      },
+      {
+        "goal": "delivery_log",
+        "score": 0.16666666666666666
+      },
+      {
+        "goal": "delivery_log",
+        "score": 0.16666666666666666
+      },
+      {
+        "goal": "delivery_log",
+        "score": 0.16666666666666666
+      }
+    ],
+    "code": [
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "slugify",
+        "score": 1.0
+      },
+      {
+        "goal": "roman",
+        "score": 1.0
+      },
+      {
+        "goal": "roman",
+        "score": 1.0
+      },
+      {
+        "goal": "roman",
+        "score": 1.0
+      },
+      {
+        "goal": "roman",
+        "score": 1.0
+      },
+      {
+        "goal": "roman",
+        "score": 1.0
+      },
+      {
+        "goal": "calc",
+        "score": 1.0
+      },
+      {
+        "goal": "calc",
+        "score": 1.0
+      },
+      {
+        "goal": "calc",
+        "score": 1.0
+      },
+      {
+        "goal": "calc",
+        "score": 1.0
+      },
+      {
+        "goal": "calc",
+        "score": 0.9166666666666666
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "csv_stats",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "json_flatten",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "textkit",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "ledger",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "toolbelt",
+        "score": 1.0
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 1.0
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 1.0
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 1.0
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 1.0
+      },
+      {
+        "goal": "debug_gauntlet",
+        "score": 1.0
+      }
+    ],
+    "research": [
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      },
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      },
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      },
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      },
+      {
+        "goal": "stdlib_pick",
+        "score": 1.0
+      }
+    ],
+    "write": [
+      {
+        "goal": "incident_note",
+        "score": 0.8333333333333334
+      },
+      {
+        "goal": "incident_note",
+        "score": 0.8333333333333334
+      },
+      {
+        "goal": "incident_note",
+        "score": 0.8333333333333334
+      },
+      {
+        "goal": "incident_note",
+        "score": 0.75
+      },
+      {
+        "goal": "incident_note",
+        "score": 0.8333333333333334
+      }
+    ]
+  }
+}
