@@ -165,6 +165,22 @@ def _build(
     return registry, runtime, direct
 
 
+
+def _unpriced_models(result: RunResult, registry: Registry) -> list[str]:
+    """Models in this run that used tokens while both their rates are zero."""
+    unpriced: list[str] = []
+    for model_id, usage in result.usage_total.items():
+        if usage.prompt_tokens == 0 and usage.completion_tokens == 0:
+            continue
+        try:
+            info = registry.get(model_id)
+        except Exception:  # noqa: BLE001 - an unknown model cannot be priced either
+            continue
+        if info.cost_per_1k_in == 0.0 and info.cost_per_1k_out == 0.0:
+            unpriced.append(model_id)
+    return sorted(unpriced)
+
+
 def _subscription_models(result: RunResult, registry: Registry) -> int:
     """Number of DISTINCT subscription-billed models observed in usage_total
     (plan_included / plan_credit) -- NOT a call count (e.g. 4 calls to one
@@ -201,6 +217,19 @@ def _summary_lines(result: RunResult, registry: Registry) -> list[str]:
         f"subscription_models: {_subscription_models(result, registry)}   "
         f"subscription_calls: {result.subscription_calls}",
     ]
+    # Directly under the figure it qualifies. A model with no configured rates prices
+    # every call at zero, so the line above reads $0.000000 while real money left the
+    # account — the only inaccuracy this meter can produce that looks CORRECT. Naming
+    # the env var makes it a one-line fix rather than a documentation hunt.
+    unpriced = _unpriced_models(result, registry)
+    if unpriced:
+        joined = ", ".join(unpriced)
+        lines.append(
+            f"WARNING: no price configured for {joined} — the cost above is $0.00 and "
+            "is NOT what you were charged. Set the matching *_COST_IN / *_COST_OUT to "
+            "your provider's real rates (and `--prefer cheap` needs them to mean "
+            "anything)."
+        )
     checks = getattr(result, "checks", None)
     if checks is not None and checks.ran:
         lines.append(f"checks: {checks.summary()}")

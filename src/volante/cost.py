@@ -108,6 +108,31 @@ class CostMeter:
             for field in ("prompt", "completion", "usd"):
                 target[field] += source[field]
 
+    def unpriced_models(self, registry: Registry) -> list[str]:
+        """Models that consumed tokens while both their rates are zero.
+
+        A model configured with no `COST_IN`/`COST_OUT` prices every call at zero, so
+        the run reports `billed_usd: $0.000000` while real money leaves the account.
+        That is the one failure mode of this meter that a reader cannot spot — every
+        other inaccuracy shows up as a number that looks wrong, and this one looks
+        perfect.
+
+        Only models with actual usage are named. A configured-but-unused model has
+        nothing to misreport, and warning about it would train the reader to skip the
+        warning.
+        """
+        unpriced: list[str] = []
+        for model_id, usage in self._totals.items():
+            if usage.prompt_tokens == 0 and usage.completion_tokens == 0:
+                continue
+            try:
+                info = registry.get(model_id)
+            except Exception:  # noqa: BLE001 - an unknown model cannot be priced either
+                continue
+            if info.cost_per_1k_in == 0.0 and info.cost_per_1k_out == 0.0:
+                unpriced.append(model_id)
+        return sorted(unpriced)
+
     def costs_usd(self, registry: Registry) -> tuple[float, float]:
         # Two ledgers: (billed, credit). billed = cash (card), credit = plan_*.
         # residu-4 PER-CALL: _totals holds ALL tokens; authoritative calls (_direct)

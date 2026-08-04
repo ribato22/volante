@@ -595,3 +595,51 @@ def test_the_orchestrate_flag_reaches_the_builder() -> None:
     """The decision is made in _build; a flag the builder never sees does nothing."""
     assert cli._parse_args(["--orchestrate", "g"]).orchestrate is True
     assert cli._parse_args(["g"]).orchestrate is False
+
+
+def _priced(mid: str, cin: float, cout: float) -> ModelInfo:
+    return ModelInfo(
+        id=mid, provider="openai_compat", strengths={"coding"},
+        context_window=8000, max_output_tokens=1000, supports_tools=False,
+        cost_per_1k_in=cin, cost_per_1k_out=cout,
+    )
+
+
+def _result_using(mid: str) -> RunResult:
+    return RunResult(
+        status="success", final="answer", partial_artifacts={}, failed_task=None,
+        usage_total={mid: Usage(prompt_tokens=100, completion_tokens=50)},
+    )
+
+
+def test_a_run_priced_at_zero_says_so_next_to_the_zero() -> None:
+    """The only inaccuracy this meter can produce that LOOKS correct.
+
+    A model configured with no rates — which is what the three-variable quickstart
+    gives you — prices every call at zero, so the footer reads $0.000000 while real
+    money left the account. The caveat has to sit beside the figure it qualifies,
+    not in documentation the reader has already skipped.
+    """
+    registry = Registry([_priced("m", 0.0, 0.0)])
+
+    report = "\n".join(cli._summary_lines(_result_using("m"), registry))
+
+    assert "no price configured for m" in report
+    assert "NOT what you were charged" in report
+    assert "_COST_IN" in report
+
+
+def test_a_priced_run_stays_quiet() -> None:
+    registry = Registry([_priced("m", 0.00015, 0.0006)])
+
+    report = "\n".join(cli._summary_lines(_result_using("m"), registry))
+    assert "no price configured" not in report
+
+
+def test_a_configured_but_unused_model_is_not_warned_about() -> None:
+    """Warning about a model that reported nothing would train the reader to skip
+    the warning, which costs more than it saves."""
+    registry = Registry([_priced("used", 0.001, 0.002), _priced("idle", 0.0, 0.0)])
+
+    report = "\n".join(cli._summary_lines(_result_using("used"), registry))
+    assert "no price configured" not in report
