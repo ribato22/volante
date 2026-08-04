@@ -182,3 +182,164 @@ TEXT_SUITE = [
         checks=ANALYZE_CHECKS,
     ),
 ]
+
+
+# --- write --------------------------------------------------------------------
+# The attack this goal is built against is the one the analyze rubric lost to first:
+# a RULES block that lists what the checks look for IS the answer key, and a model
+# scores full marks by echoing the prompt. So nothing the checks reward appears in
+# the prompt. The duration must be computed from two timestamps, the audience-facing
+# wording must be chosen, and the internal identifiers that ARE in the prompt are
+# exactly what the negative checks punish for appearing.
+
+WRITE_GOAL = '''\
+You are writing the customer-facing status update for an incident that has now ended.
+
+Internal incident record (NOT for publication):
+
+    ticket        INC-4471
+    services      auth-edge-7, session-store-b, token-mint
+    began         2026-03-14 08:52 UTC
+    mitigated     2026-03-14 09:31 UTC
+    root cause    a stale certificate in the token-mint pod pool
+    impact        customers could not sign in; already-open sessions kept working
+    fix           certificate rotated, pool restarted
+    follow-up     automated expiry alerting, owner: platform team
+
+Write the public status update. It must:
+
+- open by naming what customers experienced, not what broke internally
+- state how long the disruption lasted, in minutes
+- say clearly whether customers who were already signed in were affected
+- state what is being done so it does not recur
+- be at most 120 words
+
+Publish nothing from the internal record that a customer has no use for: no ticket
+reference, no service names, no pod or infrastructure detail.
+'''
+
+
+def _words(out: str) -> int:
+    return len(re.findall(r"[A-Za-z0-9']+", out))
+
+
+def _has_any(out: str, needles: tuple[str, ...]) -> bool:
+    low = out.lower()
+    return any(n in low for n in needles)
+
+
+WRITE_CHECKS = (
+    # 08:52 -> 09:31 is 39 minutes. It appears nowhere in the prompt: the model has
+    # to subtract, which copying cannot do.
+    TextCheck("duration_39", lambda o: bool(re.search(r"\b39\b", o))),
+    TextCheck(
+        "no_wrong_duration",
+        lambda o: bool(re.search(r"\b(?:31|52|41|40)\s*minute", o, re.I)),
+        negative=True,
+    ),
+    # Existing sessions kept working — stating this is the one fact that stops the
+    # notice reading worse than the incident was.
+    TextCheck(
+        "existing_sessions_ok",
+        lambda o: _has_any(o, ("already signed in", "already logged in",
+                               "existing session", "remained signed in",
+                               "stayed signed in", "were not affected")),
+    ),
+    TextCheck("sign_in_named", lambda o: _has_any(o, ("sign in", "sign-in", "log in",
+                                                      "login", "signing in"))),
+    TextCheck("prevention_named", lambda o: _has_any(o, ("alert", "monitor",
+                                                         "expiry", "expiration",
+                                                         "renew", "rotat"))),
+    TextCheck("within_120_words", lambda o: 0 < _words(o) <= 120),
+    # Added after the attack: an EMPTY answer collected every negative check for free
+    # — nothing forbidden is present when nothing is present — and scored the same as
+    # copying the prompt. Positives that require real content are what put a floor
+    # under that, and each of these is something the update genuinely needs.
+    TextCheck("window_stated", lambda o: bool(re.search(r"08[:.]52|09[:.]31", o))),
+    TextCheck("resolved_stated", lambda o: _has_any(o, ("resolved", "restored",
+                                                        "fixed", "back to normal",
+                                                        "has ended", "mitigated"))),
+    TextCheck("apology_or_thanks", lambda o: _has_any(o, ("sorry", "apolog",
+                                                          "thank", "regret"))),
+    # The negatives are the whole defence. Every one of these strings IS in the
+    # prompt, so a model that pads with the internal record scores worse, not better.
+    TextCheck("no_ticket", lambda o: "inc-4471" in o.lower(), negative=True),
+    TextCheck(
+        "no_service_names",
+        lambda o: _has_any(o, ("auth-edge", "session-store", "token-mint")),
+        negative=True,
+    ),
+    TextCheck("no_infra_detail", lambda o: _has_any(o, ("pod", "certificate",
+                                                        "cert ")), negative=True),
+)
+
+
+# --- research -----------------------------------------------------------------
+# Recall and synthesis, with no network. The three answers are stdlib module names
+# that the prompt never says — the needs are described in prose instead, so the
+# scoring content cannot be copied. The negative check is the anti-shotgun one:
+# naming many candidates per need would otherwise satisfy a positive check by
+# accident, which is exactly how the first research rubric leaked 83%.
+
+RESEARCH_GOAL = '''\
+A colleague is writing a small command-line tool in Python and wants to use only the
+standard library. Recommend exactly one standard-library module for each of the three
+needs below, and justify each in one sentence.
+
+1. They need to read a settings file that is written as sections with `key = value`
+   lines underneath, the format Python's own tooling has used for decades.
+2. They need to compare two versions of a text file and print the differences in the
+   usual patch-like form, without shelling out to an external program.
+3. They need to run a function repeatedly to measure how long it takes, with the
+   timing loop and the repetition handled for them rather than written by hand.
+
+For each need give the module name, then the sentence. Do not list alternatives —
+one module per need, the one you would actually use.
+'''
+
+_R1 = ("configparser",)
+_R2 = ("difflib",)
+_R3 = ("timeit",)
+# Plausible neighbours a shotgun answer reaches for. Naming these alongside the right
+# answer is what "do not list alternatives" forbids, and what a rubric of positive
+# checks alone would happily reward.
+_R_DECOYS = ("json", "yaml", "toml", "tomllib", "argparse", "csv",
+             "filecmp", "subprocess", "time.perf_counter", "cprofile",
+             "profile", "datetime")
+
+
+def _names_module(out: str, wanted: tuple[str, ...]) -> bool:
+    low = out.lower()
+    return any(re.search(rf"\b{re.escape(w)}\b", low) for w in wanted)
+
+
+def _decoys(out: str) -> int:
+    low = out.lower()
+    return sum(1 for d in _R_DECOYS if re.search(rf"\b{re.escape(d)}\b", low))
+
+
+# Exclusivity is folded INTO each positive check rather than left to one negative.
+# Measured on the first draft: a shotgun answer that named all three right modules
+# among eight wrong ones scored 0.83 — three positives are worth more than one
+# negative, so naming everything paid. Requiring "the right module AND not a spray"
+# makes the positive itself unsatisfiable by spraying, which is the only version the
+# goal's own instruction ("do not list alternatives") actually enforces.
+RESEARCH_CHECKS = (
+    TextCheck("configparser", lambda o: _names_module(o, _R1) and _decoys(o) <= 1),
+    TextCheck("difflib", lambda o: _names_module(o, _R2) and _decoys(o) <= 1),
+    TextCheck("timeit", lambda o: _names_module(o, _R3) and _decoys(o) <= 1),
+    TextCheck("not_a_shotgun", lambda o: _decoys(o) > 1, negative=True),
+    # One sentence of justification each was asked for, so the answer must be prose
+    # and not three bare words.
+    TextCheck("justified", lambda o: _words(o) >= 45),
+    TextCheck("not_padded", lambda o: _words(o) <= 400),
+)
+
+TEXT_SUITE.extend(
+    [
+        EvalTask(id="incident_note", goal=WRITE_GOAL, task_type="write",
+                 checks=WRITE_CHECKS),
+        EvalTask(id="stdlib_pick", goal=RESEARCH_GOAL, task_type="research",
+                 checks=RESEARCH_CHECKS),
+    ]
+)
