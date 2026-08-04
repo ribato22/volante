@@ -336,3 +336,37 @@ Four designs are now dead: difficulty-gated planning, planner abstention, model
 self-check, and repair-with-evidence. What survives is narrower and worth stating
 precisely — execution verification is a reliable DETECTOR and a useless ACTUATOR. It
 never approved a wrong answer in 22 runs, and it cannot drive a fix.
+
+### The headroom was model weakness (2026-08-04)
+
+The decisive test, and it goes against this project. `resolve` was built because
+baseline failed it and orchestration did not. Run the same goal on a stronger model in
+the same family, one batch, n=6 per arm:
+
+| model | baseline | orchestration | orchestration cost |
+|---|---|---|---|
+| `openai/gpt-4o-mini` | 0.497 | 0.476 | 2.2x |
+| `openai/gpt-4o` | **0.958** (stdev 0.000) | 0.941 | 7.6x |
+
+gpt-4o solves it alone and deterministically. Orchestration makes it slightly worse for
+7.6x the money. What decomposition was closing is a gap a better model does not have.
+
+And the same batch reversed the headline result on mini: orchestration 0.476 against
+baseline 0.497. Pooling every measurement taken after the scorer and reliability fixes:
+
+    orchestration  n=25  0.653   batches: 0.742 · 0.721 · 0.656 · 0.476
+    baseline       n=25  0.494   batches: 0.414 · 0.492 · 0.708 · 0.497
+
+The pooled gap is +0.159, not the +0.289 published at p<0.005 from a single batch of 8.
+Between-batch drift is larger than the effect. **There is currently no reliable evidence
+that orchestration beats a single call on this suite**, and the README has been corrected
+to say so.
+
+Two things this does NOT invalidate, because they were never comparisons between arms:
+the reliability work (unparsable output 2 in 8 -> 0 in 8) and the detector (`--verify`,
+0 false negatives in 22). Those are properties of the engine.
+
+The methodological lesson is the expensive one. Four batches of n=6-8 looked like a
+result and were not. On a metric whose between-batch drift is this large, a single batch
+cannot support a p-value, and quoting one was an error of ours — the third time in this
+project that a published number had to be corrected downward after re-measurement.

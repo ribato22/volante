@@ -246,22 +246,34 @@ The claim needs a goal with headroom. `resolve` (in `eval/tasks_depth.py`, run w
 rules, graded on 48 cases balanced twelve-per-answer so a constant answer scores exactly 0.25.
 Same model, temperature 0, n=8:
 
-| arm | runs | mean | stdev | unparsable output |
-|---|---|---|---|---|
-| baseline | 16 | 0.453 | 0.130 | — |
-| orchestration | 8 | **0.742** | 0.212 | 0/8 |
+| arm | pooled runs | mean | batch means |
+|---|---|---|---|
+| baseline | 25 | 0.494 | 0.414 · 0.492 · 0.708 · 0.497 |
+| orchestration | 25 | 0.653 | 0.742 · 0.721 · 0.656 · **0.476** |
 
-Baseline is pooled over two batches run hours apart. A single batch of 8 gave mean 0.414
-with stdev 0.007, and quoting that alone would overstate how consistent it is: a second
-batch contained one run at 0.938. The pooled figure is the honest one, and the shape it
-hides is worth stating — baseline scores below 0.50 on **15 of 16 runs**, so it is not
-noisy so much as reliably wrong with one lucky exception.
+**Read the last column, not the mean.** An earlier release of this README reported
++0.289 at Welch t=3.54, p<0.005, from one batch of 8. It did not reproduce. Pooled over
+four batches the gap is +0.159, and the most recent batch REVERSED it: orchestration
+0.476 against baseline 0.497. Between-batch drift on this goal is larger than the effect
+being measured, so **this project does not currently have evidence that orchestration
+beats a single call, even on the goal built to give it headroom.**
 
-That is +0.289, Welch t=3.54 (df~10), p<0.005 — the first result on this project where
-orchestration beats a strong single model on quality rather than tying it. Note how it was won: not
-by better answers, but by removing failures. Before the reliability work the same arm scored 0.620
-with stdev 0.322 and returned a module that does not parse in 2 runs of 8; the mean moved 0.12 and
-the standard deviation moved 0.11, and it was the second number that bought the significance.
+Worse for the claim, the headroom turns out to be model weakness. Running the same goal
+on a stronger model in the same family, same batch, n=6 each:
+
+| model | baseline | orchestration | orchestration cost |
+|---|---|---|---|
+| `openai/gpt-4o-mini` | 0.497 | 0.476 | 2.2x |
+| `openai/gpt-4o` | **0.958** (stdev 0.000) | 0.941 | 7.6x |
+
+gpt-4o solves it alone, deterministically, and orchestration makes it slightly worse for
+7.6x the money. So what decomposition was closing on `resolve` was a gap that a better
+model does not have. That is a real result about this engine and it is published here
+because it is true, not because it helps.
+
+What survives: the reliability work is unaffected and stands on its own — unparsable
+output went from 2 runs in 8 to 0 in 8, and `--verify` never approved a wrong answer in
+22 measured runs. Those are properties of the engine, not of a comparison between arms.
 
 Everything above is one model on one class of small coding tasks, and orchestration costs **7.7x**
 baseline. `--prefer cheap` now buys that back where it is not earning anything: it asks the planner
