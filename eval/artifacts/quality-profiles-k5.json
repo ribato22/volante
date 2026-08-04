@@ -1,0 +1,35 @@
+{
+  "openai_compat/deepseek/deepseek-chat-v3.1": {
+    "confidence": 0.625,
+    "overall_score": 0.7506,
+    "source": "measurements:capmap5.json",
+    "task_scores": {
+      "analyze": 0.3333,
+      "code": 0.8359,
+      "research": 1.0,
+      "write": 0.8333
+    }
+  },
+  "openai_compat/openai/gpt-4o": {
+    "confidence": 0.625,
+    "overall_score": 0.7848,
+    "source": "measurements:capmap5.json",
+    "task_scores": {
+      "analyze": 0.3667,
+      "code": 0.9558,
+      "research": 1.0,
+      "write": 0.8167
+    }
+  },
+  "openai_compat/openai/gpt-4o-mini": {
+    "confidence": 0.625,
+    "overall_score": 0.7454,
+    "source": "measurements:capmap5.json",
+    "task_scores": {
+      "analyze": 0.1667,
+      "code": 0.9981,
+      "research": 1.0,
+      "write": 0.8167
+    }
+  }
+}

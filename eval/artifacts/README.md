@@ -590,3 +590,46 @@ rather than taken here: charging 9.2x for a benefit that has never been demonstr
 a poor default, but flipping one on a non-significant result would repeat the overreach
 this project has already had to correct three times. The flag exists; the numbers are
 published beside it.
+
+### The capability map, and whether routing on it beats a guessed tier (2026-08-04)
+
+`--calibrate` withholds `overall_score` unless every task type is measured, so a
+coding score cannot stand in for research ability. That guard is correct and it is why
+calibration had never changed a routing decision here: the suite covered `code` and
+`analyze` only. With `write` and `research` goals added, the field is emitted and the
+router uses it.
+
+Three models across three families, 12 goals, k=5 — 180 baseline calls:
+
+| | analyze | code | research | write |
+|---|---|---|---|---|
+| gpt-4o-mini | 0.167 | **0.998** | 1.000 | 0.817 |
+| gpt-4o | **0.367** | 0.956 | 1.000 | 0.817 |
+| deepseek-chat-v3.1 | 0.333 | 0.836 | 1.000 | **0.833** |
+
+The cheapest model is the best at code, and the 17x dearer one is not. Routing on the
+map versus routing on a declared tier, scored as mean loss against the best available
+model per goal:
+
+    tier (guessed)   0.0333
+    map (measured)   0.0017
+
+The map moves all nine code goals to gpt-4o-mini and leaves analyze, write and
+research on gpt-4o — which is where the measurements put it.
+
+**This supersedes the k=2 figures** (tier 0.0604, map 0.0075). Those were quoted with
+a warning that most of the gap came from `calc`, which had swung 0.96 -> 0.38 between
+two measurements of the same thing. At k=5 `calc` is stable (sd 0.04) and nine of the
+twelve goals have sd exactly 0.00, so the effect is no longer resting on noise. The
+absolute numbers halved; the conclusion did not move.
+
+Two limits stay:
+
+`research` scores 1.000 for all three models even after being rewritten around traps
+where the first-guess answer is wrong (eval vs ast.literal_eval, random vs secrets,
+hash() vs hashlib). It satisfies the coverage requirement and carries no signal. Six
+of twelve goals score 1.00 for everyone — these three models are largely equivalent,
+and the routing gain lives in `calc`, `debug_gauntlet`, `roman` and `analyze`.
+
+And the map is only evidence about THIS suite. A profile calibrated here describes
+how these models handle small coding and text tasks, not a general ranking.
