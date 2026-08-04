@@ -185,7 +185,7 @@ def test_build_uses_shared_verified_bootstrap(monkeypatch) -> None:
         return lambda: runtime
 
     monkeypatch.setattr(cli, "make_verified_runtime_factory", _verified)
-    got_registry, got_runtime = cli._build(cli._parse_args(["do one"]))
+    got_registry, got_runtime, direct = cli._build(cli._parse_args(["do one"]))
     assert got_registry is registry
     assert got_runtime is runtime
     assert seen == {
@@ -198,7 +198,7 @@ def test_build_uses_shared_verified_bootstrap(monkeypatch) -> None:
 
 def test_main_no_stream_success_returns_0(monkeypatch, capsys) -> None:
     registry, runtime = _one_task_runtime()
-    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime, None))
 
     code = cli.main(["do one", "--no-stream"])
 
@@ -250,7 +250,7 @@ def test_main_failed_status_returns_1(monkeypatch, capsys) -> None:
     providers = {mid: _Raiser(mid, ProviderError("bad", retryable=False, status=400))}
     plan = [Task(id="T1", description="do one", type="code", mode="one_shot")]
     runtime = _runtime(registry, providers, {"T1": mid}, plan)
-    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime, None))
 
     code = cli.main(["do one", "--no-stream"])
 
@@ -262,7 +262,7 @@ def test_main_failed_status_returns_1(monkeypatch, capsys) -> None:
 
 def test_main_streams_plan_worker_and_synth(monkeypatch, capsys) -> None:
     registry, runtime = _one_task_runtime()
-    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime, None))
 
     code = cli.main(["do one"])  # streaming ON by default (no --no-stream)
 
@@ -275,7 +275,7 @@ def test_main_streams_plan_worker_and_synth(monkeypatch, capsys) -> None:
 
 def test_summary_shows_zero_subscription_models_for_card(monkeypatch, capsys) -> None:
     registry, runtime = _one_task_runtime()  # billing="card"
-    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime, None))
 
     cli.main(["do one", "--no-stream"])
 
@@ -284,7 +284,7 @@ def test_summary_shows_zero_subscription_models_for_card(monkeypatch, capsys) ->
 
 def test_summary_counts_plan_included_and_records_credit(monkeypatch, capsys) -> None:
     registry, runtime = _one_task_runtime(billing="plan_included")
-    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime, None))
 
     cli.main(["do one", "--no-stream"])
 
@@ -299,7 +299,7 @@ def test_summary_counts_plan_included_and_records_credit(monkeypatch, capsys) ->
 
 def test_main_json_summary(monkeypatch, capsys) -> None:
     registry, runtime = _one_task_runtime()
-    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime, None))
 
     # NOTE: no --no-stream here -- streaming defaults ON, but --json must suppress it
     # on its own (JSON mode = machine mode: exactly one parseable line, no deltas).
@@ -317,6 +317,27 @@ def test_main_json_summary(monkeypatch, capsys) -> None:
     assert payload["final"] == "FINAL ANSWER"
 
 
+class _StubRuntime:
+    """Records whether the orchestrated path was taken at all."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        # The direct path borrows the routing configuration the factory already built,
+        # so the same inventory and objective apply on both paths.
+        self.router = object()
+        self.projector = object()
+        self.registry = Registry([])
+        self.cost_meter = object()
+        self.call_timeout = 120.0
+
+    async def aexecute(self, goal, on_text=None, on_worker_text=None):
+        self.calls += 1
+        return RunResult(
+            status="success", final="orchestrated", partial_artifacts={},
+            failed_task=None,
+        )
+
+
 class _InterruptRuntime:
     """Emits some streamed text, then a Ctrl-C mid-run (KeyboardInterrupt)."""
 
@@ -328,7 +349,7 @@ class _InterruptRuntime:
 
 def test_main_keyboard_interrupt_prints_partial_and_returns_130(monkeypatch, capsys) -> None:
     registry = Registry([])
-    monkeypatch.setattr(cli, "_build", lambda args: (registry, _InterruptRuntime()))
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, _InterruptRuntime(), None))
 
     code = cli.main(["do one"])  # streaming ON so the partial is collected
 
@@ -349,7 +370,7 @@ class _RaisingRuntime:
 
 def test_main_planner_provider_error_returns_nonzero_no_traceback(monkeypatch, capsys) -> None:
     registry = Registry([])
-    monkeypatch.setattr(cli, "_build", lambda args: (registry, _RaisingRuntime()))
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, _RaisingRuntime(), None))
 
     code = cli.main(["do one", "--no-stream"])
 
@@ -374,7 +395,7 @@ class _BrokenStdout:
 
 def test_main_broken_pipe_exits_cleanly_without_raising(monkeypatch) -> None:
     registry, runtime = _one_task_runtime()
-    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime))
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime, None))
     monkeypatch.setattr(cli.sys, "stdout", _BrokenStdout())
 
     code = cli.main(["do one", "--no-stream"])  # must not raise BrokenPipeError
@@ -528,3 +549,42 @@ def test_usage_listing_marks_estimated_rows_and_totals(
     assert "cash ~$4.0000" in out  # estimated row is marked
     assert "cash  $0.4000" in out  # authoritative row is not
     assert "of which estimated: 1 run(s)" in out  # the aggregate says so too
+
+
+def test_direct_flag_selects_the_one_call_path(monkeypatch, capsys) -> None:
+    """`--direct` must actually change the path, not just the help text.
+
+    Volante's own eval says decomposition ties a single call across the suite for 7.7x
+    the cost, so this flag is the honest reading of its own numbers — and a flag that
+    silently still orchestrates would be worse than not shipping one.
+    """
+    called: dict[str, object] = {}
+
+    async def _fake_direct(goal, router, projector, providers, registry, meter, **kw):
+        called["goal"] = goal
+        called["providers"] = providers
+        return RunResult(
+            status="success", final="direct answer", partial_artifacts={},
+            failed_task=None,
+        )
+
+    monkeypatch.setattr("volante.direct.answer_directly", _fake_direct)
+    registry = Registry([])
+    runtime = _StubRuntime()
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime, {"m": object()}))
+
+    code = cli.main(["--direct", "do one"])
+
+    assert code == 0
+    assert called["goal"] == "do one"
+    assert runtime.calls == 0, "the orchestrated path must not run as well"
+    assert "direct answer" in capsys.readouterr().out
+
+
+def test_without_the_flag_the_orchestrated_path_still_runs(monkeypatch) -> None:
+    registry = Registry([])
+    runtime = _StubRuntime()
+    monkeypatch.setattr(cli, "_build", lambda args: (registry, runtime, None))
+
+    assert cli.main(["do one"]) == 0
+    assert runtime.calls == 1

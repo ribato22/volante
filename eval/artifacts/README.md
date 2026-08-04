@@ -559,3 +559,34 @@ The measurement design has low yield and that is worth recording for whoever rep
 of 56 mutation attempts, most patterns did not appear in the code at all, and four of
 those that did left the graded behaviour untouched. Getting a usable sample this way
 needs defects generated per goal against its actual logic, not regex substitutions.
+
+### A single-call path, and what it costs to skip it (2026-08-04)
+
+Until now Volante always planned, decomposed and synthesised. Its own eval says that
+does not pay, so `--direct` keeps the half that does — the router still enforces hard
+capabilities, ranks the eligible models and records the decision — and drops the rest.
+
+Nine goals, 2 iterations each, both arms in the same session so drift cancels:
+
+| | mean | total cost |
+|---|---|---|
+| direct | 0.885 | $0.0119 |
+| orchestrated | 0.989 | $0.1097 (**9.2x**) |
+
+    orchestration - direct: +0.104 [95% CI -0.036, +0.244] NOT significant
+    smallest effect 18 pairs could detect: ±0.198
+
+Direct matched orchestration on 8 of the 9 goals and BEAT it on `debug_gauntlet`
+(1.000 against 0.800) — the goal most likely to need a tool loop, which the direct path
+cannot do at all. It lost only on `calc`.
+
+Read the asymmetry rather than the means. The cost difference is not a statistical
+claim: it is money that was spent, 9.2x of it. The quality difference is a claim, and
+this design cannot support it — the interval includes zero in both directions, so what
+was established is "no detectable difference above ±0.198", not "the arms are equal".
+
+That asymmetry is the argument for changing the default, and it is left as a decision
+rather than taken here: charging 9.2x for a benefit that has never been demonstrated is
+a poor default, but flipping one on a non-significant result would repeat the overreach
+this project has already had to correct three times. The flag exists; the numbers are
+published beside it.

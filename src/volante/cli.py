@@ -11,6 +11,7 @@ from volante.bootstrap import (
     build_providers_from_env,
     make_verified_runtime_factory,
 )
+from volante.providers.base import LLMProvider
 from volante.registry import Registry
 from volante.runtime import Runtime
 from volante.types import RunResult
@@ -37,6 +38,17 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--list-models",
         action="store_true",
         help="list every configured/detected model in Volante's routing inventory and exit",
+    )
+    parser.add_argument(
+        "--direct",
+        action="store_true",
+        help=(
+            "answer in ONE call, with the router still choosing the model. Volante's "
+            "own eval says decomposition does not pay — it ties a single call across "
+            "the suite for 7.7x the cost — while WHICH MODEL answers is the largest "
+            "measured lever by a factor of three. Cannot run tools, so a goal that "
+            "needs code executed still wants the orchestrated path"
+        ),
     )
     parser.add_argument(
         "--verify",
@@ -106,7 +118,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return args
 
 
-def _build(args: argparse.Namespace) -> tuple[Registry, Runtime]:
+def _build(
+    args: argparse.Namespace,
+) -> tuple[Registry, Runtime, dict[str, LLMProvider] | None]:
     """Build (registry, fresh runtime) from env via bootstrap. The CLI opts into
     subscription providers (include_subscription=True); actual registration still
     requires CLAUDE_CODE_ENABLED / CODEX_ENABLED inside build_providers_from_env,
@@ -139,7 +153,11 @@ def _build(args: argparse.Namespace) -> tuple[Registry, Runtime]:
     )
     runtime = make_runtime()
     runtime.verify_answer = bool(getattr(args, "verify", False))
-    return registry, runtime
+    # Returned rather than attached to the Runtime: the direct path does not use a
+    # Runtime at all, and hanging an attribute on one to smuggle providers across would
+    # make two paths look like one.
+    direct = providers if getattr(args, "direct", False) else None
+    return registry, runtime, direct
 
 
 def _subscription_models(result: RunResult, registry: Registry) -> int:
@@ -414,8 +432,33 @@ def _warn_unknown_profile_models(profiles: dict) -> None:
 
 
 async def _aexecute(
-    runtime: Runtime, goal: str, *, stream: bool, collected: list[str]
+    runtime: Runtime,
+    goal: str,
+    *,
+    stream: bool,
+    collected: list[str],
+    direct_providers: dict[str, LLMProvider] | None = None,
 ) -> RunResult:
+    if direct_providers is not None:
+        # One call, router still choosing. Streamed the same way so the two paths look
+        # the same to a user comparing them.
+        from volante.direct import answer_directly
+
+        def on_direct(delta: str) -> None:
+            collected.append(delta)
+            sys.stdout.write(delta)
+            sys.stdout.flush()
+
+        return await answer_directly(
+            goal,
+            runtime.router,
+            runtime.projector,
+            direct_providers,
+            runtime.registry,
+            runtime.cost_meter,
+            call_timeout=runtime.call_timeout,
+            on_text=on_direct if stream else None,
+        )
     if not stream:
         return await runtime.aexecute(goal)
 
@@ -477,7 +520,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_inventory(registry, json_mode=args.json)
         return 0
     try:
-        registry, runtime = _build(args)
+        registry, runtime, direct_providers = _build(args)
     except (RuntimeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -490,7 +533,13 @@ def main(argv: list[str] | None = None) -> int:
     stream = not args.no_stream and not args.json
     try:
         result = asyncio.run(
-            _aexecute(runtime, args.goal, stream=stream, collected=collected)
+            _aexecute(
+                runtime,
+                args.goal,
+                stream=stream,
+                collected=collected,
+                direct_providers=direct_providers,
+            )
         )
         record_run(result, goal=args.goal, prefer=args.prefer, source="cli")
         if args.json:
