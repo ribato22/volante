@@ -7,6 +7,7 @@ from typing import Any
 from volante.cost import CostMeter
 from volante.projector import model_input_char_budget
 from volante.providers.base import (
+    IncompleteOutputError,
     LLMProvider,
     call_provider,
     ensure_complete_response,
@@ -42,8 +43,13 @@ _PLAN_SYSTEM = (
     "URL to do its job. An agentic task must declare every tool it needs in "
     "required_tools; a one_shot task must use an empty array. When in doubt, pick "
     "one_shot. "
-    "Do not include any prose or markdown outside the JSON array."
 )
+
+# Kept OUT of _PLAN_SYSTEM so it can be placed LAST, closest to the output. Everything
+# else — the task cap, the tools, the objective — is context for the plan; this is the
+# contract for the reply, and it is the instruction a model follows most reliably when
+# it sits nearest the thing it governs.
+_PLAN_OUTPUT_CONTRACT = "Do not include any prose or markdown outside the JSON array."
 
 # Live-observed finding: a subscription-CLI planner (e.g. `claude -p`) can
 # probabilistically ANSWER the goal (prose/markdown) instead of emitting the
@@ -75,6 +81,22 @@ _MAX_PLAN_ATTEMPTS = 3
 _MAX_PLAN_TASKS = 32
 _DEFAULT_CONTEXT_WINDOW = 32_768
 _DEFAULT_MAX_OUTPUT_TOKENS = 2_048
+
+
+def _truncation_correction() -> str:
+    """What to say when the plan did not FIT, which is a different failure.
+
+    The generic nudge below tells the model to send JSON only. That is no help here:
+    the reply already was JSON and simply ran out of room. Measured on a goal asking
+    for ninety functions — the planner wrote one task per function, was cut off
+    mid-array, and the run died before a worker started.
+    """
+    return (
+        f"Your previous plan was cut off: it did not fit in the reply budget. Emit "
+        f"FEWER, COARSER tasks — at most {_MAX_PLAN_TASKS}, and group several units of "
+        "work into one task rather than writing a task per unit. Reply with ONLY the "
+        "complete JSON array."
+    )
 
 
 def _plan_correction(exc: Exception) -> str:
@@ -148,7 +170,7 @@ class Supervisor:
         self._used = True
         req = self._build_request(goal)
         base_messages = list(req.messages)
-        first_exc: ValueError | None = None
+        first_exc: ValueError | IncompleteOutputError | None = None
         for attempt in range(1, _MAX_PLAN_ATTEMPTS + 1):
             # on_text -> streaming (live planning progress); else complete (zero
             # regression). NOTE: on retry, a partial re-stream of the corrected
@@ -163,9 +185,13 @@ class Supervisor:
             self._cost_meter.add(
                 self._model_id, resp.usage, cost_usd=resp.cost_usd
             )
-            ensure_complete_response(resp, phase="planning")
             raw = _extract_text(resp)
             try:
+                # Inside the retry, deliberately. This was called outside it, so an
+                # incomplete plan — the one failure a corrective follow-up is most
+                # likely to fix — was the only kind that skipped the recovery and
+                # killed the run.
+                ensure_complete_response(resp, phase="planning")
                 data = _parse_plan_json(raw)
                 tasks = _build_tasks(data)
                 _validate(tasks)
@@ -179,7 +205,16 @@ class Supervisor:
                             f"this run: {sorted(unavailable)}"
                         )
                 return tasks
-            except ValueError as exc:
+            except (ValueError, IncompleteOutputError) as exc:
+                # ONLY a length failure is worth retrying among the incomplete ones. A
+                # content filter or an unknown stop reason is not a plan that was too
+                # long, and telling the model to emit fewer tasks would spend another
+                # call on an instruction that cannot address what went wrong.
+                if (
+                    isinstance(exc, IncompleteOutputError)
+                    and exc.stop_reason != "max_tokens"
+                ):
+                    raise
                 # Re-raise the FIRST rejection, not the last: later attempts
                 # can fail for an unrelated reason (e.g. the corrective
                 # follow-up itself gets no better a reply), but the caller
@@ -194,7 +229,14 @@ class Supervisor:
                 # Corrective follow-up: append the model's bad reply + a
                 # correction that carries the ACTUAL rejection reason (parse
                 # or validate), then retry within the same plan() call.
-                correction = _plan_correction(exc)
+                # A plan that did not FIT needs a different instruction from one that
+                # was malformed: "send JSON only" gives nothing to act on when the JSON
+                # was already valid and merely too long.
+                correction = (
+                    _truncation_correction()
+                    if isinstance(exc, IncompleteOutputError)
+                    else _plan_correction(exc)
+                )
                 fixed_chars = sum(
                     len(block.text)
                     for message in base_messages
@@ -241,11 +283,23 @@ class Supervisor:
     def _build_request(self, goal: str) -> CanonicalRequest:
         validate_goal(goal)
         frugal = _FRUGAL_PLANNING if self._prefer == "cheap" else ""
+        # The cap is STATED, not merely enforced. It existed as a post-hoc validation
+        # and did not help: on a goal asking for ninety functions the planner wrote one
+        # task per function, exhausted its own output budget mid-array, and the run died
+        # with `incomplete_output` before a single worker started. A limit the model is
+        # never told about cannot shape the plan it writes — it can only reject a plan
+        # that was already too expensive to produce.
+        budget = (
+            f"Emit AT MOST {_MAX_PLAN_TASKS} tasks. If the goal names more units of work "
+            f"than that, GROUP them: one task covering several units is correct, one task "
+            f"per unit is not. A plan that exceeds this is rejected. "
+        )
         system_prompt = (
-            f"{_PLAN_SYSTEM} {frugal}Available tools for this run: "
+            f"{_PLAN_SYSTEM} {budget}{frugal}Available tools for this run: "
             f"{', '.join(sorted(self._available_tools)) or '(none)'}. "
             "For every agentic task, required_tools must be a non-empty subset "
-            "of that list. For one_shot tasks, required_tools must be []."
+            "of that list. For one_shot tasks, required_tools must be []. "
+            f"{_PLAN_OUTPUT_CONTRACT}"
         )
         output_tokens = min(
             self._max_output_tokens,

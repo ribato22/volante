@@ -370,3 +370,45 @@ The methodological lesson is the expensive one. Four batches of n=6-8 looked lik
 result and were not. On a metric whose between-batch drift is this large, a single batch
 cannot support a p-value, and quoting one was an error of ours — the third time in this
 project that a published number had to be corrected downward after re-measurement.
+
+### Work larger than one response: the last structural argument also fails (2026-08-04)
+
+Every goal before this fits in a single reply, so decomposition never had a STRUCTURAL
+reason to win — only a quality reason, and that one is dead. This is the regime where a
+single call cannot compete by construction. Measured on gpt-4o-mini (max_output_tokens
+8192): 20 functions -> all 20 in 2,379 tokens; 45 -> all 45 in 5,198; **90 -> eleven
+functions in 1,402 tokens and a clean end_turn.** It does not truncate, it gives up.
+
+Instrument validated first: a correct factory implementation scores 1.000, the
+eleven-function partial scores 0.133, an empty module 0.000. Compression is deliberately
+allowed — the family is regular, so a model that spots the rule and writes a factory
+wins in one response, and that would be the better answer.
+
+**Volante failed this goal before producing anything.** The planner enumerated one task
+per function, exhausted its own output budget mid-array, and the run died:
+
+    failed_task  __planning__
+    error_code   incomplete_output   provider stopped with 'max_tokens'
+
+`_MAX_PLAN_TASKS = 32` existed the whole time and did not help: it VALIDATES the array
+after the model writes it, and the model never got that far. Worse, `ensure_complete_
+response` was called OUTSIDE the plan retry loop, so the one failure a corrective
+follow-up is most likely to fix was the only kind that skipped recovery entirely. Both
+are now fixed — the cap is stated in the prompt, and a length failure is retried with an
+instruction that names the actual problem.
+
+With the run no longer dying, n=4 paired:
+
+| arm | mean | vs baseline |
+|---|---|---|
+| baseline | 0.300 | — |
+| orchestration, `summarize` | 0.208 | -0.092 [CI -0.231, +0.048] NOT significant |
+| orchestration, `assemble` | 0.050 | -0.250 [CI -0.303, -0.197] significant |
+
+So in the one regime built to favour it, orchestration ties at best and loses at worst.
+Note also that BOTH arms fail the goal badly — 0.30 against a reachable 1.000. Volume
+defeats them both; it does not separate them.
+
+That closes the last structural argument this project had. What survives is unchanged
+and does not depend on any comparison between arms: the reliability work, the detector,
+the router, and an eval that now reports what it could and could not have detected.

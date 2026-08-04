@@ -150,7 +150,11 @@ async def test_plan_records_planning_usage_in_cost_meter() -> None:
     assert totals[_PLANNER_MODEL].completion_tokens == 45
 
 
-@pytest.mark.parametrize("stop_reason", ["max_tokens", "content_filter", "unknown"])
+# `max_tokens` is deliberately absent: a plan that did not FIT is now retried with a
+# corrective follow-up rather than failing the run, which is what
+# test_a_plan_cut_off_at_max_tokens_is_retried_not_fatal covers. The other stop reasons
+# still fail fast, because "emit fewer tasks" cannot address a content filter.
+@pytest.mark.parametrize("stop_reason", ["content_filter", "unknown"])
 async def test_plan_rejects_incomplete_terminal_response_after_metering(
     stop_reason: str,
 ) -> None:
@@ -521,9 +525,20 @@ def test_plan_system_prompt_restricts_agentic_to_tool_use() -> None:
     # Research/analysis/writing tasks explicitly steered to one_shot (no tools needed).
     assert "research" in lowered
     assert "writ" in lowered  # "write"/"writing"
-    # Strict JSON-only contract must remain intact.
+    # Strict JSON-only contract must remain intact — asserted against what is SENT,
+    # not against which constant happens to hold it. The contract moved out of
+    # _PLAN_SYSTEM so it could be placed last, closest to the output; a test bound to
+    # the constant would have called that a regression when nothing shipped changed.
     assert "ONLY a JSON array" in _PLAN_SYSTEM
-    assert "Do not include any prose or markdown outside the JSON array." in _PLAN_SYSTEM
+
+
+async def test_the_json_contract_is_the_last_thing_the_planner_reads() -> None:
+    provider = _PlanCapture()
+    await Supervisor(provider, "m", CostMeter()).plan("do a thing")
+
+    assert provider.system.rstrip().endswith(
+        "Do not include any prose or markdown outside the JSON array."
+    )
 
 
 async def test_reentrant_call_is_not_billed() -> None:
@@ -890,3 +905,95 @@ async def test_quality_is_unchanged_and_remains_the_default() -> None:
 
     for provider in (default, explicit):
         assert "Decompose only when it helps" not in provider.system
+
+
+# --- a plan the planner cannot finish writing -------------------------------- #
+# Measured on a goal asking for 90 functions: the planner enumerated one task per
+# function, ran out of its own output budget, and the whole run died before a single
+# worker started —
+#
+#     failed_task  __planning__
+#     error_code   incomplete_output
+#     provider stopped with 'max_tokens'
+#
+# _MAX_PLAN_TASKS existed the whole time and did not help: it VALIDATES the array after
+# the model has written it, and the model never got that far. A limit the planner is
+# never told about cannot shape the plan it writes. This is the regime where
+# decomposition is supposed to be structurally superior, and Volante failed at step one.
+
+
+async def test_the_planner_is_told_the_task_limit_it_will_be_judged_by() -> None:
+    provider = _PlanCapture()
+    await Supervisor(provider, "m", CostMeter()).plan("build ninety things")
+
+    assert str(_MAX_PLAN_TASKS) in provider.system
+    assert "group" in provider.system.lower() or "coarser" in provider.system.lower()
+
+
+async def test_the_limit_is_stated_before_the_output_contract() -> None:
+    """Ordering matters: the JSON contract must stay closest to the output, because
+    that is the instruction the model follows most reliably."""
+    provider = _PlanCapture()
+    await Supervisor(provider, "m", CostMeter()).plan("build ninety things")
+
+    assert provider.system.index(str(_MAX_PLAN_TASKS)) < provider.system.index(
+        "Do not include any prose"
+    )
+
+
+class _TruncatedThenValid:
+    """First reply is cut off at max_tokens, second is a valid plan."""
+
+    name = "m"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.corrections: list[str] = []
+
+    async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
+        self.calls += 1
+        if len(req.messages) > 2:
+            self.corrections.append(req.messages[-1].content[0].text)
+        body = (
+            '[{"id": "1", "description": "a", "type": "code", "mode": "one_shot",'
+            ' "difficulty": "easy", "depends_on": [], "required_tools": []}'
+        )
+        if self.calls == 1:
+            return CanonicalResponse(
+                content=[TextBlock(text=body)],  # cut off mid-array
+                usage=Usage(prompt_tokens=1, completion_tokens=1),
+                model="m",
+                stop_reason="max_tokens",
+                latency_ms=1,
+            )
+        return CanonicalResponse(
+            content=[TextBlock(text=body + "]")],
+            usage=Usage(prompt_tokens=1, completion_tokens=1),
+            model="m",
+            stop_reason="end_turn",
+            latency_ms=1,
+        )
+
+
+async def test_a_plan_cut_off_at_max_tokens_is_retried_not_fatal() -> None:
+    """Measured on a goal asking for ninety functions: the planner enumerated one task
+    per function, ran out of room mid-array, and the whole run died before a worker
+    started. The retry machinery existed — `ensure_complete_response` was simply called
+    outside it, so this one failure mode skipped the recovery entirely."""
+    provider = _TruncatedThenValid()
+
+    tasks = await Supervisor(provider, "m", CostMeter()).plan("build ninety things")
+
+    assert provider.calls == 2
+    assert [t.id for t in tasks] == ["1"]
+
+
+async def test_the_correction_names_the_length_problem() -> None:
+    """A generic "send JSON only" nudge is no help when the reply already WAS JSON and
+    merely did not fit. The retry has to say what actually went wrong."""
+    provider = _TruncatedThenValid()
+
+    await Supervisor(provider, "m", CostMeter()).plan("build ninety things")
+
+    correction = provider.corrections[-1].lower()
+    assert "fewer" in correction or "coarser" in correction
