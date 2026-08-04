@@ -10,7 +10,7 @@ server. The bundle is a portable, one-file way to install the server:
   <your-namespace>/volante` (needs a Smithery API key).
 
 The bundle wraps the version-pinned launch command
-`uvx --from "volante[mcp]==0.6.0" volante-mcp`, so it runs **locally on your
+`uvx --from "volante[mcp]==0.7.0" volante-mcp`, so it runs **locally on your
 machine**. Your subscription CLIs (`claude`, `codex`), local endpoints, inventory files,
 and API keys remain on that machine. Requires [`uv`](https://docs.astral.sh/uv/) on your
 PATH.

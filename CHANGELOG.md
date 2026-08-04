@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-04
+
+**One call is now the default.** Volante has always planned, decomposed and synthesised,
+and 72 paired runs of its own eval say that does not pay. The router — the half that
+does pay — is untouched.
+
+There is no 0.6.0 on PyPI. It was prepared, and then the measurement that motivated
+`--direct` came back and changed the default underneath it, which is a breaking change
+and deserves its own number rather than being smuggled into a minor one. Its contents
+are below, under this version.
+
 ### Changed
 - **One call is now the default; `--orchestrate` opts into the task DAG.** Volante has
   always planned, decomposed and synthesised, and its own eval says that does not pay.
@@ -27,13 +38,6 @@ All notable changes to this project are documented here. The format is based on
   dropped is the planning and synthesis around it. `--orchestrate` remains one flag away
   and is what a goal needing a TOOL LOOP still wants — running code, reading a file,
   fetching a URL — which a single call cannot do at all.
-
-
-## [0.6.0] - 2026-08-04
-
-A minor bump for one addition — `volante --verify`, which checks an answer by running
-it. Everything else is a fix or a correction, and several of the corrections are to
-numbers this project itself had published.
 
 ### Added
 - **`volante --verify`: check the answer by RUNNING it.** Derives `assert` statements
