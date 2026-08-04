@@ -529,3 +529,33 @@ An earlier version of this measurement reported FN 0/7 while the mutation silent
 applied — the regex missed return annotations, so every "broken" answer was the original.
 The number was meaningless and looked fine. It is recorded here because a measurement
 that no-ops is worse than one that fails.
+
+### The detector misses subtle defects, and that decides its status (2026-08-04)
+
+FN=0 had been measured against one coarse injection: the first function replaced by a
+constant. Catching that is a low bar, and promoting a feature on it would be the same
+mistake this project has already retracted three times. So the injections were made to
+resemble a real edit — a boundary moved by one, a guard deleted, a normalisation
+dropped, a comparison inverted.
+
+One rule keeps it honest: a mutation only counts if the HIDDEN reference suite scores it
+lower. If graded behaviour is unchanged it is not a defect, and passing it is correct.
+Four mutations were excluded on that basis.
+
+| defect class | real | caught |
+|---|---|---|
+| case-folding dropped | 2 | 2 |
+| boundary `<=` -> `<` | 2 | **1** |
+| boundary `>=` -> `>` | 1 | 1 |
+| off-by-one | 1 | 1 |
+| **total** | **6** | **5 = 83%** |
+
+**One subtle defect escaped.** A clean report is therefore evidence, not a guarantee,
+and `--verify` stays opt-in and out of any automatic decision. Six is far too small to
+attach a rate to; what it establishes is that a miss is possible, which is the only
+thing that needed establishing.
+
+The measurement design has low yield and that is worth recording for whoever repeats it:
+of 56 mutation attempts, most patterns did not appear in the code at all, and four of
+those that did left the graded behaviour untouched. Getting a usable sample this way
+needs defects generated per goal against its actual logic, not regex substitutions.

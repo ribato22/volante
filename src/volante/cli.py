@@ -44,9 +44,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help=(
             "check the answer by RUNNING it: derive assertions from your goal, execute "
             "them against the result in the sandbox, and report which passed. Costs one "
-            "extra model call. It never approved a wrong answer in 22 measured runs, but "
-            "a failing check is often the CHECK being wrong — read them, do not just "
-            "count them"
+            "extra model call. A clean report is evidence, not a guarantee — measured "
+            "against edit-shaped defects it caught 5 of 6 — and a failing check is often "
+            "the CHECK being wrong. Read them; do not just count them"
         ),
     )
     parser.add_argument(

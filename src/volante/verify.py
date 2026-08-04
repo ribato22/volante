@@ -21,9 +21,16 @@ WHAT IT DOES NOT DO, and the measurements are the reason:
   module rewritten into a broken one on the strength of a single wrong assertion.
 
 So this reports, and the caller decides. It returns WHICH checks failed rather than a
-verdict, deliberately: at a 45% false-positive rate a pass/fail badge misleads, while
-"here is the check I derived and here is what happened" is information a reader can
-judge in seconds.
+verdict, deliberately: a pass/fail badge misleads, while "here is the check I derived
+and here is what happened" is information a reader can judge in seconds.
+
+WHAT IT CANNOT PROMISE, measured rather than assumed. Against a coarse defect — the
+first function replaced by a constant — it caught 8 of 8. Against defects that resemble
+a real edit, it caught 5 of 6: a boundary moved from `<=` to `<` in one goal produced a
+genuinely lower reference score and passed every derived check. So a clean report is
+EVIDENCE, not a guarantee, and it must not be read as one. Six is also far too small a
+sample to attach a rate to; what it establishes is that a miss is possible, which is
+enough to keep this opt-in and out of any automatic decision.
 """
 
 from __future__ import annotations
