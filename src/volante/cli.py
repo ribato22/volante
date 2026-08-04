@@ -440,6 +440,34 @@ def _run_calibration(args: argparse.Namespace) -> int:
         f"Point Volante at it to make the router use this evidence:\n"
         f"  export VOLANTE_QUALITY_PROFILES_FILE={args.calibrate_out}"
     )
+    # The file alone will not change a routing decision at this sample size, and
+    # saying otherwise would be the most useful-sounding lie this command could tell.
+    # The router blends profile with declared tier in proportion to confidence
+    # (n/(n+3)), so a k=5 run leaves the tier carrying 37.5% — measured, the routing
+    # loss with the real profile was identical to using no profile at all, while
+    # declaring these tiers gave the entire benefit for free.
+    from volante.calibrate import suggest_tiers
+
+    by_task = suggest_tiers(profiles)
+    if by_task:
+        print(
+            "\nDeclare a tier as well — at this sample size the profile alone will "
+            "not outweigh\na tier that disagrees with it (confidence is n/(n+3); "
+            "~27 runs per task type are\nneeded before it does). One tier cannot "
+            "match every task type, so pick the row\nfor the work you actually run:"
+        )
+        models = sorted({m for tiers in by_task.values() for m in tiers})
+        header = "  " + "task".ljust(10) + "".join(
+            m.split("/")[-1][:18].rjust(20) for m in models
+        )
+        print(header)
+        for task in sorted(by_task):
+            row = "  " + task.ljust(10)
+            for model_id in models:
+                tier = by_task[task].get(model_id)
+                row += (f"tier {tier}" if tier else "-").rjust(20)
+            print(row)
+        print("  (set the matching *_TIER for each model's slot)")
     return 0
 
 

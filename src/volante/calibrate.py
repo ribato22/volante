@@ -147,6 +147,66 @@ def build_profiles(
     return profiles
 
 
+
+# How far apart two measured models must be before they deserve different tiers. Below
+# this they are the same model as far as anything measured here can tell, and inventing
+# a gap between them would hand the router a distinction the evidence does not support.
+_TIER_SEPARATION = 0.02
+
+
+def suggest_tiers(
+    profiles: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, int]]:
+    """Tiers that match the measurements, PER TASK TYPE, for the user to declare.
+
+    Two facts force this shape, and both were measured.
+
+    First, a profile does not replace the declared tier: the router blends them in
+    proportion to confidence, and confidence is n/(n+3), so a k=5 run leaves the tier
+    carrying 37.5% and deciding. Against a real profile the routing loss was identical
+    to using no profile at all, while declaring tiers that matched the measurements
+    gave the whole benefit for nothing.
+
+    Second — and this is why a single number is not offered — one tier cannot express
+    what the map found. gpt-4o-mini measured 0.998 at code against gpt-4o's 0.956, and
+    0.167 at analyze against 0.367. Averaging those put mini BELOW gpt-4o and
+    reproduced the guessed tiers exactly, at a routing loss of 0.0333; ranking by code
+    alone gave 0.0018. There is no tier that is right for both task types, so the
+    honest output is the ranking per type and a clear statement that the caller picks
+    the one matching the work they actually run.
+
+    Models within `_TIER_SEPARATION` of each other share a tier: below that they are
+    the same model as far as this evidence can tell, and inventing a gap would hand
+    the router a distinction nothing measured.
+    """
+    per_type: dict[str, dict[str, int]] = {}
+    task_types = {
+        task
+        for profile in profiles.values()
+        for task in (profile.get("task_scores") or {})
+    }
+    for task in sorted(task_types):
+        ranked = sorted(
+            (
+                (model_id, float((profile.get("task_scores") or {}).get(task, 0.0)))
+                for model_id, profile in profiles.items()
+                if task in (profile.get("task_scores") or {})
+            ),
+            key=lambda pair: pair[1],
+            reverse=True,
+        )
+        tiers: dict[str, int] = {}
+        tier = 4
+        previous: float | None = None
+        for model_id, score in ranked:
+            if previous is not None and previous - score > _TIER_SEPARATION:
+                tier = max(1, tier - 1)
+            tiers[model_id] = tier
+            previous = score
+        per_type[task] = tiers
+    return per_type
+
+
 def calibrate_file(
     measurements_path: str | Path, output_path: str | Path, *, source: str
 ) -> dict[str, dict[str, Any]]:

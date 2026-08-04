@@ -657,3 +657,34 @@ and the routing gain lives in `calc`, `debug_gauntlet`, `roman` and `analyze`.
 
 And the map is only evidence about THIS suite. A profile calibrated here describes
 how these models handle small coding and text tasks, not a general ranking.
+
+### One tier cannot hold the map (2026-08-04)
+
+Acting on a capability map means declaring tiers that match it, because at k=5 the
+profile alone does not outweigh a tier that disagrees. The obvious way to derive those
+tiers — rank models by their overall score — was implemented, measured, and thrown
+away:
+
+    guessed tiers                 0.0333
+    tiers from the overall score  0.0333   (reproduces the guess exactly)
+    tiers from the `code` row     0.0018
+    tiers from the `analyze` row  0.0333
+
+`overall_score` is the macro-average across four task types. gpt-4o-mini measured
+0.998 at code against gpt-4o's 0.956, and 0.167 at analyze against 0.367 — averaged,
+analyze drags mini BELOW gpt-4o and the suggestion reproduces the guess it was meant
+to replace. Nine of the twelve goals are code, so ranking by code gives the whole
+benefit and ranking by analyze gives none.
+
+There is no single tier that is right for both. `--calibrate` now prints the ranking
+PER TASK TYPE and says to pick the row matching the work you actually run:
+
+    task        deepseek-chat-v3.1        gpt-4o     gpt-4o-mini
+    analyze                 tier 3        tier 4          tier 2
+    code                    tier 2        tier 3          tier 4
+    research                tier 4        tier 4          tier 4
+    write                   tier 4        tier 4          tier 4
+
+The `research` and `write` rows are flat, which is the table admitting those goals do
+not separate these models — the same limit recorded above, now visible where a user
+makes the decision rather than buried in an artifact.
