@@ -750,3 +750,88 @@ PER TASK TYPE and says to pick the row matching the work you actually run:
 The `research` and `write` rows are flat, which is the table admitting those goals do
 not separate these models — the same limit recorded above, now visible where a user
 makes the decision rather than buried in an artifact.
+
+
+## Does orchestration pay on WIDE repo work? (2026-08-05)
+
+`results-wide-k3.json` — six wide goals, three arms, k=3, `--synthesis assemble`,
+planner and baseline `openai-compat/openai/gpt-4o-mini`.
+
+A wide goal is one change that must land in SIX files whose parts are independent:
+different files, no ordering, no shared reasoning. Six parallel workers could each own
+one. It is the only shape where decomposition has a structural case at all — a
+sequential change has nothing to split, so asking the question there has a fixed answer
+before the measurement.
+
+| goal | baseline | orchestration | agentic |
+|---|---|---|---|
+| `recordkit_field` | 0.00 | **1.00** | 0.00 |
+| `httpkit_method` | 0.44 | **0.55** | 0.00 |
+| `unitkit_unit` | **0.89** | 0.61 | 0.00 |
+| `authkit_role` | 1.00 | 1.00 | 0.00 |
+| `feedkit_source` | 0.00 | **0.56** | 0.00 |
+| `gradekit_kind` | **1.00** | 0.88 | 0.00 |
+
+    orchestration - baseline: +0.211  [95% CI -0.293, +0.715]  n=6 GOALS
+    the interval INCLUDES zero. Smallest effect six goals could have detected: ±0.684
+    cost: baseline $0.0192, orchestration $0.1852 — 9.6x
+
+**Three wins each, and the interval includes zero. Orchestration is not demonstrated
+to help, on the shape built to favour it, at nearly ten times the price.**
+
+What the per-goal table shows is sharper than the mean. Orchestration wins exactly
+where the baseline scores ZERO (recordkit 0.00 → 1.00, feedkit 0.00 → 0.56) and loses
+where the baseline is already good (unitkit 0.89 → 0.61, gradekit 1.00 → 0.88). It is
+not better thinking; it is a different failure profile.
+
+### It is not a token budget, and that matters
+
+The obvious reading of "the single call scores 0.00 on a six-file change" is
+truncation, which would have a much cheaper fix than orchestration: raise `max_tokens`,
+or loop a continuation. Measured directly, that reading is WRONG.
+
+    recordkit_field  stop='end_turn'   733 output tokens
+    feedkit_source   stop='end_turn'   861 output tokens
+    unitkit_unit     stop='end_turn'  2013 output tokens
+
+Every one stopped VOLUNTARILY, far under an 8000-token ceiling. The model was not cut
+off. It emitted files that keep the function it edited and silently drop the rest —
+`parse.py` without `parse`, `render.py` without `table` — and considered the answer
+complete. Raising the budget cannot fix a model that already thinks it has finished.
+
+That also explains the mechanism of the orchestration win, which is worth stating
+because it is not the flattering one: a worker asked for ONE file emits that file
+whole. The gain comes from what the framing makes "done" mean, not from more thinking
+and not from more room.
+
+### The agentic arm scored 0.00 on all eighteen runs
+
+Four ended in a terminal error. The rest are the same escaping loop recorded above:
+the model writes files with a triple-quoted `f.write(...)`, a body containing a join
+on a newline breaks the inner string, and it rewrites the same broken file until the
+loop is exhausted. Twenty iterations did not help. Do not read its zeros as capability.
+
+### One row from the first run of this suite is WITHDRAWN
+
+The first pass reported `httpkit_method  agentic  BASE 0.00  ORCH 0.00  AGEN 0.27`,
+which reads as "the agentic arm beats both others here". httpkit's prompt never stated
+the answer format, so every arm answering in TEXT emitted unlabelled fences and scored
+zero, while the agentic arm — which writes to disk and needs no format — kept its
+partial credit. A harness artifact wearing a capability result. It is now the fifth
+check in `eval/repo_goal.py`, and no gate check that existed at the time could see it.
+
+### Limits, stated rather than buried
+
+**All six goals are ONE archetype** — "add one item to N per-item tables." Six
+instances of one shape are not six independent samples of repo work, so the interval
+above is narrower than it looks, and a result across all six would support
+"orchestration helps on wide pattern-completion in a six-file stdlib repo" rather than
+"orchestration helps."
+
+**Six goals is still too few.** Going from three to six moved the interval from
+[-1.101, +1.768] to [-0.293, +0.715] — real progress, and still not enough to exclude
+zero at an effect this size. The smallest effect six goals can detect is ±0.684, and
+the measured difference is +0.211.
+
+**Raising k will not help.** Within-goal spread is small and the interval is driven
+almost entirely by between-goal variance. More runs of the same six goals buy nothing.
