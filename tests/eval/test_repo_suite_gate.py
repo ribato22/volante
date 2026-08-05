@@ -19,6 +19,7 @@ from __future__ import annotations
 import pytest
 from eval.repo_goal import gate_findings
 from eval.tasks_repo import REPO_SUITE
+from eval.tasks_repo_http import GOLDEN as HTTPKIT_GOLDEN
 from tests.eval.test_repo_config_goal import GOLDEN as DEPLOYCTL_GOLDEN
 from tests.eval.test_repo_goals import GOLDEN as SHOPCART_GOLDEN
 from tests.eval.test_repo_wide_goal import GOLDEN as RECORDKIT_GOLDEN
@@ -27,6 +28,7 @@ GOLDENS = {
     "shopcart_shipping": SHOPCART_GOLDEN,
     "deployctl_layers": DEPLOYCTL_GOLDEN,
     "recordkit_field": RECORDKIT_GOLDEN,
+    "httpkit_method": HTTPKIT_GOLDEN,
 }
 
 
@@ -39,3 +41,64 @@ def test_the_goal_passes_the_three_checks(task) -> None:
     findings = gate_findings(task, GOLDENS[task.id])
 
     assert findings == [], "\n".join(findings)
+
+
+# --- the gate must actually reject things ------------------------------------
+#
+# A gate that has never refused anything is decoration. Each check below is fed a goal
+# that violates exactly one rule, and the finding must name it.
+
+
+def _wide_task():
+    from eval.tasks_repo_wide import RECORDKIT_TASK
+
+    return RECORDKIT_TASK
+
+
+def test_the_gate_rejects_a_golden_that_cannot_reach_the_ceiling() -> None:
+    broken = GOLDENS["recordkit_field"].replace('"priority": 8', '"priority": 99')
+    assert broken != GOLDENS["recordkit_field"], "the mutation did not apply"
+
+    findings = gate_findings(_wide_task(), broken)
+
+    assert any("not 1.000" in f for f in findings), findings
+
+
+def test_the_gate_rejects_a_file_whose_omission_is_nearly_free() -> None:
+    """The bar is TWO change cases, not "something".
+
+    Testing only `cost > 0` let a file worth a single case count as load-bearing, and
+    a goal built of such files claims a width it does not have. The check is run
+    against a golden with one file removed: the REMAINING files must each still be
+    worth two, and `summary.py` — the cheapest at exactly two — is what makes this a
+    real boundary rather than a comfortable one.
+    """
+    import re
+
+    golden = GOLDENS["recordkit_field"]
+    blocks = re.split(r"\n\n(?=```)", golden)
+    thin = "\n\n".join(
+        b for b in blocks if "# path: summary.py" not in b and "# path: export.py" not in b
+    )
+
+    findings = gate_findings(_wide_task(), thin)
+
+    # It cannot reach the ceiling AND the remaining drops are cheaper, so both fire.
+    assert any("not 1.000" in f for f in findings), findings
+
+
+def test_the_gate_rejects_a_prompt_that_omits_the_starting_files() -> None:
+    """The defect none of the three score checks can see.
+
+    A goal whose prompt does not carry the tree is attemptable only by the arm that
+    reads the disk. The other two score ~0 for a harness reason that reads exactly
+    like a capability gap — which is the single most expensive mistake this eval can
+    make, and it has made it before.
+    """
+    import dataclasses
+
+    blind = dataclasses.replace(_wide_task(), goal="Add a priority field, please.")
+
+    findings = gate_findings(blind, GOLDENS["recordkit_field"])
+
+    assert any("prompt does not contain" in f for f in findings), findings

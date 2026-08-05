@@ -18,9 +18,12 @@ cannot join the suite without facing them.
 
 from __future__ import annotations
 
+import re as _re
 from typing import TYPE_CHECKING, Any
 
 from eval.tasks import EvalTask, RepoSpec
+
+_N_CHANGE_RE = _re.compile(r"^_N_CHANGE = (\d+)$", _re.M)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -37,6 +40,12 @@ import json, sys
 
 CHANGE = {change!r}
 REGRESSION = {regression!r}
+
+# Counts as literals so the gate can read them back without re-parsing the tables.
+# Without them it could only ask "did dropping this file cost ANYTHING", which is a
+# weaker bar than the one this suite claims to hold goals to.
+_N_CHANGE = {n_change}
+_N_REGRESSION = {n_regression}
 
 
 def _ok(mod, fn, args, expected):
@@ -69,7 +78,12 @@ def render_runner(change: Sequence[Case], regression: Sequence[Case]) -> str:
     """The hidden reference runner for a repo goal, rendered from its case tables."""
     if not change or not regression:
         raise ValueError("a repo goal needs both change and regression cases")
-    return _RUNNER.format(change=list(change), regression=list(regression))
+    return _RUNNER.format(
+        change=list(change),
+        regression=list(regression),
+        n_change=len(change),
+        n_regression=len(regression),
+    )
 
 
 def build_repo_task(
@@ -140,17 +154,49 @@ def gate_findings(task: EvalTask, golden: str) -> list[str]:
             "positive control"
         )
 
+    # A goal whose prompt does not carry the starting tree cannot be attempted by the
+    # two arms that only see the prompt. Both would score ~0 for a HARNESS reason that
+    # reads exactly like a capability gap — the fourth defect class, and the only one
+    # none of the three score checks can see.
+    for path, body in task.repo.starting_files:
+        marker = next(
+            (ln.strip() for ln in body.splitlines()
+             if ln.strip() and not ln.lstrip().startswith(('"""', "#", "from", "import"))),
+            "",
+        )
+        if marker and marker not in task.goal:
+            findings.append(
+                f"the prompt does not contain {path} — the baseline and orchestration "
+                "arms only ever see the prompt, so they would be asked to modify code "
+                "they were never shown while the agentic arm reads it off disk. That "
+                "is not an arm comparison, it is three different questions"
+            )
+            break
+
+    # "costs at least TWO change cases", which is the bar this suite actually claims.
+    # Testing only "costs something" let a file worth one case count as load-bearing.
+    n_change = int(_N_CHANGE_RE.search(task.reference_test).group(1))
+    change_only = task.reference_test.replace(
+        '"passed": cp * rp,', '"passed": cp,'
+    ).replace('"total": len(CHANGE) * len(REGRESSION),', '"total": len(CHANGE),')
+
+    def change_cases(answer: str) -> float:
+        from eval.harness import _score_reference as _sr
+
+        return _sr(answer, change_only, repo_files_for(answer, task.repo))[0] * n_change
+
     blocks = re.split(r"\n\n(?=```)", golden)
     named = [(i, m.group(1)) for i, b in enumerate(blocks)
              if (m := re.search(r"#\s*path:\s*(\S+)", b))]
+    full = change_cases(golden)
     for index, path in named:
         partial = "\n\n".join(b for i, b in enumerate(blocks) if i != index)
-        cost = top - score(partial)
-        if cost <= 0.0:
+        cost = full - change_cases(partial)
+        if cost < 2.0 - 1e-9:
             findings.append(
-                f"dropping {path} costs nothing — the goal's claimed width includes a "
-                "file no case depends on, so an answer that omits it scores the same "
-                "as one that does not. Either the fallback agrees with the requirement "
-                "or no case reaches this file"
+                f"dropping {path} costs {cost:.0f} change case(s), under two — either "
+                "its fallback agrees with the requirement, or too few cases reach it. "
+                "A file whose omission is nearly free is width the goal claims and "
+                "does not have"
             )
     return findings
