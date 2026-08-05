@@ -876,3 +876,69 @@ the measured difference is +0.211.
 
 **Raising k will not help.** Within-goal spread is small and the interval is driven
 almost entirely by between-goal variance. More runs of the same six goals buy nothing.
+
+
+## The wide-goal result, once both arms read the same instruction (2026-08-05)
+
+`results-wide-fair.json` — the same six wide goals, three arms, k=3, re-run after the
+completeness sentence was added to the goal text every arm sees.
+
+**This supersedes `results-wide-k3.json`, and the +0.211 reported there is withdrawn.**
+That run compared a single call given a weak instruction against orchestration given a
+better one. The difference it measured was the instruction.
+
+| goal | baseline | orchestration | baseline before the instruction |
+|---|---|---|---|
+| `recordkit_field` | **1.00** | 1.00 | 0.00 |
+| `httpkit_method` | 0.44 | 0.44 | 0.44 |
+| `unitkit_unit` | **0.89** | 0.87 | 0.89 |
+| `authkit_role` | 1.00 | 1.00 | 1.00 |
+| `feedkit_source` | **0.84** | 0.84 | 0.00 |
+| `gradekit_kind` | **1.00** | 0.81 | 1.00 |
+
+    orchestration - baseline: -0.034  [95% CI -0.113, +0.045]  n=6 GOALS
+    smallest effect six goals could have detected: ±0.107
+    cost: baseline $0.0218, orchestration $0.1994 — 9.2x
+
+    baseline wins 6, orchestration 0.
+
+**On wide repo work — the shape built specifically to favour decomposition —
+orchestration provides no measurable benefit over a single call, at 9.2x the price.**
+
+Note what the interval is doing here, because it is not the usual complaint. Earlier
+comparisons were inconclusive because they were underpowered: an interval of
+[-0.293, +0.715] cannot rule anything out. This one is [-0.113, +0.045] against a
+detectable effect of ±0.107. It is a NARROW null, not an absent measurement.
+
+### Where the apparent advantage went
+
+The last column is the whole story. Adding one sentence to the prompt moved the single
+call from 0.00 to 1.00 on `recordkit` and from 0.00 to 0.84 on `feedkit`, and changed
+nothing on the four goals it was already handling. Those two goals were the entire
++0.211 orchestration was credited with.
+
+The sentence names the specific failure rather than restating the requirement:
+
+    Each block must be that file's COMPLETE current contents — every function and
+    constant it has now, including the ones you did not touch. A file reduced to the
+    part you changed is not a shorter answer, it is a broken file.
+
+The prompt already said "the complete contents of every file you changed" and models
+truncated anyway, dropping 5 to 13 functions per answer while stopping voluntarily at
+`end_turn` with 6000 tokens of headroom left. They were not short of room and not short
+of ability. "Give me the file" was ambiguous and they resolved it the cheap way.
+
+**So the honest conclusion for the engine is narrow and it is negative.** On this
+suite, the value orchestration appeared to add over a single call was the value of a
+better instruction, available at about 1.4x the output tokens instead of 9.2x the cost.
+
+### What this does NOT say
+
+It does not say decomposition never helps. It says that on SIX goals of ONE archetype —
+"add one item to N per-item tables", stdlib-only, six files, everything visible in the
+prompt — a single well-instructed call matches a planned, routed, multi-worker run.
+Goals with genuine cross-file reasoning, a repo too large to show, or work needing
+tools are all outside what was measured.
+
+It also does not excuse the agentic arm, which scored 0.00 on all eighteen runs with
+ten terminal errors — the escaping loop documented above, unchanged.
