@@ -213,3 +213,29 @@ def gate_findings(task: EvalTask, golden: str) -> list[str]:
                 "does not have"
             )
     return findings
+
+
+# The answer-format block every repo goal states, in one place so it cannot drift.
+#
+# The first version said only "the complete contents of every file you changed", and
+# models truncated anyway: measured across three goals, a plain single call dropped
+# 5 to 13 functions per answer while believing it was finished. The second sentence is
+# what stopped it — function losses went to zero on every run of every goal. It names
+# the specific wrong thing rather than restating the requirement, which is the whole
+# difference between the two versions.
+ANSWER_FORMAT = """
+
+Answer with the complete contents of every file you changed. Each block must be that
+file's COMPLETE current contents — every function and constant it has now, including
+the ones you did not touch. A file reduced to the part you changed is not a shorter
+answer, it is a broken file.
+
+Put each one in its own ```python block whose FIRST LINE is a comment naming the file:
+
+```python
+# path: example.py
+...the whole file...
+```
+
+Files you did not change do not need to be included.
+"""

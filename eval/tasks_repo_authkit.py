@@ -932,7 +932,10 @@ _REQUEST = (
     'Everything the toolkit already does must keep working exactly as it does now -- the\n'
     'other four roles, and whatever the code does today about roles nobody has listed.\n'
     '\n'
-    'Answer with the complete contents of every file you changed. Put each one in its own\n'
+    'Answer with the complete contents of every file you changed. Each block must be that\n'
+    "file's COMPLETE current contents — every function and constant it has now, including\n"
+    'the ones you did not touch. A file reduced to the part you changed is not a shorter\n'
+    'answer, it is a broken file. Put each one in its own\n'
     '```python block whose FIRST LINE is a comment naming the file, like:\n'
     '\n'
     '```python\n'

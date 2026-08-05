@@ -570,7 +570,10 @@ wherever methods are listed in order.
 # read exactly like "the agentic arm wins this goal".
 _ANSWER_FORMAT = """
 
-Answer with the complete contents of every file you changed. Put each one in its own
+Answer with the complete contents of every file you changed. Each block must be that
+file's COMPLETE current contents — every function and constant it has now, including
+the ones you did not touch. A file reduced to the part you changed is not a shorter
+answer, it is a broken file. Put each one in its own
 ```python block whose FIRST LINE is a comment naming the file, like:
 
 ```python
