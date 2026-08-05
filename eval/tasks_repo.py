@@ -18,7 +18,7 @@ all leaves the change factor at zero. Neither is reachable by being agreeable.
 
 from __future__ import annotations
 
-from eval.tasks import EvalTask, RepoSpec
+from eval.repo_goal import build_repo_task, file_block
 
 # --- the starting project ---------------------------------------------------
 # Real, runnable, and it WORKS before the change. Half of what this goal measures is
@@ -250,9 +250,7 @@ PROBE_FILES = (("_probe.py", _PROBE),)
 # rather than whether it broke code it was given. Every arm now receives byte-identical
 # context, which is the only way an arm comparison means anything.
 
-_FILE_BLOCK = "\n\n".join(
-    f"### {path}\n```python\n{body.rstrip()}\n```" for path, body in STARTING_FILES
-)
+_FILE_BLOCK = file_block(STARTING_FILES)
 
 SHOPCART_GOAL = f"""\
 Here is a small shopping-cart project of mine. It works today, and it has tests and a
@@ -403,43 +401,14 @@ REGRESSION = [
 # only exist in one place. Tests read the tables directly; duplicating them as text
 # would let the graded suite and the checked suite drift apart silently, which is the
 # same failure mode as a mutation test whose mutation never applied.
-SHOPCART_REFERENCE_TEST = f"""\
-import json, sys
 
-CHANGE = {CHANGE!r}
-REGRESSION = {REGRESSION!r}
-
-
-def _ok(mod, fn, args, expected):
-    try:
-        return call_in(mod, fn, *args) == expected
-    except Exception:
-        return False
-
-
-def main():
-    cp = sum(1 for _l, m, f, a, e in CHANGE if _ok(m, f, a, e))
-    rp = sum(1 for _l, m, f, a, e in REGRESSION if _ok(m, f, a, e))
-    # The PRODUCT: breaking what existed scales the whole score down, and changing
-    # nothing leaves it at zero however tidy the untouched project still is.
-    print(_TAG + json.dumps({{
-        "passed": cp * rp,
-        "total": len(CHANGE) * len(REGRESSION),
-        "change": [cp, len(CHANGE)],
-        "regression": [rp, len(REGRESSION)],
-    }}))
-
-
-if __name__ == "__main__":
-    main()
-    sys.exit(0)
-"""
-
-SHOPCART_TASK = EvalTask(
-    id="shopcart_shipping",
+SHOPCART_TASK = build_repo_task(
+    task_id="shopcart_shipping",
     goal=SHOPCART_GOAL,
-    reference_test=SHOPCART_REFERENCE_TEST,
-    repo=RepoSpec(starting_files=STARTING_FILES, probe_files=PROBE_FILES),
+    starting_files=STARTING_FILES,
+    probe_files=PROBE_FILES,
+    change=CHANGE,
+    regression=REGRESSION,
 )
 
 from eval.tasks_repo_config import DEPLOYCTL_TASK  # noqa: E402

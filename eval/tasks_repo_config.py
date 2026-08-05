@@ -16,7 +16,7 @@ writes the idiomatic thing and is wrong.
 
 from __future__ import annotations
 
-from eval.tasks import EvalTask, RepoSpec
+from eval.repo_goal import build_repo_task, file_block
 
 _SPEC = '''\
 """Which settings exist and what type each one carries."""
@@ -207,9 +207,7 @@ def is_int(argv, env, text, name):
 
 PROBE_FILES = (("_probe.py", _PROBE),)
 
-_FILE_BLOCK = "\n\n".join(
-    f"### {path}\n```python\n{body.rstrip()}\n```" for path, body in STARTING_FILES
-)
+_FILE_BLOCK = file_block(STARTING_FILES)
 
 DEPLOYCTL_GOAL = f"""\
 Here is the configuration layer of our deploy tool. It works today.
@@ -347,39 +345,12 @@ REGRESSION = [
      "_probe", "rejects", [[], {}, "verbose = maybe"], True),
 ]
 
-DEPLOYCTL_REFERENCE_TEST = f"""\
-import json, sys
 
-CHANGE = {CHANGE!r}
-REGRESSION = {REGRESSION!r}
-
-
-def _ok(mod, fn, args, expected):
-    try:
-        return call_in(mod, fn, *args) == expected
-    except Exception:
-        return False
-
-
-def main():
-    cp = sum(1 for _l, m, f, a, e in CHANGE if _ok(m, f, a, e))
-    rp = sum(1 for _l, m, f, a, e in REGRESSION if _ok(m, f, a, e))
-    print(_TAG + json.dumps({{
-        "passed": cp * rp,
-        "total": len(CHANGE) * len(REGRESSION),
-        "change": [cp, len(CHANGE)],
-        "regression": [rp, len(REGRESSION)],
-    }}))
-
-
-if __name__ == "__main__":
-    main()
-    sys.exit(0)
-"""
-
-DEPLOYCTL_TASK = EvalTask(
-    id="deployctl_layers",
+DEPLOYCTL_TASK = build_repo_task(
+    task_id="deployctl_layers",
     goal=DEPLOYCTL_GOAL,
-    reference_test=DEPLOYCTL_REFERENCE_TEST,
-    repo=RepoSpec(starting_files=STARTING_FILES, probe_files=PROBE_FILES),
+    starting_files=STARTING_FILES,
+    probe_files=PROBE_FILES,
+    change=CHANGE,
+    regression=REGRESSION,
 )
