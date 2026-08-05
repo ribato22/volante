@@ -442,4 +442,6 @@ SHOPCART_TASK = EvalTask(
     repo=RepoSpec(starting_files=STARTING_FILES, probe_files=PROBE_FILES),
 )
 
-REPO_SUITE = [SHOPCART_TASK]
+from eval.tasks_repo_config import DEPLOYCTL_TASK  # noqa: E402
+
+REPO_SUITE = [SHOPCART_TASK, DEPLOYCTL_TASK]
