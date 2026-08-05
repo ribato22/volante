@@ -19,7 +19,11 @@ from __future__ import annotations
 import pytest
 from eval.repo_goal import gate_findings
 from eval.tasks_repo import REPO_SUITE
+from eval.tasks_repo_authkit import GOLDEN as AUTHKIT_GOLDEN
+from eval.tasks_repo_feedkit import GOLDEN as FEEDKIT_GOLDEN
+from eval.tasks_repo_gradekit import GOLDEN as GRADEKIT_GOLDEN
 from eval.tasks_repo_http import GOLDEN as HTTPKIT_GOLDEN
+from eval.tasks_repo_unitkit import GOLDEN as UNITKIT_GOLDEN
 from tests.eval.test_repo_config_goal import GOLDEN as DEPLOYCTL_GOLDEN
 from tests.eval.test_repo_goals import GOLDEN as SHOPCART_GOLDEN
 from tests.eval.test_repo_wide_goal import GOLDEN as RECORDKIT_GOLDEN
@@ -29,6 +33,10 @@ GOLDENS = {
     "deployctl_layers": DEPLOYCTL_GOLDEN,
     "recordkit_field": RECORDKIT_GOLDEN,
     "httpkit_method": HTTPKIT_GOLDEN,
+    "unitkit_unit": UNITKIT_GOLDEN,
+    "authkit_role": AUTHKIT_GOLDEN,
+    "feedkit_source": FEEDKIT_GOLDEN,
+    "gradekit_kind": GRADEKIT_GOLDEN,
 }
 
 

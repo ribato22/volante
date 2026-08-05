@@ -195,7 +195,7 @@ async def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--suite",
-        choices=("eval", "depth", "repo"),
+        choices=("eval", "depth", "repo", "wide"),
         default="eval",
         help=(
             "which goals to run (default eval, the nine-goal suite every published "
@@ -203,7 +203,9 @@ async def main(argv: list[str] | None = None) -> None:
             "edge-case requirements rather than the happy path. 'repo' hands the model "
             "an existing project and asks for a change, scoring it as change x "
             "regression — the only suite here that can see a model breaking something "
-            "nobody asked it to touch"
+            "nobody asked it to touch. 'wide' is its six-goal subset where one change "
+            "must land in six files with independent parts, which is the only shape "
+            "where decomposition has a structural case at all"
         ),
     )
     parser.add_argument(
@@ -228,6 +230,10 @@ async def main(argv: list[str] | None = None) -> None:
         from eval.tasks_repo import REPO_SUITE
 
         suite = REPO_SUITE
+    elif args.suite == "wide":
+        from eval.tasks_repo import WIDE_SUITE
+
+        suite = WIDE_SUITE
     else:
         suite = EVAL_SUITE
 

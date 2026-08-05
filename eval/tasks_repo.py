@@ -411,8 +411,24 @@ SHOPCART_TASK = build_repo_task(
     regression=REGRESSION,
 )
 
+from eval.tasks_repo_authkit import TASK as AUTHKIT_TASK  # noqa: E402
 from eval.tasks_repo_config import DEPLOYCTL_TASK  # noqa: E402
+from eval.tasks_repo_feedkit import TASK as FEEDKIT_TASK  # noqa: E402
+from eval.tasks_repo_gradekit import TASK as GRADEKIT_TASK  # noqa: E402
 from eval.tasks_repo_http import HTTPKIT_TASK  # noqa: E402
+from eval.tasks_repo_unitkit import TASK as UNITKIT_TASK  # noqa: E402
 from eval.tasks_repo_wide import RECORDKIT_TASK  # noqa: E402
 
-REPO_SUITE = [SHOPCART_TASK, DEPLOYCTL_TASK, RECORDKIT_TASK, HTTPKIT_TASK]
+# Two narrow sequential goals, then the WIDE ones. Only the wide goals can say
+# anything about decomposition: a sequential change has nothing to split, so asking
+# whether orchestration helps on one has a fixed answer before the measurement.
+NARROW_SUITE = [SHOPCART_TASK, DEPLOYCTL_TASK]
+WIDE_SUITE = [
+    RECORDKIT_TASK,
+    HTTPKIT_TASK,
+    UNITKIT_TASK,
+    AUTHKIT_TASK,
+    FEEDKIT_TASK,
+    GRADEKIT_TASK,
+]
+REPO_SUITE = [*NARROW_SUITE, *WIDE_SUITE]
