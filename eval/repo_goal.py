@@ -173,6 +173,19 @@ def gate_findings(task: EvalTask, golden: str) -> list[str]:
             )
             break
 
+    # A prompt that never states the answer FORMAT is a fifth defect class, and none
+    # of the checks above can see it. Measured: httpkit's request ended at the
+    # requirement, every prompt-only arm emitted unlabelled fences, and both scored
+    # 0.00 three times running while the agentic arm — which writes to disk and needs
+    # no format — "won" the goal at 0.27. That reads as a capability result and is not.
+    if "# path:" not in task.goal:
+        findings.append(
+            "the prompt never states the answer format — nothing tells the model to "
+            "label each block with a `# path:` first line, so the extractor attributes "
+            "no files and every arm that answers in TEXT scores 0.00 while the agentic "
+            "arm, which writes to disk, appears to win"
+        )
+
     # "costs at least TWO change cases", which is the bar this suite actually claims.
     # Testing only "costs something" let a file worth one case count as load-bearing.
     n_change = int(_N_CHANGE_RE.search(task.reference_test).group(1))

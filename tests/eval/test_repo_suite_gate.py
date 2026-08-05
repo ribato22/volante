@@ -110,3 +110,27 @@ def test_the_gate_rejects_a_prompt_that_omits_the_starting_files() -> None:
     findings = gate_findings(blind, GOLDENS["recordkit_field"])
 
     assert any("prompt does not contain" in f for f in findings), findings
+
+
+def test_the_gate_rejects_a_prompt_that_never_states_the_answer_format() -> None:
+    """The fifth defect class, and the most expensive one measured so far.
+
+    httpkit's request ended at the requirement and never said to label blocks with a
+    `# path:` first line. Every prompt-only arm emitted unlabelled fences and scored
+    0.00 three runs running, while the agentic arm — which writes to disk and needs no
+    format at all — scored 0.27 and "won" the goal. Read off the table that is
+    "the agentic arm beats both others here". It is a harness artifact, and none of the
+    other four checks can see it: the golden still scores 1.000, the untouched tree
+    still scores 0.000, every file still costs, and the tree is present.
+    """
+    import dataclasses
+
+    from eval.tasks_repo_wide import RECORDKIT_TASK
+
+    formatless = dataclasses.replace(
+        RECORDKIT_TASK, goal=RECORDKIT_TASK.goal.replace("# path:", "the file")
+    )
+
+    findings = gate_findings(formatless, GOLDENS["recordkit_field"])
+
+    assert any("never states the answer format" in f for f in findings), findings

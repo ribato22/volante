@@ -564,11 +564,29 @@ DELETE and the code should read the same way, so it goes between POST and DELETE
 wherever methods are listed in order.
 """
 
+# The answer format has to be STATED. Without it every prompt-only arm emitted
+# unlabelled fences and scored 0.00, three runs each, while the agentic arm scored
+# 0.27 because it writes to disk and needs no format at all — a harness artifact that
+# read exactly like "the agentic arm wins this goal".
+_ANSWER_FORMAT = """
+
+Answer with the complete contents of every file you changed. Put each one in its own
+```python block whose FIRST LINE is a comment naming the file, like:
+
+```python
+# path: methods.py
+...the whole file...
+```
+
+Files you did not change do not need to be included.
+"""
+
 HTTPKIT_GOAL = (
     "Here is our little HTTP toolkit. It works today.\n\n"
     + file_block(STARTING_FILES)
     + "\n\n"
     + CHANGE_REQUEST
+    + _ANSWER_FORMAT
 )
 
 HTTPKIT_TASK = build_repo_task(
