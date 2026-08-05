@@ -320,3 +320,42 @@ def test_build_providers_duplicate_compat_id_raises(monkeypatch):
     monkeypatch.setenv("OPENAI_COMPAT_2_NAME", "dup/x")  # id sama -> error jelas
     with pytest.raises(RuntimeError, match="duplicate model_id"):
         run.build_providers_from_env()
+
+
+def test_the_headline_interval_counts_goals_not_repeats() -> None:
+    """Five identical runs of one goal are one fact, not five.
+
+    Measured on the repo suite: every arm scored identically across all five runs of
+    every goal, so pooling fifteen "pairs" from three goals reported
+    +0.333 [+0.063, +0.604] -- an interval excluding zero, built from three distinct
+    facts counted five times each. It is the same error this project fixed in
+    calibration one release earlier, where `confidence` counted RUNS.
+    """
+    from eval.run import _pooled_delta
+
+    per_goal = [
+        {"series": {"baseline": [1.0] * 5, "orchestration": [1.0] * 5}},
+        {"series": {"baseline": [1.0] * 5, "orchestration": [1.0] * 5}},
+        {"series": {"baseline": [0.0] * 5, "orchestration": [1.0] * 5}},
+    ]
+
+    text = _pooled_delta(per_goal, "orchestration_vs_baseline")
+
+    assert "n=3 GOALS" in text
+    assert "INCLUDES zero" in text
+    # The per-run figure survives, labelled as what it is and nothing more.
+    assert "n=15 runs" in text
+    assert "Do NOT read this as the arm comparison" in text
+
+
+def test_a_single_goal_gets_no_interval_at_all() -> None:
+    """One goal cannot bound anything across goals, however many times it is run."""
+    from eval.run import _pooled_delta
+
+    text = _pooled_delta(
+        [{"series": {"baseline": [0.0] * 20, "orchestration": [1.0] * 20}}],
+        "orchestration_vs_baseline",
+    )
+
+    assert "no interval across goals is possible" in text
+    assert "95% CI" not in text.split("per-run")[0]

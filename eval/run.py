@@ -30,37 +30,71 @@ from volante.bootstrap import (
 
 
 def _pooled_delta(per_goal: list[dict], key: str) -> str | None:
-    """One paired interval over every matched run in the suite.
+    """The paired interval, with the GOAL as the unit — plus the per-run one, labelled.
 
-    Pooling the PAIRS rather than the goal means keeps the pairing that makes the
-    comparison honest: each pair is a baseline and an orchestration run from the same
-    loop iteration, so anything that drifted between iterations moves both and cancels.
+    The per-run interval was the headline here and it was wrong. Runs within a goal are
+    not independent observations of "does this arm help": on the repo suite every arm
+    scored identically across all five runs of every goal, so pooling fifteen "pairs"
+    from three goals reported +0.333 [+0.063, +0.604] — an interval that excludes zero
+    built from three distinct facts counted five times each. By goal it is
+    +0.333 [-1.101, +1.768], which includes zero and is the honest statement.
+
+    This is the same error this project fixed in calibration one release earlier, where
+    `confidence` counted RUNS and five repeats of one goal read as five observations.
+    The unit a claim generalises over is the goal; repeats reduce measurement error
+    inside a goal and extend the claim to nothing. The per-run figure is still printed
+    because it is a real bound on within-goal noise — just not on the arm comparison.
     """
     from eval.stats import paired_delta
 
-    base: list[float] = []
-    other: list[float] = []
     arm = key.split("_vs_")[0]
+    run_base: list[float] = []
+    run_other: list[float] = []
+    goal_base: list[float] = []
+    goal_other: list[float] = []
     for g in per_goal:
         series = g.get("series")
         if not series or arm not in series:
             return None
-        base.extend(series["baseline"])
-        other.extend(series[arm])
-    if len(base) < 2:
+        base_runs = series["baseline"]
+        other_runs = series[arm]
+        if not base_runs or not other_runs:
+            return None
+        run_base.extend(base_runs)
+        run_other.extend(other_runs)
+        goal_base.append(sum(base_runs) / len(base_runs))
+        goal_other.append(sum(other_runs) / len(other_runs))
+    if len(run_base) < 2:
         return None
-    delta = paired_delta(base, other)
-    verdict = (
-        "the interval excludes zero"
-        if delta.significant
-        else "the interval INCLUDES zero — this is not evidence of a difference"
+
+    lines: list[str] = []
+    if len(goal_base) >= 2:
+        by_goal = paired_delta(goal_base, goal_other)
+        verdict = (
+            "the interval excludes zero"
+            if by_goal.significant
+            else "the interval INCLUDES zero — this is not evidence of a difference"
+        )
+        lines.append(
+            f"{by_goal.mean:+.3f}  [95% CI {by_goal.ci_low:+.3f}, "
+            f"{by_goal.ci_high:+.3f}]  n={by_goal.n} GOALS\n"
+            f"  {verdict}. Smallest effect this many goals could have detected: "
+            f"±{by_goal.detectable:.3f}"
+        )
+    else:
+        lines.append(
+            f"only {len(goal_base)} goal(s): no interval across goals is possible, and "
+            "a per-run interval would describe repeats rather than the arms"
+        )
+
+    per_run = paired_delta(run_base, run_other)
+    lines.append(
+        f"  per-run, for within-goal noise only: {per_run.mean:+.3f} "
+        f"[{per_run.ci_low:+.3f}, {per_run.ci_high:+.3f}] n={per_run.n} runs. "
+        "Do NOT read this as the arm comparison: repeats of one goal are not "
+        "independent evidence about arms."
     )
-    return (
-        f"{delta.mean:+.3f}  [95% CI {delta.ci_low:+.3f}, {delta.ci_high:+.3f}]  "
-        f"n={delta.n} pairs\n"
-        f"  {verdict}. Smallest effect this run could have detected: "
-        f"±{delta.detectable:.3f}"
-    )
+    return "\n".join(lines)
 
 
 def format_report(result: dict) -> str:

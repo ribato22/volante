@@ -642,14 +642,34 @@ _AGENTIC_SUFFIX = (
 # read-back collects the whole tree instead of one hardcoded name.
 _AGENTIC_REPO_SUFFIX = (
     "\n\nThe project files above are already in your current working directory. Edit "
-    "them in place — keep the existing filenames. Also add a pytest test module "
-    "(test_*.py). Use the run_python tool to run your tests and iterate until they "
-    "pass. When done, briefly summarize."
+    "them in place — keep the existing filenames. `run_python` shares that directory, "
+    "so you change a file by opening it and writing to it from the code you run, and "
+    "the change persists into your next call. The sandbox has the standard library and "
+    "nothing else: no pytest, no network, no installing anything. Check your work by "
+    "importing the modules and asserting on what they return. When done, briefly "
+    "summarize."
 )
 
 # Read back at most this many source files from an agentic workspace. A tree is the
 # model's to shape, but the number of files it may hand back is not unbounded.
 _MAX_WORKSPACE_FILES = 24
+
+# Written by RunPythonTool, not by the model as part of its answer.
+_SANDBOX_SCRATCH = frozenset({"_snippet.py"})
+
+
+class _Recording:
+    """A tool that notes it was called, then delegates untouched."""
+
+    def __init__(self, inner: Any, log: list[str]) -> None:
+        self._inner = inner
+        self._log = log
+        self.name = inner.name
+        self.spec = inner.spec
+
+    async def run(self, *args: Any, **kwargs: Any) -> Any:
+        self._log.append(self.name)
+        return await self._inner.run(*args, **kwargs)
 
 
 def _collect_workspace_repo(ws: Path) -> dict[str, str]:
@@ -668,6 +688,12 @@ def _collect_workspace_repo(ws: Path) -> dict[str, str]:
         rel = path.relative_to(ws).as_posix()
         name = path.name.lower()
         if name.startswith("test_") or name.endswith("_test.py"):
+            continue
+        # `_snippet.py` is the SANDBOX's scratch file — `run_python` writes the model's
+        # code there to execute it. Sweeping it into the graded tree puts harness
+        # machinery inside the repo under test, which is the same class of mistake the
+        # repo/_grade split exists to prevent, one layer further out.
+        if rel in _SANDBOX_SCRATCH:
             continue
         if len(found) >= _MAX_WORKSPACE_FILES:
             break
@@ -745,7 +771,12 @@ async def run_agentic_single(
                 target = ws / rel
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(body, encoding="utf-8")
-        tools = {"run_python": RunPythonTool(sandbox_for(ws))}
+        # Record tool use OUTSIDE the worker. On the exhausted-loop path the worker
+        # raises and its own record is lost, so `tools_used` came back empty for a run
+        # that had made thirteen tool calls. That is a harness that lies precisely when
+        # something has gone wrong, which is when it is being read.
+        invoked: list[str] = []
+        tools = {"run_python": _Recording(RunPythonTool(sandbox_for(ws)), invoked)}
         suffix = _AGENTIC_SUFFIX if repo is None else _AGENTIC_REPO_SUFFIX
         req = CanonicalRequest(
             messages=[text("user", goal + suffix)],
@@ -762,14 +793,14 @@ async def run_agentic_single(
             res = await worker.run(req, model_id, tools, required_tools=frozenset())
             final_text = res.final_text
             usage_total = res.usage_total
-            tools_used = res.tools_used
+            tools_used = res.tools_used or tuple(dict.fromkeys(invoked))
         except (ProviderError, CapabilityUnavailableError) as exc:
             # Jangan telan diam-diam: catat sebab. Solusi di disk (bila model sempat
             # menulisnya sebelum gagal) tetap dinilai; kalau tak ada, error yang
             # disurface membedakan kegagalan arm dari solusi 0.0 sungguhan.
             final_text = ""
             usage_total = meter.totals()
-            tools_used = ()
+            tools_used = tuple(dict.fromkeys(invoked))
             error = f"{type(exc).__name__}: {exc}"
         repo_files: dict[str, str] | None = None
         if repo is not None:

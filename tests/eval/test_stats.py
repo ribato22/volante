@@ -117,24 +117,44 @@ def _fake_result(base: list[float], orch: list[float]) -> dict:
     }
 
 
+def _fake_result_across_goals(base: list[float], orch: list[float]) -> dict:
+    """One goal per pair, which is what these figures always meant.
+
+    Four numbers per arm were written as four INDEPENDENT observations. Putting them in
+    one goal made them four repeats of a single fact, and the corrected report declines
+    to draw a cross-goal interval from that -- correctly. Splitting them restores the
+    intent instead of relaxing the check.
+    """
+    result = _fake_result(base, orch)
+    template = result["per_goal"][0]
+    result["per_goal"] = [
+        {**template, "id": f"g{i}",
+         "series": {"baseline": [b], "orchestration": [o], "agentic": [b]}}
+        for i, (b, o) in enumerate(zip(base, orch, strict=True))
+    ]
+    return result
+
+
 def test_the_report_refuses_to_call_a_noisy_gap_evidence() -> None:
     """The exact data that was published as p<0.005 and then reversed."""
     from eval.run import format_report
 
     report = format_report(
-        _fake_result([0.414, 0.492, 0.708, 0.497], [0.742, 0.721, 0.656, 0.476])
+        _fake_result_across_goals(
+            [0.414, 0.492, 0.708, 0.497], [0.742, 0.721, 0.656, 0.476]
+        )
     )
 
     assert "INCLUDES zero" in report
     assert "not evidence of a difference" in report
-    assert "Smallest effect this run could have detected" in report
+    assert "Smallest effect this many goals could have detected" in report
 
 
 def test_the_report_states_a_real_difference_plainly() -> None:
     from eval.run import format_report
 
     report = format_report(
-        _fake_result([0.40, 0.70, 0.45, 0.65], [0.50, 0.80, 0.55, 0.75])
+        _fake_result_across_goals([0.40, 0.70, 0.45, 0.65], [0.50, 0.80, 0.55, 0.75])
     )
 
     assert "excludes zero" in report
