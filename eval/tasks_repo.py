@@ -443,5 +443,6 @@ SHOPCART_TASK = EvalTask(
 )
 
 from eval.tasks_repo_config import DEPLOYCTL_TASK  # noqa: E402
+from eval.tasks_repo_wide import RECORDKIT_TASK  # noqa: E402
 
-REPO_SUITE = [SHOPCART_TASK, DEPLOYCTL_TASK]
+REPO_SUITE = [SHOPCART_TASK, DEPLOYCTL_TASK, RECORDKIT_TASK]
