@@ -161,12 +161,15 @@ async def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--suite",
-        choices=("eval", "depth"),
+        choices=("eval", "depth", "repo"),
         default="eval",
         help=(
             "which goals to run (default eval, the nine-goal suite every published "
             "artifact measured). 'depth' is the guardkit goal, which scores stated "
-            "edge-case requirements rather than the happy path"
+            "edge-case requirements rather than the happy path. 'repo' hands the model "
+            "an existing project and asks for a change, scoring it as change x "
+            "regression — the only suite here that can see a model breaking something "
+            "nobody asked it to touch"
         ),
     )
     parser.add_argument(
@@ -187,6 +190,10 @@ async def main(argv: list[str] | None = None) -> None:
         from eval.tasks_depth import DEPTH_SUITE
 
         suite = DEPTH_SUITE
+    elif args.suite == "repo":
+        from eval.tasks_repo import REPO_SUITE
+
+        suite = REPO_SUITE
     else:
         suite = EVAL_SUITE
 

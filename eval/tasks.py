@@ -84,6 +84,39 @@ class TextCheck:
 
 
 @dataclass(frozen=True)
+class RepoSpec:
+    """The project a repo-shaped goal hands the model before asking for a change.
+
+    `starting_files` is a real, working tree — it must import and run BEFORE the
+    change, because half of what these goals measure is whether a model breaks
+    something it was not asked to touch, and that is only a question if the thing
+    worked to begin with.
+
+    `probe_files` are HIDDEN and harness-owned: the reference runner can only call
+    module-level functions with JSON arguments, so a goal whose API is a class needs a
+    thin module to drive it. They are written AFTER the model's files, which is the
+    whole point — laying them over means a model cannot shadow the thing that grades
+    it by writing a file of the same name.
+
+    Frozen tuples rather than a dict so `EvalTask` stays hashable, which the suite
+    runner relies on.
+    """
+
+    starting_files: tuple[tuple[str, str], ...]
+    probe_files: tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.starting_files:
+            raise ValueError("a repo goal needs at least one starting file")
+        paths = [p for p, _ in self.starting_files]
+        if len(set(paths)) != len(paths):
+            raise ValueError(f"duplicate starting file paths: {sorted(paths)}")
+        probes = [p for p, _ in self.probe_files]
+        if len(set(probes)) != len(probes):
+            raise ValueError(f"duplicate probe file paths: {sorted(probes)}")
+
+
+@dataclass(frozen=True)
 class EvalTask:
     """Satu goal eval: instruksi komposit + runner referensi tersembunyi.
 
@@ -94,13 +127,19 @@ class EvalTask:
 
     `task_type` names which of the router's four task types this goal exercises.
     A `code` goal carries a reference_test; every other type carries `checks`
-    instead, because there is nothing to execute."""
+    instead, because there is nothing to execute.
+
+    `repo` turns it into a repo-shaped goal: the model is given a working project and
+    asked to change it, and the runner reaches its modules through `call_in` instead
+    of the single `solution` module. Appended LAST so every existing positional
+    construction keeps meaning what it meant."""
 
     id: str
     goal: str
     reference_test: str = ""
     task_type: str = "code"
     checks: tuple[TextCheck, ...] = ()
+    repo: RepoSpec | None = None
 
     def __post_init__(self) -> None:
         if self.task_type == "code":
@@ -110,6 +149,8 @@ class EvalTask:
             # Silently scoring 0.0 for a goal nobody wrote checks for would look
             # exactly like a model that failed it.
             raise ValueError(f"{self.id}: a {self.task_type} goal needs checks")
+        if self.repo is not None and self.task_type != "code":
+            raise ValueError(f"{self.id}: only a code goal can carry a repo")
 
 
 # Suite 5 goal komposit (Fase eval-suite). slugify dipertahankan sebagai

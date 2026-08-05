@@ -43,9 +43,16 @@ from volante.blackboard import Blackboard
 #
 # The prose a worker wraps round its answer ("Here is the function you asked for") is
 # still dropped: it is commentary on the artifact, not part of it.
-_FENCE = re.compile(
-    r"```[^\S\r\n]*([a-zA-Z0-9_+-]*)[^\S\r\n]*\r?\n(.*?)```", re.DOTALL
-)
+#
+# The tag is the WHOLE info string, not just a language word. Restricting it to
+# `[a-zA-Z0-9_+-]*` did not merely lose the metadata — it lost the code. Given two
+# blocks opened as ```python path=app/store.py, the pattern could no longer match
+# either opening fence, so it paired the CLOSING fence of the first block with the
+# OPENING fence of the second and captured the prose between them: one "block" whose
+# body was "and the second file:" and whose code was gone. Both files were dropped and
+# the commentary was kept, which is precisely backwards. ```jsx {1,3-4} matched
+# nothing at all and vanished silently.
+_FENCE = re.compile(r"```([^\r\n]*)\r?\n(.*?)```", re.DOTALL)
 
 
 class ArtifactAssembler:
@@ -67,7 +74,7 @@ class ArtifactAssembler:
         for _task_id, payload in artifacts:
             text = str(payload)
             fenced = [
-                f"```{tag}\n{body.strip()}\n```"
+                f"```{tag.strip()}\n{body.strip()}\n```"
                 for tag, body in _FENCE.findall(text)
                 if body.strip()
             ]
