@@ -799,10 +799,51 @@ off. It emitted files that keep the function it edited and silently drop the res
 `parse.py` without `parse`, `render.py` without `table` — and considered the answer
 complete. Raising the budget cannot fix a model that already thinks it has finished.
 
-That also explains the mechanism of the orchestration win, which is worth stating
-because it is not the flattering one: a worker asked for ONE file emits that file
-whole. The gain comes from what the framing makes "done" mean, not from more thinking
-and not from more room.
+**CORRECTION, and it is mine.** The sentence that stood here said the mechanism was
+"a worker asked for ONE file emits that file whole." That is WRONG, and diagnosing the
+goals orchestration LOST is what showed it. On `gradekit_kind` the orchestrated answer
+produced all six files, every one correctly labelled, and dropped every function in
+five of them — `weights.py` without `weight_of` or `weighted_total`, `transcript.py`
+without `render`, `row`, `header`, `_mark` or `_cell`. It scored 0.0096.
+
+Both arms truncate. Orchestration truncates less often, and that difference is the
+whole of the +0.211. It is not a different capability and not a different budget.
+
+### One sentence removes the failure, and it costs 1.4x rather than 9.6x
+
+If the failure is an ambiguity about what "give me the file" means, saying what
+complete means should fix it without any orchestration at all. Measured, k=3, one
+sentence appended to the plain single-call prompt:
+
+    each block must be the file's COMPLETE current contents — every function and
+    constant it has now, including the ones you did not change. A file that keeps only
+    the part you edited is not a smaller answer, it is a broken module.
+
+| goal | plain | + one sentence | functions lost, plain -> nudged |
+|---|---|---|---|
+| `recordkit_field` | 0.028 | **1.000** | 5, 13, 13 -> 0, 0, 0 |
+| `feedkit_source` | 0.000 | **0.842** | 6, 8, 8 -> 0, 0, 0 |
+| `unitkit_unit` | 0.752 | 0.819 | 0, 1, 1 -> 0, 0, 0 |
+| `httpkit_method` | 0.440 | 0.547 | 0, 0, 0 -> 0, 0, 0 |
+
+Output grew from ~805 to ~1227 tokens on the goals that were failing — about 1.4x,
+against orchestration's 9.6x.
+
+**The score interval does not carry this claim and is not offered as if it did.** Over
+four goals the difference is +0.497 [-0.261, +1.255], which includes zero, as does
+every comparison at this sample size. What carries it is the MECHANISM: functions lost
+went 5-13 to zero, on every run of every goal, with no overlap between the two
+conditions. That is a direct observation, not a noisy mean.
+
+The same sentence is now in Volante's own worker prompt (`src/volante/projector.py`),
+conditional on the task changing a file that already exists so it binds nothing for a
+task producing prose. Re-measured after the change, twice each:
+
+    gradekit_kind    0.0096 -> 0.8125     0 functions lost
+    recordkit_field  1.0000 -> 1.0000     0 functions lost
+
+`gradekit` still scores below its baseline of 1.00, so orchestration's loss there is
+NOT only truncation — the remaining gap is something else and is not yet explained.
 
 ### The agentic arm scored 0.00 on all eighteen runs
 

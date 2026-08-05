@@ -62,9 +62,23 @@ class Projector:
     def project(self, task: Task, model_id: str, bb: Blackboard) -> CanonicalRequest:
         model = self.registry.get(model_id)
 
+        # The completeness sentence is not padding, and it is not advice about how to
+        # think. Measured on a six-file change: without it a worker emits the table it
+        # edited and silently drops every function below — `parse.py` with no `parse`,
+        # `render.py` with no `table` — and the run scores 0.00 while reading as a
+        # finished answer. The same single sentence added to a plain one-shot prompt
+        # took two such goals from 0.03 and 0.00 to 1.00 and 0.84, and function losses
+        # from 5-13 to zero across twelve runs.
+        #
+        # Conditional on purpose: a task producing prose has no "existing file" and the
+        # sentence binds nothing.
         system_prefix = (
             "You are a specialized worker in an AI orchestration engine. "
             "Execute the assigned task using only the provided context. "
+            "If your task changes a file that already exists, give that file's COMPLETE "
+            "contents — every function and constant it has now, including the ones you "
+            "did not touch. A file reduced to the part you changed is not a shorter "
+            "answer, it is a broken file. "
             "Respond in the same language as the overall goal. "
             "Overall goal: "
         )
