@@ -107,6 +107,16 @@ async def test_blocks_bad_scheme() -> None:
     assert "scheme" in out
 
 
+async def test_credentials_in_the_url_are_refused() -> None:
+    # userinfo must be refused, not stripped: whatever survives into Host/SNI/path
+    # leaks to an origin the MODEL chose, and an older httpx put it on the wire
+    # verbatim. A model has no business authenticating.
+    out = await FetchUrlTool({"example.com"}).run(
+        {"url": "https://user:secret@example.com/x"}
+    )
+    assert "credentials" in out
+
+
 async def test_missing_url_errors() -> None:
     out = await FetchUrlTool({"example.com"}).run({})
     assert "error" in out.lower()

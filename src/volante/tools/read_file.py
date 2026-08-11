@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import stat
 from pathlib import Path
 
 from volante.types import ToolSpec
@@ -33,13 +35,28 @@ class ReadFileTool:
         target = (self.root / rel).resolve()
         if target != self.root and self.root not in target.parents:
             return f"error: path escapes allowed root: {rel!r}"
-        if not target.is_file():
-            return f"error: not a file: {rel!r}"
+        # The resolve() check above bounds TRAVERSAL; it is not a file-type check, and
+        # the gap between checking and opening is a window. Same three refusals as
+        # sandbox.read_model_file, because the model can race a host-side open:
+        # * O_NOFOLLOW — a symlink planted at `target` is not read, in place or
+        #   through a parent name.
+        # * O_NONBLOCK + a regular-file check — a FIFO would otherwise BLOCK the
+        #   opener until something writes to it, with no timeout anywhere near this
+        #   call (TOCTOU: is_file() passed, then the path was swapped for a pipe).
+        # * max_bytes — an unbounded read on a path the model chooses is an
+        #   allocation the model chooses (read_bytes() would buffer the whole file
+        #   before slicing, so max_bytes would only cap output, not memory).
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         try:
-            # Do not use read_bytes() here: it buffers the whole file before slicing,
-            # so max_bytes would only cap output rather than memory consumption.
-            with target.open("rb") as handle:
-                data = handle.read(self.max_bytes)
+            fd = os.open(os.fspath(target), flags)
+        except OSError as exc:
+            return f"error: cannot open {rel!r}: {exc}"
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return f"error: not a regular file: {rel!r}"
+            data = os.read(fd, self.max_bytes)
         except OSError as exc:
             return f"error: read failed: {exc}"
+        finally:
+            os.close(fd)
         return data.decode(errors="replace")

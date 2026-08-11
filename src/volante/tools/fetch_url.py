@@ -178,6 +178,13 @@ class FetchUrlTool:
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             return f"error: unsupported scheme: {parsed.scheme!r}"
+        # REFUSED, not merely stripped. userinfo is `secret@` in the URL; whatever
+        # survives into Host/SNI/path would leak to an origin the MODEL chose, and an
+        # older httpx (the constraint is >=0.27, but the past is cheaper to close
+        # than to audit) put it into the wire Host verbatim. A model has no business
+        # authenticating, so the only safe answer is to refuse the whole URL.
+        if parsed.username is not None or parsed.password is not None:
+            return "error: credentials in url are not allowed"
         host = parsed.hostname or ""
         if not self._allowed(host):
             return f"error: domain not in allowlist: {host!r}"
