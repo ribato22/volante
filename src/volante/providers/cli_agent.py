@@ -62,6 +62,11 @@ _SAFE_CHILD_ENV = frozenset({
 })
 
 
+def _est(s: str) -> int:
+    """Cheap token estimate; never returns 0 (contract: NEVER Usage(0, 0))."""
+    return max(1, len(s) // 4)
+
+
 @dataclass
 class CliRunResult:
     stdout: str
@@ -581,7 +586,18 @@ class CliAgentProvider:
             reason = "no_terminal_result"
         return CanonicalResponse(
             content=[TextBlock(text="".join(parts))],
-            usage=Usage(prompt_tokens=0, completion_tokens=0, estimated=True),
+            # NEVER Usage(0, 0) — the shared contract every other provider keeps
+            # (anthropic._est, openai_compat._est...). The prompt text and the
+            # accumulated partial are real bytes we hold, so token counts estimated
+            # from them are honest evidence of work done; zero claims none happened.
+            # `overflowed` only stops parts from growing, it does not invalidate what
+            # was already streamed. `estimated=True` keeps the flag honest: no
+            # terminal envelope means the CLI reported no authoritative counts.
+            usage=Usage(
+                prompt_tokens=_est(prompt),
+                completion_tokens=_est("".join(parts)),
+                estimated=True,
+            ),
             model=self.name,
             stop_reason=reason,
             latency_ms=0,

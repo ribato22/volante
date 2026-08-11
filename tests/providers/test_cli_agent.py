@@ -721,6 +721,10 @@ async def test_stream_relays_deltas_and_early_stop(monkeypatch):
     assert seen == ["Hel", "lo"]           # 3rd delta never delivered (stopped)
     assert resp.content[0].text == "Hello"  # accumulated partial
     assert resp.usage.estimated is True
+    # NEVER Usage(0, 0): the partial text is real bytes, so the estimate must be
+    # grounded in it, not claim nothing happened.
+    assert resp.usage.completion_tokens > 0
+    assert resp.usage.prompt_tokens > 0
 
 
 async def test_stream_surfaces_usage_and_cost_from_terminal_result_line(monkeypatch):
@@ -763,6 +767,8 @@ async def test_stream_early_stop_keeps_partial_even_with_result_line(monkeypatch
     resp = await provider.stream(_req(), lambda _d: True)  # stop after first delta
     assert resp.content[0].text == "Hel"       # partial, NOT the full result-line text
     assert resp.usage.estimated is True         # unchanged early-stop contract
+    assert resp.usage.completion_tokens > 0     # still NEVER Usage(0, 0)
+    assert resp.usage.prompt_tokens > 0
 
 
 async def test_stream_without_a_terminal_result_line_is_not_called_complete(monkeypatch):
@@ -782,6 +788,8 @@ async def test_stream_without_a_terminal_result_line_is_not_called_complete(monk
     resp = await provider.stream(_req(), lambda _d: None)
 
     assert resp.content[0].text == "The answer so far is incomp"
+    assert resp.usage.completion_tokens > 0  # partial text, not a Usage(0, 0) lie
+    assert resp.usage.prompt_tokens > 0
     with pytest.raises(IncompleteOutputError):
         ensure_complete_response(resp, phase="agentic worker")
 
