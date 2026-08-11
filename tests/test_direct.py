@@ -25,9 +25,10 @@ from volante.types import (
     TextBlock,
     Usage,
 )
+from volante.verify import CheckReport
 
 
-def _model(mid: str, tier: int = 3) -> ModelInfo:
+def _model(mid: str, tier: int = 3, billing: str = "card") -> ModelInfo:
     return ModelInfo(
         id=mid,
         provider="fake",
@@ -38,6 +39,7 @@ def _model(mid: str, tier: int = 3) -> ModelInfo:
         cost_per_1k_in=0.0,
         cost_per_1k_out=0.0,
         tier=tier,
+        billing=billing,
     )
 
 
@@ -165,3 +167,143 @@ async def test_an_empty_goal_is_rejected_before_any_call() -> None:
             CostMeter(),
         )
     assert p.calls == 0
+
+
+async def test_verify_runs_on_success_with_the_real_goal_and_final() -> None:
+    """--verify must work on the direct path, not silently no-op: the flag says
+    "check my answer", and one call does not cancel that promise."""
+    p = _Provider("m", "the answer")
+    seen: dict = {}
+
+    async def verify(goal: str, final: str, run_id: str) -> CheckReport:
+        seen["goal"] = goal
+        seen["final"] = final
+        seen["run_id"] = run_id
+        return CheckReport(total=4, failed=[])
+
+    result = await answer_directly(
+        "slug it",
+        Router(Registry([_model("m")])),
+        Projector(Registry([_model("m")])),
+        {"m": p},  # type: ignore[arg-type]
+        Registry([_model("m")]),
+        CostMeter(),
+        verify=verify,
+    )
+
+    assert result.status == "success"
+    assert seen["goal"] == "slug it"
+    assert seen["final"] == "the answer"
+    assert seen["run_id"]
+    assert result.checks is not None
+    assert result.checks.total == 4
+    assert result.checks.all_passed is True
+
+
+async def test_verify_does_not_run_when_no_model_answers() -> None:
+    boom = _Provider("m", ProviderError("down", retryable=False))
+    calls = 0
+
+    async def verify(goal: str, final: str, run_id: str) -> CheckReport:
+        nonlocal calls
+        calls += 1
+        return CheckReport(total=4, failed=[])
+
+    result = await answer_directly(
+        "g",
+        Router(Registry([_model("m")])),
+        Projector(Registry([_model("m")])),
+        {"m": boom},  # type: ignore[arg-type]
+        Registry([_model("m")]),
+        CostMeter(),
+        verify=verify,
+    )
+
+    assert result.status == "failed"
+    assert calls == 0
+    assert result.checks is None
+
+
+async def test_a_broken_verify_callback_cannot_fail_a_good_run() -> None:
+    """The detector must never take a good run down with it (same contract as
+    Runtime._verify_final: it reports, and the caller decides)."""
+    p = _Provider("m", "fine answer")
+
+    async def verify(goal: str, final: str, run_id: str):
+        raise RuntimeError("detector crashed")
+
+    result = await answer_directly(
+        "g",
+        Router(Registry([_model("m")])),
+        Projector(Registry([_model("m")])),
+        {"m": p},  # type: ignore[arg-type]
+        Registry([_model("m")]),
+        CostMeter(),
+        verify=verify,
+    )
+
+    assert result.status == "success"
+    assert result.final == "fine answer"
+    assert result.checks is None
+
+
+async def test_subscription_billed_attempts_are_counted_like_the_runtime_gate() -> None:
+    """subscription_calls must not silently read 0 on the direct path: the summary
+    line a user compares between modes would then understate what was consumed."""
+    sub = _Provider("strong", "answer")
+    models = [_model("strong", 4, "plan_credit")]
+
+    result = await answer_directly(
+        "g",
+        Router(Registry(models)),
+        Projector(Registry(models)),
+        {"strong": sub},  # type: ignore[arg-type]
+        Registry(models),
+        CostMeter(),
+    )
+
+    assert result.subscription_calls == 1
+
+
+async def test_a_failed_subscription_attempt_still_counts() -> None:
+    """A physical call was made and the quota was consumed — the runtime's gate
+    charges the attempt whether or not it succeeded."""
+    boom = _Provider("strong", ProviderError("down", retryable=False))
+    ok = _Provider("weak", "recovered")
+    models = [_model("strong", 4, "plan_credit"), _model("weak", 1)]
+
+    result = await answer_directly(
+        "g",
+        Router(Registry(models)),
+        Projector(Registry(models)),
+        {"strong": boom, "weak": ok},  # type: ignore[arg-type]
+        Registry(models),
+        CostMeter(),
+    )
+
+    assert result.status == "success"
+    assert result.final == "recovered"
+    assert result.subscription_calls == 1
+
+
+async def test_verify_tuple_reports_detector_subscription_calls() -> None:
+    """The detector's own derive call is counted by the caller (the CLI), and the
+    direct path must fold it into the run total so the two modes stay comparable."""
+    p = _Provider("m", "answer")
+    report = CheckReport(total=4, failed=[])
+
+    async def verify(goal: str, final: str, run_id: str):
+        return report, 2
+
+    result = await answer_directly(
+        "g",
+        Router(Registry([_model("m")])),
+        Projector(Registry([_model("m")])),
+        {"m": p},  # type: ignore[arg-type]
+        Registry([_model("m")]),
+        CostMeter(),
+        verify=verify,
+    )
+
+    assert result.checks is report
+    assert result.subscription_calls == 2
