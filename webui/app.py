@@ -500,6 +500,20 @@ function renderResult(ev) {
     r.appendChild(Object.assign(document.createElement("div"),
       { className: "note", textContent: ev.capability_notice }));
   }
+  // Derived-check report (verify enabled): a report, not a verdict — ~45% of the
+  // answers it flags are correct, so show the failing checks, not a badge.
+  if (ev.checks && ev.checks.ran) {
+    r.appendChild(Object.assign(document.createElement("div"),
+      { className: "note", textContent: "checks: " + ev.checks.summary }));
+    (ev.checks.failed || []).slice(0, 5).forEach(function (f) {
+      r.appendChild(Object.assign(document.createElement("div"),
+        { className: "note", textContent: "✗ " + f[0] + "   " + f[1] }));
+    });
+    if ((ev.checks.failed || []).length > 5) {
+      r.appendChild(Object.assign(document.createElement("div"),
+        { className: "note", textContent: "… and " + ((ev.checks.failed || []).length - 5) + " more" }));
+    }
+  }
   if (Number(ev.billed_usd || 0) === 0 && Number(ev.credit_usd || 0) > 0) {
     r.appendChild(Object.assign(document.createElement("div"),
       { className: "note", textContent: "Ran on your subscription — no cash billed; plan credit is the API-equivalent value." }));
@@ -1169,7 +1183,36 @@ def create_app(
 
         async def gen():
             try:
-                async for event in stream_events(runtime_factory(), goal):
+                try:
+                    runtime = runtime_factory()
+                except Exception as exc:  # noqa: BLE001 — user-facing surface: no tracebacks
+                    # A factory that cannot build (no provider, registry error, bad
+                    # override) used to close the stream with no event at all: the
+                    # browser showed "Connection lost" and the failed run never
+                    # reached the usage ledger. Emit a STRUCTURAL failure instead —
+                    # same shape as the runner's result event, so the UI renders it
+                    # like any failed run and record_run audits it.
+                    failure = {
+                        "type": "result",
+                        "status": "failed",
+                        "final": None,
+                        "failed_task": None,
+                        "error_code": "runtime_build_failed",
+                        "error_message": f"{type(exc).__name__}: {exc}",
+                        "cost_usd": 0.0,
+                        "billed_usd": 0.0,
+                        "credit_usd": 0.0,
+                        "cost_estimated": False,
+                        "capability_notice": None,
+                        "duration_ms": 0,
+                        "subscription_calls": 0,
+                        "routing_decisions": {},
+                        "checks": None,
+                    }
+                    record_run(failure, goal=goal, prefer=None, source="webui")
+                    yield f"data: {json.dumps(failure)}\n\n"
+                    return
+                async for event in stream_events(runtime, goal):
                     if isinstance(event, dict) and event.get("type") == "result":
                         # Persist to the shared usage ledger so browser runs show up in
                         # the Usage dashboard alongside CLI/MCP runs. Best-effort.

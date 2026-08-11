@@ -5,6 +5,24 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 
+def _checks_payload(checks: Any) -> dict[str, Any] | None:
+    """Serialize the engine's CheckReport for the SSE wire.
+
+    Same shape as the CLI's --json output and the MCP server's dict, kept in sync
+    by the same test discipline. ``None`` means verification was not enabled.
+    """
+    if checks is None:
+        return None
+    return {
+        "ran": checks.ran,
+        "total": checks.total,
+        "failed": [[src, why] for src, why in checks.failed],
+        "error": checks.error,
+        "all_passed": checks.all_passed,
+        "summary": checks.summary(),
+    }
+
+
 async def stream_events(runtime: Any, goal: str) -> AsyncIterator[dict]:
     """Run ``runtime.aexecute(goal)`` and yield UI events as they happen.
 
@@ -29,7 +47,7 @@ async def stream_events(runtime: Any, goal: str) -> AsyncIterator[dict]:
         {"type": "result", "status", "final", "failed_task",
                             "error_code", "error_message", "cost_usd", "billed_usd",
                             "credit_usd", "cost_estimated", "capability_notice", "duration_ms",
-                            "subscription_calls", "routing_decisions"}
+                            "subscription_calls", "routing_decisions", "checks"}
         {"type": "error",  "message": <str>}
     """
     # Synchronous provider callbacks cannot await downstream SSE backpressure.
@@ -81,6 +99,7 @@ async def stream_events(runtime: Any, goal: str) -> AsyncIterator[dict]:
                     "duration_ms": res.duration_ms,
                     "subscription_calls": getattr(res, "subscription_calls", 0),
                     "routing_decisions": getattr(res, "routing_decisions", {}),
+                    "checks": _checks_payload(getattr(res, "checks", None)),
                 }
             )
         except Exception as exc:  # noqa: BLE001 - surface ANY failure to the UI

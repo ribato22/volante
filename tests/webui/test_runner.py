@@ -71,3 +71,39 @@ async def test_result_event_carries_the_estimate_flag() -> None:
     result = next(e for e in events if e["type"] == "result")
     assert "cost_estimated" in result
     assert isinstance(result["cost_estimated"], bool)
+
+
+@pytest.mark.asyncio
+async def test_result_event_carries_checks_or_none() -> None:
+    """Verification is opt-in; when it ran, its report must survive to the browser —
+    a paid-for report thrown away on the wire is the same bug as dropping it in the
+    console. When it did not run, the field is present and null so a consumer can
+    tell 'unverified' from 'missing data'."""
+    from volante.types import RunResult
+    from volante.verify import CheckReport
+
+    class _Verified:
+        async def aexecute(self, goal, on_text=None, on_worker_text=None):
+            return RunResult(
+                status="success",
+                final="answer",
+                partial_artifacts={},
+                failed_task=None,
+                checks=CheckReport(total=4, failed=[("src", "boom")]),
+            )
+
+    events = [ev async for ev in stream_events(_Verified(), "g")]
+    result = next(e for e in events if e["type"] == "result")
+    assert result["checks"] == {
+        "ran": True,
+        "total": 4,
+        "failed": [["src", "boom"]],
+        "error": None,
+        "all_passed": False,
+        "summary": "3/4 derived checks passed",
+    }
+
+    make = demo_runtime_factory()
+    events = [ev async for ev in stream_events(make(), "demo goal")]
+    result = next(e for e in events if e["type"] == "result")
+    assert result["checks"] is None
