@@ -156,3 +156,47 @@ async def test_an_unfenced_artifact_is_fenced_rather_than_bled_into_the_next() -
 
     assert ast.parse(extract_python(assembled)) is not None
     assert "Just some prose" not in extract_python(assembled)
+
+
+async def test_an_info_string_fence_keeps_the_code_and_drops_the_prose() -> None:
+    """A fence tagged with more than a language word must not swallow both files.
+
+    The tag pattern was `[a-zA-Z0-9_+-]*`, which cannot match `python path=app/a.py`.
+    Failing to match the OPENING fences did not merely lose the metadata: the regex
+    paired the first block's CLOSING fence with the second block's OPENING fence and
+    captured the prose between them. Both files were dropped and the commentary was
+    kept. Models emit info strings unprompted, so this is reachable without asking.
+    """
+    bb = _bb(
+        {
+            "t1": (
+                "Here you go:\n\n```python path=app/store.py\nVALUE = 1\n```\n\n"
+                "and the second file:\n\n```python path=app/api.py\nVALUE = 2\n```\n"
+            ),
+        }
+    )
+
+    assembled = await ArtifactAssembler().synthesize("goal", bb)
+
+    assert "VALUE = 1" in assembled
+    assert "VALUE = 2" in assembled
+    assert "and the second file" not in assembled
+    # The path metadata is the only thing saying which file is which — keep it.
+    assert "path=app/store.py" in assembled
+
+
+async def test_a_fence_tagged_with_punctuation_is_not_double_fenced() -> None:
+    """```jsx {1,3-4} matched NOTHING under the old pattern.
+
+    The content survived, via the unfenced fallback that wraps the whole artifact --
+    but that wrapped an already-fenced block in a SECOND fence. The outer fence then
+    closes on the inner block's closing backticks, so the boundary marking is exactly
+    what breaks, and file boundaries are the entire reason the fences are kept.
+    """
+    bb = _bb({"t1": "```jsx {1,3-4}\nconst a = 1;\n```\n"})
+
+    assembled = await ArtifactAssembler().synthesize("goal", bb)
+
+    assert "const a = 1;" in assembled
+    assert assembled.count("```") == 2, f"fence bersarang: {assembled!r}"
+    assert assembled.startswith("```jsx {1,3-4}")

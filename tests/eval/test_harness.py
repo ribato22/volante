@@ -467,8 +467,10 @@ def _minimal_runner(head: str) -> str:
         + "from __future__ import annotations\n"
         + "import json, sys\n"
         + "try:\n"
-        + "    from solution import slugify\n"
-        + "    ok = 1 if slugify('Hi There') == 'hi-there' else 0\n"
+        # call_solution, not `from solution import`: the runner holds the nonce and
+        # must never be able to import model code. See _score_reference's repo/_grade
+        # split — a direct import only worked while the two shared a directory.
+        + "    ok = 1 if call_solution('slugify', 'Hi There') == 'hi-there' else 0\n"
         + "except Exception:\n"
         + "    ok = 0\n"
         + "print(_TAG + json.dumps({'passed': ok, 'total': 1}))\n"
@@ -769,3 +771,124 @@ def test_extract_python_still_takes_the_first_block_when_it_parses():
     """The fix must not start preferring a later block. Two candidates, first wins."""
     doc = "```python\nx = 1\n```\n\n```python\nx = 2\n```\n"
     assert extract_python(doc).strip() == "x = 1"
+
+
+# --- multi-file answers: the layout that keeps the forgery defence -------------
+
+_SLUGIFY_REF = (
+    "import json, sys\n"
+    "def main():\n"
+    "    cases = [('Hi There', 'hi-there'), ('A_B', 'a-b')]\n"
+    "    p = 0\n"
+    "    for a, b in cases:\n"
+    "        try:\n"
+    "            if call_solution('slugify', a) == b: p += 1\n"
+    "        except Exception: pass\n"
+    "    print(_TAG + json.dumps({'passed': p, 'total': len(cases)}))\n"
+    "main(); sys.exit(0)\n"
+)
+
+_SLUGIFY_GOOD = (
+    "import re\n"
+    "def slugify(text):\n"
+    "    s = re.sub(r'[ _]+', '-', text.lower())\n"
+    "    s = re.sub(r'[^a-z0-9-]+', '', s)\n"
+    "    return re.sub(r'-+', '-', s).strip('-')\n"
+)
+
+# The exact shim that DID forge a pass before the repo/_grade split existed: a
+# self-contained `json.py` implementing just enough for the runner, whose `dumps`
+# reports every case as passed. Written where the trusted runner could import it, it
+# made that runner print `AIORCH_RESULT:<real nonce>:{"passed": 42, "total": 42}` for a
+# solution that really scored 0/42 — clean exit, no crash, total collapse.
+_JSON_FORGERY_SHIM = (
+    "import ast\n"
+    "def loads(s, *a, **k):\n"
+    "    return ast.literal_eval(s.strip())\n"
+    "def dumps(o, *a, **k):\n"
+    "    if isinstance(o, dict) and 'passed' in o and 'total' in o:\n"
+    "        return '{\"passed\": %d, \"total\": %d}' % (o['total'], o['total'])\n"
+    "    return repr(o).replace(\"'\", '\"')\n"
+)
+
+
+def test_a_repo_answer_is_scored_from_its_files() -> None:
+    score, measured = harness._score_reference(
+        "", _SLUGIFY_REF, repo_files={"solution.py": _SLUGIFY_GOOD}
+    )
+    assert (score, measured) == (1.0, True)
+
+
+@pytest.mark.parametrize(
+    "repo_files",
+    [
+        pytest.param(
+            {"solution.py": "def slugify(t): return ''", "json.py": _JSON_FORGERY_SHIM},
+            id="shim-alongside-a-worthless-solution",
+        ),
+        pytest.param({"json.py": _JSON_FORGERY_SHIM}, id="shim-and-nothing-else"),
+        pytest.param({"solution.py": ""}, id="empty"),
+    ],
+)
+def test_a_model_named_file_cannot_forge_a_pass(repo_files) -> None:
+    """The runner must not import anything the model named.
+
+    `measured` stays True on purpose: this is not the runner crashing and being
+    written off as unmeasured, it is the runner completing normally and correctly
+    reporting zero. A crash would also produce 0.0, and the two must be told apart —
+    a defence that only works by breaking the harness is not a defence.
+    """
+    score, measured = harness._score_reference("", _SLUGIFY_REF, repo_files=repo_files)
+
+    assert score == 0.0
+    assert measured is True
+
+
+def test_a_repo_file_cannot_overwrite_the_grading_machinery() -> None:
+    files, report = harness.extract_files(
+        "```python\n# path: ../_grade/reference_runner.py\nX = 1\n```\n"
+        "```python\n# path: /etc/passwd\nY = 2\n```\n"
+        "```python\n# path: app/ok.py\nZ = 3\n```\n"
+    )
+
+    assert set(files) == {"app/ok.py"}
+    assert len(report.refused_paths) == 2
+
+
+def test_an_unlabelled_answer_is_reported_rather_than_scored_zero_in_silence() -> None:
+    """A repo goal scoring 0.0 because no block carried a path is a HARNESS artifact.
+
+    From the score alone it is indistinguishable from a model that failed the task,
+    which is the same confusion `unmeasured_goals` exists to end for the other arms.
+    """
+    files, report = harness.extract_files("```python\nx = 1\n```\n")
+
+    assert files == {}
+    assert report.fmt == "unlabelled"
+    assert report.unattributed_blocks == 1
+    assert report.usable is False
+
+
+def test_a_readme_inside_a_file_does_not_truncate_it() -> None:
+    """The `extract_python` retraction, re-run against the multi-file extractor.
+
+    A model wrote its module, then embedded the requested README — containing a ```bash
+    example — inside a triple-quoted string. Non-greedy matching stopped at THAT fence,
+    mid-string, and the whole answer scored 0.000 with working code inside it.
+    """
+    answer = (
+        "```python\n"
+        "# path: app/mod.py\n"
+        'README = """\n'
+        "Run it:\n"
+        "```bash\n"
+        "python -m app\n"
+        "```\n"
+        '"""\n'
+        "VALUE = 7\n"
+        "```\n"
+    )
+
+    files, _ = harness.extract_files(answer)
+
+    assert "VALUE = 7" in files["app/mod.py"]

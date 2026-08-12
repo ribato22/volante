@@ -10,8 +10,9 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from eval.stats import PairedDelta, paired_delta
@@ -31,7 +32,7 @@ from volante.types import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from eval.tasks import EvalTask
+    from eval.tasks import EvalTask, RepoSpec
 
     from volante.providers.base import LLMProvider
     from volante.registry import Registry
@@ -96,8 +97,8 @@ _RESULT_PREAMBLE = (
     "        pass\n"
     "    _srv.terminate()\n"
     "_aat.register(_shutdown_srv)\n"
-    "def call_solution(_fn, *_args):\n"
-    "    _srv.stdin.write(_aj.dumps({'fn': _fn, 'args': list(_args)}) + '\\n')\n"
+    "def call_in(_mod, _fn, *_args):\n"
+    "    _srv.stdin.write(_aj.dumps({'mod': _mod, 'fn': _fn, 'args': list(_args)}) + '\\n')\n"
     "    _srv.stdin.flush()\n"
     "    _line = _srv.stdout.readline()\n"
     "    if not _line:\n"
@@ -106,6 +107,8 @@ _RESULT_PREAMBLE = (
     "    if not _r.get('ok'):\n"
     "        raise RuntimeError(_r.get('error', 'solution error'))\n"
     "    return _r['result']\n"
+    "def call_solution(_fn, *_args):\n"
+    "    return call_in('solution', _fn, *_args)\n"
 )
 
 
@@ -114,7 +117,13 @@ def _solution_server_src(cpu: int) -> str:
     solution. Baca `{"fn","args"}` per baris stdin -> `getattr(sol, fn)(*args)` ->
     tulis `{"ok",...}`. RLIMIT_CPU child-side (S2 parity). Tak pernah menerima nonce
     atau expected -> solusi tak bisa memalsukan LULUS (harus benar-benar menghitung).
-    `except BaseException` di import & call: SystemExit solusi tak membunuh server."""
+    `except BaseException` di import & call: SystemExit solusi tak membunuh server.
+
+    The repo lives in a SIBLING directory and is put on `sys.path` only after every name
+    this server needs is already bound. Reproduced before this was written: a model file
+    named `json.py` sitting where a trusted process imports it makes that process print
+    a nonce-tagged line claiming 42/42 against a real result of 0/42. Binding first means
+    a shadowing repo module can break the MODEL's own code and nothing else."""
     return "\n".join(
         [
             "import importlib, json, os, resource, sys",
@@ -128,14 +137,31 @@ def _solution_server_src(cpu: int) -> str:
             "_dn = os.open(os.devnull, os.O_WRONLY)",
             "os.dup2(_dn, 1)",
             "os.dup2(_dn, 2)",
-            "try:",
-            "    _sol = importlib.import_module('solution')",
-            "except BaseException:",
-            "    _sol = None",
-            "for _line in sys.stdin:",
+            # Same trick on fd 0: the RPC channel is a private dup, and fd 0 becomes
+            # devnull BEFORE any repo code runs. A module whose import calls input()
+            # would otherwise eat the next RPC request, or block forever holding the
+            # whole score hostage — recorded as a timeout, which reads as the model
+            # being slow rather than the harness handing it our request stream.
+            "_rin = os.fdopen(os.dup(0), 'r')",
+            "_dn0 = os.open(os.devnull, os.O_RDONLY)",
+            "os.dup2(_dn0, 0)",
+            # Every name above is bound BEFORE the repo can shadow it.
+            "sys.path.insert(0, os.path.join(os.pardir, 'repo'))",
+            "importlib.invalidate_caches()",
+            "_mods = {}",
+            "def _load(_name):",
+            "    if _name not in _mods:",
+            "        try:",
+            "            _mods[_name] = importlib.import_module(_name)",
+            "        except BaseException:",
+            "            _mods[_name] = None",
+            "    return _mods[_name]",
+            "_load('solution')",
+            "for _line in _rin:",
             "    try:",
             "        _req = json.loads(_line)",
-            "        _res = getattr(_sol, _req['fn'])(*_req['args'])",
+            "        _tgt = _load(_req.get('mod') or 'solution')",
+            "        _res = getattr(_tgt, _req['fn'])(*_req['args'])",
             "        _out = json.dumps({'ok': True, 'result': _res})",
             "    except BaseException as _e:",
             "        _out = json.dumps({'ok': False, 'error': str(_e)[:200]})",
@@ -197,6 +223,109 @@ _PY_FENCE_OPEN = re.compile(
 # Penutup harus di awal baris: ``` di tengah baris adalah bagian dari teks.
 _FENCE_CLOSE = re.compile(r"(?m)^[^\S\r\n]*" + _TRIPLE)
 _README_HEADING = re.compile(r"(?m)^#{1,6}\s+\S")
+
+# The path a multi-file answer declares, as the FIRST line inside the fence.
+#
+# Measured, and this is not a style choice: putting the path in the fence info string
+# (```python path=app/store.py) destroys both extractors. `_PY_FENCE_OPEN` stops
+# matching entirely, so `extract_python` returns the raw text WITH its backticks, and
+# `src/volante/assembler.py` paired the first block's closing fence with the second
+# block's opening fence and captured the PROSE between them — both files dropped, the
+# commentary kept. A first-line comment survives every extractor already in this repo
+# untouched, because it is ordinary Python.
+_PATH_COMMENT = re.compile(r"^[^\S\r\n]*#[^\S\r\n]*path[^\S\r\n]*:[^\S\r\n]*(\S+)[^\S\r\n]*$")
+
+_MAX_REPO_FILES = 24
+
+
+@dataclass(frozen=True)
+class LayoutReport:
+    """What the extractor could and could not attribute — never a silent 0.0.
+
+    A repo goal scored 0.0 because no block carried a path is a HARNESS artifact, not a
+    model that failed. The two are indistinguishable from the score alone, which is the
+    exact confusion `unmeasured_goals` was added to end for the single-file arms.
+    """
+
+    attributed: int
+    unattributed_blocks: int
+    refused_paths: tuple[str, ...]
+    fmt: str  # "labelled" | "unlabelled" | "empty"
+
+    @property
+    def usable(self) -> bool:
+        return self.attributed > 0
+
+
+def _safe_repo_path(raw: str) -> str | None:
+    """The declared path, or None when it must not be written.
+
+    Refuses anything that could escape the repo directory or land on the grading
+    machinery. Reproduced before this was written: a file the model names `json.py`,
+    written where the TRUSTED runner can import it, makes that runner print a
+    nonce-tagged line claiming 42/42 while the real result was 0/42 — total collapse of
+    the forgery defence. The structural fix is the repo/ vs _grade/ split; this is the
+    second lock, because one lock on a forgery defence is not enough.
+    """
+    path = raw.strip().strip("`'\"")
+    if not path or path.startswith(("/", "\\", "~")) or ":" in path:
+        return None
+    parts = PurePosixPath(path.replace("\\", "/")).parts
+    if any(p in ("..", ".", "") for p in parts):
+        return None
+    if any(c in path for c in "\x00\n\r"):
+        return None
+    return "/".join(parts)
+
+
+def extract_files(text_in: str) -> tuple[dict[str, str], LayoutReport]:
+    """Every fenced block that declares `# path: <p>` on its first line.
+
+    Reuses `extract_python`'s closing-fence choice per block: the close is the one whose
+    body PARSES, not the first one seen, because a model that embeds a README containing
+    ```bash inside a triple-quoted string otherwise truncates its own file mid-string.
+    That bug scored a working answer 0.000 and is the reason `extract_python` looks the
+    way it does; a second extractor that forgot it would reintroduce it.
+    """
+    files: dict[str, str] = {}
+    refused: list[str] = []
+    unattributed = 0
+    pos = 0
+    while (m := _PY_FENCE_OPEN.search(text_in, pos)) is not None:
+        body = text_in[m.end() :]
+        first: str | None = None
+        chosen: str | None = None
+        end = len(text_in)
+        for close in _FENCE_CLOSE.finditer(body):
+            candidate = body[: close.start()]
+            if first is None:
+                first, end = candidate, m.end() + close.end()
+            try:
+                ast.parse(candidate)
+            except SyntaxError:
+                continue
+            chosen, end = candidate, m.end() + close.end()
+            break
+        block = chosen if chosen is not None else first
+        if block is None:
+            break
+        pos = end
+        head = block.split("\n", 1)[0]
+        pm = _PATH_COMMENT.match(head)
+        if pm is None:
+            unattributed += 1
+            continue
+        safe = _safe_repo_path(pm.group(1))
+        if safe is None:
+            refused.append(pm.group(1).strip())
+            continue
+        if len(files) >= _MAX_REPO_FILES and safe not in files:
+            refused.append(pm.group(1).strip())
+            continue
+        # Later block wins: a model that revises a file mid-answer means the revision.
+        files[safe] = block
+    fmt = "labelled" if files else ("unlabelled" if unattributed else "empty")
+    return files, LayoutReport(len(files), unattributed, tuple(refused), fmt)
 
 
 @dataclass
@@ -261,7 +390,11 @@ def score_code(model_output: str, reference_test: str) -> float:
     return _score_reference(model_output, reference_test)[0]
 
 
-def _score_reference(model_output: str, reference_test: str) -> tuple[float, bool]:
+def _score_reference(
+    model_output: str,
+    reference_test: str,
+    repo_files: Mapping[str, str] | None = None,
+) -> tuple[float, bool]:
     """Ekstrak kode, jalankan runner referensi di subprocess terisolasi. Kembalikan
     (skor, measured): `measured=True` HANYA bila runner mengemit baris hasil
     ber-nonce tepercaya; `measured=False` = tak terukur (timeout/crash/runner rusak)
@@ -283,9 +416,23 @@ def _score_reference(model_output: str, reference_test: str) -> tuple[float, boo
     tag = f"AIORCH_RESULT:{nonce}:"
     runner_src = _inject_preamble(reference_test, _RESULT_PREAMBLE)
     with tempfile.TemporaryDirectory() as tmp:
-        Path(tmp, "solution.py").write_text(code, encoding="utf-8")
-        Path(tmp, "reference_runner.py").write_text(runner_src, encoding="utf-8")
-        Path(tmp, "_solution_server.py").write_text(
+        # TWO directories, and the split IS the forgery defence. The runner holds the
+        # nonce and runs with cwd=_grade, whose contents this harness alone writes, so
+        # `sys.path[0]` never contains a file the model named. Everything the model
+        # produced lives in repo/, reachable only by the server, and only after the
+        # server has bound its own imports. Verified end to end: with the two merged, a
+        # model file called `json.py` made the trusted runner print a nonce-tagged
+        # 42/42 for a solution that really scored 0/42.
+        grade = Path(tmp, "_grade")
+        repo = Path(tmp, "repo")
+        grade.mkdir()
+        repo.mkdir()
+        for rel, body in (repo_files or {"solution.py": code}).items():
+            target = repo / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(body, encoding="utf-8")
+        Path(grade, "reference_runner.py").write_text(runner_src, encoding="utf-8")
+        Path(grade, "_solution_server.py").write_text(
             _solution_server_src(SCORE_CPU_S), encoding="utf-8"
         )
         # Popen (bukan subprocess.run): agar timeout bisa killpg SELURUH grup.
@@ -293,7 +440,7 @@ def _score_reference(model_output: str, reference_test: str) -> tuple[float, boo
         # bisa MENGGANTUNG bila anak fork masih memegang pipe stdout.
         proc = subprocess.Popen(
             [sys.executable, "-c", _SCORE_WRAPPER, str(SCORE_CPU_S), "reference_runner.py"],
-            cwd=tmp,
+            cwd=str(grade),
             env=_clean_env(),
             stdin=subprocess.PIPE,  # kanal nonce (dikonsumsi preamble sebelum solusi)
             stdout=subprocess.PIPE,
@@ -393,20 +540,54 @@ def score_for_calibration(task, output: str) -> float | None:
     return score_text(output, task.checks)
 
 
-def score_task(output: str, reference_test: str) -> dict[str, float]:
+def repo_files_for(output: str, repo: RepoSpec | None) -> dict[str, str] | None:
+    """The tree to grade: the starting repo with the model's files laid over it.
+
+    Returns None for a single-file goal, which keeps the legacy path byte-identical.
+
+    The starting files are written FIRST and the model's on top, so a model that
+    rewrites `pricing.py` replaces it and a model that never mentions it still gets the
+    original — which is what makes "did you break something you were not asked to
+    touch" a gradeable question at all.
+    """
+    if repo is None:
+        return None
+    files = dict(repo.starting_files)
+    written, _report = extract_files(output)
+    files.update(written)
+    # Probes last, unconditionally. A model that writes a file with the probe's name
+    # would otherwise replace the module that grades it — the same class of hole as
+    # naming a file `json.py`, one layer up.
+    files.update(dict(repo.probe_files))
+    return files
+
+
+def score_task(
+    output: str, reference_test: str, repo: RepoSpec | None = None
+) -> dict[str, float]:
     """Skor komposit berbobot: code .7 / has_tests .15 / has_readme .15.
 
     `reference_test` diteruskan apa adanya ke score_code (runner per-goal). Key
     non-numerik `measured` (bool) ikut dibawa untuk sinyal H2; mean_scores
-    mengabaikannya saat merata-rata."""
-    code, measured = _score_reference(output, reference_test)
+    mengabaikannya saat merata-rata.
+
+    A REPO goal scores on code alone. Its prompt states the existing project already
+    has tests and a README, so every competent model emits both and the two flags
+    become constants worth 0.30 — a floor under an answer that changed nothing, which
+    is precisely the free-point rule this suite exists to respect. They are still
+    reported, because a flag that stopped being scored should not also stop being
+    visible."""
+    repo_files = repo_files_for(output, repo)
+    code, measured = _score_reference(output, reference_test, repo_files)
     has_tests = 1.0 if "def test_" in output else 0.0
     has_readme = (
         1.0
         if ("readme" in output.lower() or _README_HEADING.search(output))
         else 0.0
     )
-    composite = 0.7 * code + 0.15 * has_tests + 0.15 * has_readme
+    composite = (
+        code if repo is not None else 0.7 * code + 0.15 * has_tests + 0.15 * has_readme
+    )
     return {
         "code": code,
         "has_tests": has_tests,
@@ -455,6 +636,72 @@ _AGENTIC_SUFFIX = (
     "When done, briefly summarize."
 )
 
+# A repo goal must NOT be told to write `solution.py`: the project already has its own
+# filenames and two of this suite's criteria are about editing the right files. The
+# working copy is seeded on disk, so the instruction is to edit it in place — and the
+# read-back collects the whole tree instead of one hardcoded name.
+_AGENTIC_REPO_SUFFIX = (
+    "\n\nThe project files above are already in your current working directory. Edit "
+    "them in place — keep the existing filenames. `run_python` shares that directory, "
+    "so you change a file by opening it and writing to it from the code you run, and "
+    "the change persists into your next call. The sandbox has the standard library and "
+    "nothing else: no pytest, no network, no installing anything. Check your work by "
+    "importing the modules and asserting on what they return. When done, briefly "
+    "summarize."
+)
+
+# Read back at most this many source files from an agentic workspace. A tree is the
+# model's to shape, but the number of files it may hand back is not unbounded.
+_MAX_WORKSPACE_FILES = 24
+
+# Written by RunPythonTool, not by the model as part of its answer.
+_SANDBOX_SCRATCH = frozenset({"_snippet.py"})
+
+
+class _Recording:
+    """A tool that notes it was called, then delegates untouched."""
+
+    def __init__(self, inner: Any, log: list[str]) -> None:
+        self._inner = inner
+        self._log = log
+        self.name = inner.name
+        self.spec = inner.spec
+
+    async def run(self, *args: Any, **kwargs: Any) -> Any:
+        self._log.append(self.name)
+        return await self._inner.run(*args, **kwargs)
+
+
+def _collect_workspace_repo(ws: Path) -> dict[str, str]:
+    """Every source file the workspace holds, keyed by path relative to it.
+
+    The seeded files are here too, so a model that edited two of four still yields the
+    whole working tree — which is what makes "you broke the file you did not touch"
+    a question with an answer.
+
+    Test modules are skipped: they are the model's scratch work, they are already
+    scored by `_scan_workspace`, and a `test_*.py` that imports pytest would be one
+    more way for a graded import to fail for a reason that is not the model's code.
+    """
+    found: dict[str, str] = {}
+    for path in sorted(ws.rglob("*.py")):
+        rel = path.relative_to(ws).as_posix()
+        name = path.name.lower()
+        if name.startswith("test_") or name.endswith("_test.py"):
+            continue
+        # `_snippet.py` is the SANDBOX's scratch file — `run_python` writes the model's
+        # code there to execute it. Sweeping it into the graded tree puts harness
+        # machinery inside the repo under test, which is the same class of mistake the
+        # repo/_grade split exists to prevent, one layer further out.
+        if rel in _SANDBOX_SCRATCH:
+            continue
+        if len(found) >= _MAX_WORKSPACE_FILES:
+            break
+        body = read_model_file(path, max_bytes=_MAX_ARTIFACT_BYTES)
+        if body is not None:
+            found[rel] = body
+    return found
+
 
 @dataclass
 class AgenticArmResult:
@@ -471,12 +718,17 @@ class AgenticArmResult:
     # Tool names the loop actually invoked. Empty means the model answered without
     # touching a tool — legitimate here, but worth seeing next to the score.
     tools_used: tuple[str, ...] = ()
+    # The working tree read back from the workspace, for a repo goal. None for a
+    # single-file goal, where `solution_code` is the whole answer.
+    repo_files: dict[str, str] | None = None
 
 
 def _scan_workspace(ws: Path) -> tuple[bool, bool]:
     has_tests = False
     has_readme = False
-    for p in ws.iterdir():
+    # Recursive: a repo goal hands the model a tree, and a model that puts its tests in
+    # `tests/` — the ordinary place for them — was being marked as having written none.
+    for p in ws.rglob("*"):
         name = p.name.lower()
         # `is_file()` + `read_text()` FOLLOW symlinks, and this workspace is the
         # sandbox bind mount — the model can name any host file `test_x.py` and be
@@ -492,10 +744,19 @@ def _scan_workspace(ws: Path) -> tuple[bool, bool]:
 
 
 async def run_agentic_single(
-    goal: str, provider: LLMProvider, model_id: str, registry: Registry
+    goal: str,
+    provider: LLMProvider,
+    model_id: str,
+    registry: Registry,
+    repo: RepoSpec | None = None,
 ) -> AgenticArmResult:
     """Arm agentic-single: 1 model + loop run_python, TANPA dekomposisi. Model diminta
-    menulis solution.py + tests + README di workspace; skor diambil dari file itu."""
+    menulis solution.py + tests + README di workspace; skor diambil dari file itu.
+
+    For a repo goal the workspace is SEEDED with the starting tree and the model edits
+    it in place. Without that this arm was structurally unable to attempt such a goal:
+    it was ordered to write `solution.py`, and only `solution.py` was ever read back,
+    so any cross-arm number would have recorded a harness limit as a capability gap."""
     meter = CostMeter()
     # 16 was tried and measured worse than 8 (failures 35% -> 53%); the engine default
     # is the honest choice here, so the arm reports what a user would actually get.
@@ -505,9 +766,20 @@ async def run_agentic_single(
     error: str | None = None
     with tempfile.TemporaryDirectory() as tmp:
         ws = Path(tmp)
-        tools = {"run_python": RunPythonTool(sandbox_for(ws))}
+        if repo is not None:
+            for rel, body in repo.starting_files:
+                target = ws / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(body, encoding="utf-8")
+        # Record tool use OUTSIDE the worker. On the exhausted-loop path the worker
+        # raises and its own record is lost, so `tools_used` came back empty for a run
+        # that had made thirteen tool calls. That is a harness that lies precisely when
+        # something has gone wrong, which is when it is being read.
+        invoked: list[str] = []
+        tools = {"run_python": _Recording(RunPythonTool(sandbox_for(ws)), invoked)}
+        suffix = _AGENTIC_SUFFIX if repo is None else _AGENTIC_REPO_SUFFIX
         req = CanonicalRequest(
-            messages=[text("user", goal + _AGENTIC_SUFFIX)],
+            messages=[text("user", goal + suffix)],
             max_tokens=mi.max_output_tokens,
             temperature=EVAL_TEMPERATURE,
             run_id="agentic",
@@ -521,24 +793,33 @@ async def run_agentic_single(
             res = await worker.run(req, model_id, tools, required_tools=frozenset())
             final_text = res.final_text
             usage_total = res.usage_total
-            tools_used = res.tools_used
+            tools_used = res.tools_used or tuple(dict.fromkeys(invoked))
         except (ProviderError, CapabilityUnavailableError) as exc:
             # Jangan telan diam-diam: catat sebab. Solusi di disk (bila model sempat
             # menulisnya sebelum gagal) tetap dinilai; kalau tak ada, error yang
             # disurface membedakan kegagalan arm dari solusi 0.0 sungguhan.
             final_text = ""
             usage_total = meter.totals()
-            tools_used = ()
+            tools_used = tuple(dict.fromkeys(invoked))
             error = f"{type(exc).__name__}: {exc}"
-        solution_code = read_model_file(
-            ws / "solution.py", max_bytes=_MAX_ARTIFACT_BYTES
-        )
-        if solution_code is None:
-            solution_code = extract_python(final_text)
+        repo_files: dict[str, str] | None = None
+        if repo is not None:
+            repo_files = _collect_workspace_repo(ws)
+            # The final message is the fallback for a model that answered in chat
+            # rather than on disk. Laid UNDER the workspace, so a file it actually
+            # wrote always wins over a copy it pasted into its summary.
+            spoken, _report = extract_files(final_text)
+            repo_files = {**spoken, **repo_files}
+            solution_code = ""
+        else:
+            solution_code = read_model_file(
+                ws / "solution.py", max_bytes=_MAX_ARTIFACT_BYTES
+            ) or extract_python(final_text)
         has_tests, has_readme = _scan_workspace(ws)
     duration_ms = int((time.perf_counter() - start) * 1000)
     return AgenticArmResult(
         solution_code=solution_code,
+        repo_files=repo_files,
         has_tests=has_tests,
         has_readme=has_readme,
         usage_total=usage_total,
@@ -549,17 +830,31 @@ async def run_agentic_single(
     )
 
 
-def score_agentic(res: AgenticArmResult, reference_test: str) -> dict[str, float]:
+def score_agentic(
+    res: AgenticArmResult, reference_test: str, repo: RepoSpec | None = None
+) -> dict[str, float]:
     """Skor komposit arm agentic dari workspace (analog score_task, file-aware).
-    Membawa `measured` (bool) untuk sinyal H2, seperti score_task."""
-    code, measured = _score_reference(res.solution_code, reference_test)
+    Membawa `measured` (bool) untuk sinyal H2, seperti score_task.
+
+    A repo goal is graded from the working TREE the arm left behind, with the probes
+    laid over it — the same rule `repo_files_for` applies to the other arms, so the
+    three are scored by one standard and not three."""
+    if repo is not None:
+        files = {**dict(repo.starting_files), **(res.repo_files or {})}
+        files.update(dict(repo.probe_files))
+        code, measured = _score_reference("", reference_test, files)
+    else:
+        code, measured = _score_reference(res.solution_code, reference_test)
     ht = 1.0 if res.has_tests else 0.0
     hr = 1.0 if res.has_readme else 0.0
     return {
         "code": code,
         "has_tests": ht,
         "has_readme": hr,
-        "composite": 0.7 * code + 0.15 * ht + 0.15 * hr,
+        # Code alone for a repo goal, exactly as in `score_task`. Weighting the two
+        # flags here would put a 0.30 floor under an agentic run that changed nothing,
+        # and would do it for ONE arm — a scale that differs by arm cannot compare arms.
+        "composite": code if repo is not None else 0.7 * code + 0.15 * ht + 0.15 * hr,
         "measured": measured,
     }
 
@@ -714,14 +1009,14 @@ async def run_suite(
             b_run = await run_baseline(t.goal, baseline_provider, model_id, registry)
             o_run = await run_orchestration(t.goal, make_runtime())
             a_run = await run_agentic_single(
-                t.goal, baseline_provider, model_id, registry
+                t.goal, baseline_provider, model_id, registry, t.repo
             )
             b_runs.append(b_run)
             o_runs.append(o_run)
             a_runs.append(a_run)
-            b_scores.append(score_task(b_run.output, t.reference_test))
-            o_scores.append(score_task(o_run.final or "", t.reference_test))
-            a_scores.append(score_agentic(a_run, t.reference_test))
+            b_scores.append(score_task(b_run.output, t.reference_test, t.repo))
+            o_scores.append(score_task(o_run.final or "", t.reference_test, t.repo))
+            a_scores.append(score_agentic(a_run, t.reference_test, t.repo))
             if a_run.error is not None:
                 a_errors.append(a_run.error)
         # The per-iteration composites, kept rather than averaged away: baseline,

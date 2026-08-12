@@ -750,3 +750,195 @@ PER TASK TYPE and says to pick the row matching the work you actually run:
 The `research` and `write` rows are flat, which is the table admitting those goals do
 not separate these models — the same limit recorded above, now visible where a user
 makes the decision rather than buried in an artifact.
+
+
+## Does orchestration pay on WIDE repo work? (2026-08-05)
+
+`results-wide-k3.json` — six wide goals, three arms, k=3, `--synthesis assemble`,
+planner and baseline `openai-compat/openai/gpt-4o-mini`.
+
+A wide goal is one change that must land in SIX files whose parts are independent:
+different files, no ordering, no shared reasoning. Six parallel workers could each own
+one. It is the only shape where decomposition has a structural case at all — a
+sequential change has nothing to split, so asking the question there has a fixed answer
+before the measurement.
+
+| goal | baseline | orchestration | agentic |
+|---|---|---|---|
+| `recordkit_field` | 0.00 | **1.00** | 0.00 |
+| `httpkit_method` | 0.44 | **0.55** | 0.00 |
+| `unitkit_unit` | **0.89** | 0.61 | 0.00 |
+| `authkit_role` | 1.00 | 1.00 | 0.00 |
+| `feedkit_source` | 0.00 | **0.56** | 0.00 |
+| `gradekit_kind` | **1.00** | 0.88 | 0.00 |
+
+    orchestration - baseline: +0.211  [95% CI -0.293, +0.715]  n=6 GOALS
+    the interval INCLUDES zero. Smallest effect six goals could have detected: ±0.684
+    cost: baseline $0.0192, orchestration $0.1852 — 9.6x
+
+**Three wins each, and the interval includes zero. Orchestration is not demonstrated
+to help, on the shape built to favour it, at nearly ten times the price.**
+
+What the per-goal table shows is sharper than the mean. Orchestration wins exactly
+where the baseline scores ZERO (recordkit 0.00 → 1.00, feedkit 0.00 → 0.56) and loses
+where the baseline is already good (unitkit 0.89 → 0.61, gradekit 1.00 → 0.88). It is
+not better thinking; it is a different failure profile.
+
+### It is not a token budget, and that matters
+
+The obvious reading of "the single call scores 0.00 on a six-file change" is
+truncation, which would have a much cheaper fix than orchestration: raise `max_tokens`,
+or loop a continuation. Measured directly, that reading is WRONG.
+
+    recordkit_field  stop='end_turn'   733 output tokens
+    feedkit_source   stop='end_turn'   861 output tokens
+    unitkit_unit     stop='end_turn'  2013 output tokens
+
+Every one stopped VOLUNTARILY, far under an 8000-token ceiling. The model was not cut
+off. It emitted files that keep the function it edited and silently drop the rest —
+`parse.py` without `parse`, `render.py` without `table` — and considered the answer
+complete. Raising the budget cannot fix a model that already thinks it has finished.
+
+**CORRECTION, and it is mine.** The sentence that stood here said the mechanism was
+"a worker asked for ONE file emits that file whole." That is WRONG, and diagnosing the
+goals orchestration LOST is what showed it. On `gradekit_kind` the orchestrated answer
+produced all six files, every one correctly labelled, and dropped every function in
+five of them — `weights.py` without `weight_of` or `weighted_total`, `transcript.py`
+without `render`, `row`, `header`, `_mark` or `_cell`. It scored 0.0096.
+
+Both arms truncate. Orchestration truncates less often, and that difference is the
+whole of the +0.211. It is not a different capability and not a different budget.
+
+### One sentence removes the failure, and it costs 1.4x rather than 9.6x
+
+If the failure is an ambiguity about what "give me the file" means, saying what
+complete means should fix it without any orchestration at all. Measured, k=3, one
+sentence appended to the plain single-call prompt:
+
+    each block must be the file's COMPLETE current contents — every function and
+    constant it has now, including the ones you did not change. A file that keeps only
+    the part you edited is not a smaller answer, it is a broken module.
+
+| goal | plain | + one sentence | functions lost, plain -> nudged |
+|---|---|---|---|
+| `recordkit_field` | 0.028 | **1.000** | 5, 13, 13 -> 0, 0, 0 |
+| `feedkit_source` | 0.000 | **0.842** | 6, 8, 8 -> 0, 0, 0 |
+| `unitkit_unit` | 0.752 | 0.819 | 0, 1, 1 -> 0, 0, 0 |
+| `httpkit_method` | 0.440 | 0.547 | 0, 0, 0 -> 0, 0, 0 |
+
+Output grew from ~805 to ~1227 tokens on the goals that were failing — about 1.4x,
+against orchestration's 9.6x.
+
+**The score interval does not carry this claim and is not offered as if it did.** Over
+four goals the difference is +0.497 [-0.261, +1.255], which includes zero, as does
+every comparison at this sample size. What carries it is the MECHANISM: functions lost
+went 5-13 to zero, on every run of every goal, with no overlap between the two
+conditions. That is a direct observation, not a noisy mean.
+
+The same sentence is now in Volante's own worker prompt (`src/volante/projector.py`),
+conditional on the task changing a file that already exists so it binds nothing for a
+task producing prose. Re-measured after the change, twice each:
+
+    gradekit_kind    0.0096 -> 0.8125     0 functions lost
+    recordkit_field  1.0000 -> 1.0000     0 functions lost
+
+`gradekit` still scores below its baseline of 1.00, so orchestration's loss there is
+NOT only truncation — the remaining gap is something else and is not yet explained.
+
+### The agentic arm scored 0.00 on all eighteen runs
+
+Four ended in a terminal error. The rest are the same escaping loop recorded above:
+the model writes files with a triple-quoted `f.write(...)`, a body containing a join
+on a newline breaks the inner string, and it rewrites the same broken file until the
+loop is exhausted. Twenty iterations did not help. Do not read its zeros as capability.
+
+### One row from the first run of this suite is WITHDRAWN
+
+The first pass reported `httpkit_method  agentic  BASE 0.00  ORCH 0.00  AGEN 0.27`,
+which reads as "the agentic arm beats both others here". httpkit's prompt never stated
+the answer format, so every arm answering in TEXT emitted unlabelled fences and scored
+zero, while the agentic arm — which writes to disk and needs no format — kept its
+partial credit. A harness artifact wearing a capability result. It is now the fifth
+check in `eval/repo_goal.py`, and no gate check that existed at the time could see it.
+
+### Limits, stated rather than buried
+
+**All six goals are ONE archetype** — "add one item to N per-item tables." Six
+instances of one shape are not six independent samples of repo work, so the interval
+above is narrower than it looks, and a result across all six would support
+"orchestration helps on wide pattern-completion in a six-file stdlib repo" rather than
+"orchestration helps."
+
+**Six goals is still too few.** Going from three to six moved the interval from
+[-1.101, +1.768] to [-0.293, +0.715] — real progress, and still not enough to exclude
+zero at an effect this size. The smallest effect six goals can detect is ±0.684, and
+the measured difference is +0.211.
+
+**Raising k will not help.** Within-goal spread is small and the interval is driven
+almost entirely by between-goal variance. More runs of the same six goals buy nothing.
+
+
+## The wide-goal result, once both arms read the same instruction (2026-08-05)
+
+`results-wide-fair.json` — the same six wide goals, three arms, k=3, re-run after the
+completeness sentence was added to the goal text every arm sees.
+
+**This supersedes `results-wide-k3.json`, and the +0.211 reported there is withdrawn.**
+That run compared a single call given a weak instruction against orchestration given a
+better one. The difference it measured was the instruction.
+
+| goal | baseline | orchestration | baseline before the instruction |
+|---|---|---|---|
+| `recordkit_field` | **1.00** | 1.00 | 0.00 |
+| `httpkit_method` | 0.44 | 0.44 | 0.44 |
+| `unitkit_unit` | **0.89** | 0.87 | 0.89 |
+| `authkit_role` | 1.00 | 1.00 | 1.00 |
+| `feedkit_source` | **0.84** | 0.84 | 0.00 |
+| `gradekit_kind` | **1.00** | 0.81 | 1.00 |
+
+    orchestration - baseline: -0.034  [95% CI -0.113, +0.045]  n=6 GOALS
+    smallest effect six goals could have detected: ±0.107
+    cost: baseline $0.0218, orchestration $0.1994 — 9.2x
+
+    baseline wins 6, orchestration 0.
+
+**On wide repo work — the shape built specifically to favour decomposition —
+orchestration provides no measurable benefit over a single call, at 9.2x the price.**
+
+Note what the interval is doing here, because it is not the usual complaint. Earlier
+comparisons were inconclusive because they were underpowered: an interval of
+[-0.293, +0.715] cannot rule anything out. This one is [-0.113, +0.045] against a
+detectable effect of ±0.107. It is a NARROW null, not an absent measurement.
+
+### Where the apparent advantage went
+
+The last column is the whole story. Adding one sentence to the prompt moved the single
+call from 0.00 to 1.00 on `recordkit` and from 0.00 to 0.84 on `feedkit`, and changed
+nothing on the four goals it was already handling. Those two goals were the entire
++0.211 orchestration was credited with.
+
+The sentence names the specific failure rather than restating the requirement:
+
+    Each block must be that file's COMPLETE current contents — every function and
+    constant it has now, including the ones you did not touch. A file reduced to the
+    part you changed is not a shorter answer, it is a broken file.
+
+The prompt already said "the complete contents of every file you changed" and models
+truncated anyway, dropping 5 to 13 functions per answer while stopping voluntarily at
+`end_turn` with 6000 tokens of headroom left. They were not short of room and not short
+of ability. "Give me the file" was ambiguous and they resolved it the cheap way.
+
+**So the honest conclusion for the engine is narrow and it is negative.** On this
+suite, the value orchestration appeared to add over a single call was the value of a
+better instruction, available at about 1.4x the output tokens instead of 9.2x the cost.
+
+### What this does NOT say
+
+It does not say decomposition never helps. It says that on SIX goals of ONE archetype —
+"add one item to N per-item tables", stdlib-only, six files, everything visible in the
+prompt — a single well-instructed call matches a planned, routed, multi-worker run.
+Goals with genuine cross-file reasoning, a repo too large to show, or work needing
+tools are all outside what was measured.
+
+It also does not excuse the agentic arm, which scored 0.00 on all eighteen runs with
+ten terminal errors — the escaping loop documented above, unchanged.

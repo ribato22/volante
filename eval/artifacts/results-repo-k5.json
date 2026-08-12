@@ -1,0 +1,307 @@
+{
+  "generated_at": "2026-08-05T05:26:15+00:00",
+  "inventory": [
+    "openai/gpt-4o-mini"
+  ],
+  "k": 5,
+  "planner_model_id": "openai/gpt-4o-mini",
+  "result": {
+    "aggregate": {
+      "agentic_errors": 5,
+      "any_estimated": false,
+      "cost_total": {
+        "agentic": 0.07032645,
+        "baseline": 0.010335599999999999,
+        "orchestration": 0.06453914999999999
+      },
+      "ties": 0,
+      "unmeasured_goals": [],
+      "verdict": "baseline",
+      "wins": {
+        "agentic": 0,
+        "baseline": 2,
+        "orchestration": 1
+      }
+    },
+    "per_goal": [
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.0,
+            "cost": 0.012388799999999998,
+            "error_sample": null,
+            "errors": 0,
+            "estimated": false,
+            "measured": true,
+            "ms": 31516
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.0026905499999999995,
+            "estimated": false,
+            "measured": true,
+            "ms": 6764
+          },
+          "orchestration": {
+            "composite": 1.0,
+            "cost": 0.017686349999999997,
+            "estimated": false,
+            "measured": true,
+            "ms": 42907
+          }
+        },
+        "deltas": {
+          "agentic_vs_baseline": {
+            "ci_high": -1.0,
+            "ci_low": -1.0,
+            "detectable": 0.0,
+            "mean": -1.0,
+            "n": 5,
+            "significant": true
+          },
+          "orchestration_vs_baseline": {
+            "ci_high": 0.0,
+            "ci_low": 0.0,
+            "detectable": 0.0,
+            "mean": 0.0,
+            "n": 5,
+            "significant": false
+          }
+        },
+        "id": "shopcart_shipping",
+        "scores": {
+          "agentic": {
+            "code": 0.0,
+            "composite": 0.0,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 0.0
+          },
+          "orchestration": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 0.0
+          }
+        },
+        "series": {
+          "agentic": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "baseline": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "orchestration": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.0,
+            "cost": 0.03571905,
+            "error_sample": "ProviderError: agentic loop exhausted after 8 iters",
+            "errors": 5,
+            "estimated": false,
+            "measured": true,
+            "ms": 63904
+          },
+          "baseline": {
+            "composite": 1.0,
+            "cost": 0.004404749999999999,
+            "estimated": false,
+            "measured": true,
+            "ms": 12002
+          },
+          "orchestration": {
+            "composite": 1.0,
+            "cost": 0.025195049999999997,
+            "estimated": false,
+            "measured": true,
+            "ms": 51572
+          }
+        },
+        "deltas": {
+          "agentic_vs_baseline": {
+            "ci_high": -1.0,
+            "ci_low": -1.0,
+            "detectable": 0.0,
+            "mean": -1.0,
+            "n": 5,
+            "significant": true
+          },
+          "orchestration_vs_baseline": {
+            "ci_high": 0.0,
+            "ci_low": 0.0,
+            "detectable": 0.0,
+            "mean": 0.0,
+            "n": 5,
+            "significant": false
+          }
+        },
+        "id": "deployctl_layers",
+        "scores": {
+          "agentic": {
+            "code": 0.0,
+            "composite": 0.0,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 0.0
+          },
+          "orchestration": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 0.0
+          }
+        },
+        "series": {
+          "agentic": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "baseline": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "orchestration": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "winner": "baseline"
+      },
+      {
+        "arms": {
+          "agentic": {
+            "composite": 0.0,
+            "cost": 0.022218599999999998,
+            "error_sample": null,
+            "errors": 0,
+            "estimated": false,
+            "measured": true,
+            "ms": 51628
+          },
+          "baseline": {
+            "composite": 0.0,
+            "cost": 0.0032402999999999998,
+            "estimated": false,
+            "measured": true,
+            "ms": 9212
+          },
+          "orchestration": {
+            "composite": 1.0,
+            "cost": 0.02165775,
+            "estimated": false,
+            "measured": true,
+            "ms": 48939
+          }
+        },
+        "deltas": {
+          "agentic_vs_baseline": {
+            "ci_high": 0.0,
+            "ci_low": 0.0,
+            "detectable": 0.0,
+            "mean": 0.0,
+            "n": 5,
+            "significant": false
+          },
+          "orchestration_vs_baseline": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "detectable": 0.0,
+            "mean": 1.0,
+            "n": 5,
+            "significant": true
+          }
+        },
+        "id": "recordkit_field",
+        "scores": {
+          "agentic": {
+            "code": 0.0,
+            "composite": 0.0,
+            "has_readme": 0.0,
+            "has_tests": 0.0
+          },
+          "baseline": {
+            "code": 0.0,
+            "composite": 0.0,
+            "has_readme": 1.0,
+            "has_tests": 0.0
+          },
+          "orchestration": {
+            "code": 1.0,
+            "composite": 1.0,
+            "has_readme": 1.0,
+            "has_tests": 0.0
+          }
+        },
+        "series": {
+          "agentic": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "baseline": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "orchestration": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "winner": "orchestration"
+      }
+    ]
+  },
+  "suite": [
+    "shopcart_shipping",
+    "deployctl_layers",
+    "recordkit_field"
+  ],
+  "suite_name": "repo",
+  "synthesis": "assemble",
+  "volante_version": "0.9.0"
+}

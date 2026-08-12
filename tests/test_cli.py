@@ -329,6 +329,9 @@ class _StubRuntime:
         self.registry = Registry([])
         self.cost_meter = object()
         self.call_timeout = 120.0
+        # --verify is off by default; the direct branch reads this before wiring
+        # the runtime's detector into the one-call path.
+        self.verify_answer = False
 
     async def aexecute(self, goal, on_text=None, on_worker_text=None):
         self.calls += 1
@@ -517,6 +520,30 @@ def test_summary_json_exposes_the_estimate_flag() -> None:
     plain = json.loads(cli._summary_json(_result(estimated=False), registry))
     assert marked["cost_estimated"] is True
     assert plain["cost_estimated"] is False
+
+
+def test_summary_json_does_not_drop_the_checks() -> None:
+    """--json is machine mode; the checks report must survive the round-trip the
+    way the human summary does, or a JSON consumer cannot tell a verified answer
+    from an unverified one."""
+    from volante.verify import CheckReport
+
+    registry = _card_registry()
+    base = _result(estimated=False)
+    bare = json.loads(cli._summary_json(base, registry))
+    assert bare["checks"] is None
+
+    checked = _result(estimated=False)
+    checked.checks = CheckReport(total=4, failed=[("x", "boom")])
+    payload = json.loads(cli._summary_json(checked, registry))
+    assert payload["checks"] == {
+        "ran": True,
+        "total": 4,
+        "failed": [["x", "boom"]],
+        "error": None,
+        "all_passed": False,
+        "summary": "3/4 derived checks passed",
+    }
 
 
 def test_usage_listing_marks_estimated_rows_and_totals(

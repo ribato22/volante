@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import sys
+from typing import Any
 
 from volante import __version__
 from volante.bootstrap import (
@@ -174,7 +175,7 @@ def _unpriced_models(result: RunResult, registry: Registry) -> list[str]:
             continue
         try:
             info = registry.get(model_id)
-        except Exception:  # noqa: BLE001 - an unknown model cannot be priced either
+        except ValueError:  # Registry.get raises on unknown model_id
             continue
         if info.cost_per_1k_in == 0.0 and info.cost_per_1k_out == 0.0:
             unpriced.append(model_id)
@@ -270,6 +271,7 @@ def _summary_lines(result: RunResult, registry: Registry) -> list[str]:
 
 
 def _summary_json(result: RunResult, registry: Registry) -> str:
+    checks = getattr(result, "checks", None)
     return json.dumps(
         {
             "status": result.status,
@@ -286,6 +288,18 @@ def _summary_json(result: RunResult, registry: Registry) -> str:
             "error_code": result.error_code,
             "error_message": result.error_message,
             "routing_decisions": result.routing_decisions,
+            "checks": (
+                {
+                    "ran": checks.ran,
+                    "total": checks.total,
+                    "failed": [[src, why] for src, why in checks.failed],
+                    "error": checks.error,
+                    "all_passed": checks.all_passed,
+                    "summary": checks.summary(),
+                }
+                if checks is not None
+                else None
+            ),
         }
     )
 
@@ -512,6 +526,23 @@ async def _aexecute(
             sys.stdout.write(delta)
             sys.stdout.flush()
 
+        async def _direct_verify(goal: str, final: str, run_id: str) -> tuple[Any, int]:
+            # The direct path never runs aexecute, so the Runtime's per-call gate is
+            # not installed and its own counter never moves. Count the detector's ONE
+            # derive call here, by the planner's billing, so subscription totals stay
+            # comparable between the two paths. Same package: the Runtime itself reads
+            # supervisor._model_id in _verify_final.
+            extra = 0
+            try:
+                billing = runtime.registry.get(runtime.supervisor._model_id).billing
+            except ValueError:
+                pass
+            else:
+                if billing in ("plan_included", "plan_credit"):
+                    extra = 1
+            checks = await runtime._verify_final(goal, final, run_id)
+            return checks, extra
+
         return await answer_directly(
             goal,
             runtime.router,
@@ -521,6 +552,7 @@ async def _aexecute(
             runtime.cost_meter,
             call_timeout=runtime.call_timeout,
             on_text=on_direct if stream else None,
+            verify=_direct_verify if runtime.verify_answer else None,
         )
     if not stream:
         return await runtime.aexecute(goal)

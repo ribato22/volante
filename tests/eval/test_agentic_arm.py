@@ -31,19 +31,20 @@ def _resp(content, stop, usage=(3, 2)) -> CanonicalResponse:
     )
 
 
-# Runner referensi minimal untuk score_agentic: impor slugify dari solution.
+# Runner referensi minimal untuk score_agentic. Memakai call_solution, TIDAK
+# `from solution import`: the runner holds the nonce, so the solution must never be
+# importable by it. The model's files live in repo/ and the runner runs from _grade/,
+# which is the whole forgery defence — a fixture that imported directly was relying on
+# the two being the same directory, and that is exactly the arrangement that let a
+# model-named `json.py` forge a passing line.
 _REF = (
     "import json, sys\n"
     "def main():\n"
     "    total = 2\n"
-    "    try:\n"
-    "        from solution import slugify\n"
-    "    except Exception:\n"
-    "        print(_TAG + json.dumps({'passed': 0, 'total': total})); return\n"
     "    p = 0\n"
     "    for a, b in [('Hi There', 'hi-there'), ('A_B', 'a-b')]:\n"
     "        try:\n"
-    "            if slugify(a) == b: p += 1\n"
+    "            if call_solution('slugify', a) == b: p += 1\n"
     "        except Exception: pass\n"
     "    print(_TAG + json.dumps({'passed': p, 'total': total}))\n"
     "if __name__ == '__main__':\n"

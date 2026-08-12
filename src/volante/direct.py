@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from volante.blackboard import Blackboard
@@ -44,6 +45,11 @@ from volante.types import RunResult, Task, TextBlock, validate_goal
 _DIRECT_TASK_TYPE = "code"
 _DIRECT_DIFFICULTY = "medium"
 
+# Same billing families the Runtime's per-call subscription gate counts
+# (runtime._is_subscription). Duplicated rather than imported: direct.py must not
+# pull runtime.py into what is deliberately a Runtime-free path.
+_SUBSCRIPTION_BILLING = frozenset({"plan_included", "plan_credit"})
+
 
 async def answer_directly(
     goal: str,
@@ -55,12 +61,21 @@ async def answer_directly(
     *,
     call_timeout: float = 120.0,
     on_text: Any = None,
+    verify: Callable[[str, str, str], Awaitable[Any]] | None = None,
 ) -> RunResult:
     """Route the goal, call the chosen model once, return the same RunResult shape.
 
     The RunResult contract is unchanged on purpose: the CLI, MCP server, Web UI and
     library callers already read it, and a second result type would make the two paths
     diverge exactly where a user compares them.
+
+    ``verify`` (optional) is awaited once after a successful answer as
+    ``await verify(goal, final, run_id)``, mirroring the Runtime's opt-in detector. It
+    may return ``(checks, extra_subscription_calls)`` so the caller can fold any
+    subscription calls the detector itself made into the run's count; a bare ``checks``
+    result is accepted and counts nothing extra. The direct path never lets the
+    detector fail a good run: any error it raises is swallowed and reported as no
+    checks.
     """
     validate_goal(goal)
     started = time.perf_counter()
@@ -80,9 +95,18 @@ async def answer_directly(
     }
 
     last_error: Exception | None = None
+    sub_calls = 0
     for model_id in ranked:
         if model_id not in providers:
             continue
+        # Count PHYSICAL calls to subscription-billed models exactly like the
+        # Runtime's gate does (_before_model_call): every attempt reserves one,
+        # success or failure. Unregistered models count nothing (same rule).
+        try:
+            if registry.get(model_id).billing in _SUBSCRIPTION_BILLING:
+                sub_calls += 1
+        except ValueError:
+            pass
         req = projector.project(task, model_id, Blackboard(goal, [task]))
         req.run_id = run_id
         req.task_id = task.id
@@ -108,6 +132,21 @@ async def answer_directly(
             )
             continue
         trace["executed_model_id"] = model_id
+        checks = None
+        extra_sub_calls = 0
+        if verify is not None:
+            try:
+                outcome = await verify(goal, final, run_id)
+            except Exception:  # noqa: BLE001 - a broken detector must not fail a good run
+                outcome = None
+            if isinstance(outcome, tuple) and len(outcome) == 2:
+                checks, extra = outcome
+                if isinstance(extra, int):
+                    extra_sub_calls = max(0, extra)
+            else:
+                checks = outcome
+        # Close out AFTER verification: the detector may have consumed tokens and
+        # subscription calls of its own, and the dollar figures must tell the truth.
         billed, credit = cost_meter.costs_usd(registry)
         return RunResult(
             status="success",
@@ -119,7 +158,9 @@ async def answer_directly(
             duration_ms=int((time.perf_counter() - started) * 1000),
             billed_usd=billed,
             credit_usd=credit,
+            checks=checks,
             routing_decisions={"__direct__": trace},
+            subscription_calls=sub_calls + extra_sub_calls,
             cost_estimated=cost_meter.has_estimated(),
         )
 
@@ -139,5 +180,6 @@ async def answer_directly(
         if last_error
         else "no configured model could answer",
         routing_decisions={"__direct__": trace},
+        subscription_calls=sub_calls,
         cost_estimated=cost_meter.has_estimated(),
     )
