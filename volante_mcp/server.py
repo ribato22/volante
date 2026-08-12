@@ -76,16 +76,38 @@ async def _default_runtime_factory(prefer: str | None) -> Callable[[], Any]:
         return factory
 
 
+def _checks_payload(checks: Any) -> dict[str, Any] | None:
+    """Serialize the engine's CheckReport for the wire.
+
+    Same shape as the CLI's --json output, deliberately duplicated: each surface is
+    a published contract, kept in sync by the same test discipline as _OBJECTIVES.
+    ``None`` means verification was not enabled for this run.
+    """
+    if checks is None:
+        return None
+    return {
+        "ran": checks.ran,
+        "total": checks.total,
+        "failed": [[src, why] for src, why in checks.failed],
+        "error": checks.error,
+        "all_passed": checks.all_passed,
+        "summary": checks.summary(),
+    }
+
+
 async def run_goal(
     goal: str,
     *,
     prefer: str | None = None,
+    verify: bool = False,
     runtime_factory: Callable[[], Any] | None = None,
 ) -> dict[str, Any]:
     """Orchestrate ``goal`` end-to-end and return a JSON-serializable result.
 
     ``runtime_factory`` is injectable for testing; when omitted, providers are read
-    from the environment. Returns the two-ledger cost split (``billed_usd`` cash vs
+    from the environment. ``verify`` runs the engine's opt-in answer detector (one
+    extra model call + a sandbox run, billed like any other) and returns its report
+    under ``checks``. Returns the two-ledger cost split (``billed_usd`` cash vs
     ``credit_usd`` subscription value) alongside the final answer.
     """
     goal = (goal or "").strip()
@@ -104,6 +126,8 @@ async def run_goal(
     if factory is None:
         factory = await _default_runtime_factory(prefer)
     runtime = factory()
+    if verify:
+        runtime.verify_answer = True
     res = await runtime.aexecute(goal)
     result = {
         "status": res.status,
@@ -119,6 +143,7 @@ async def run_goal(
         "duration_ms": res.duration_ms,
         "subscription_calls": getattr(res, "subscription_calls", 0),
         "routing_decisions": getattr(res, "routing_decisions", {}),
+        "checks": _checks_payload(getattr(res, "checks", None)),
     }
     # Persist to the usage ledger so IDE-delegated runs are auditable later (the Web UI
     # "Usage" dashboard and `volante --usage` read this). Best-effort: never fails a run.
@@ -173,6 +198,18 @@ def format_result(result: dict[str, Any]) -> str:
             routes.append(f"{route} ({objective})")
         if routes:
             footer += "\nroutes: " + "; ".join(routes)
+    # Verification is opt-in and costs a real call, so the calling agent is owed its
+    # result: without this block a paid-for report would be thrown away silently. The
+    # failing checks are named, not just counted — 45% of the failures are the CHECK
+    # being wrong, and only the text lets the agent tell which kind this is.
+    checks = result.get("checks")
+    if isinstance(checks, dict) and checks.get("ran"):
+        footer += f"\nchecks: {checks.get('summary') or 'see details'}"
+        failures = checks.get("failed") or []
+        for src, why in failures[:5]:
+            footer += f"\n  ✗ {src}   {why}"
+        if len(failures) > 5:
+            footer += f"\n  … and {len(failures) - 5} more"
     if status != "success":
         failed = result.get("failed_task")
         head = f"Volante run {status}" + (f" (failed task: {failed})" if failed else "")
@@ -193,7 +230,9 @@ def build_server(runtime_factory: Callable[[], Any] | None = None) -> Any:
     server = FastMCP("volante")
 
     @server.tool()
-    async def volante_run(goal: str, prefer: Objective | None = None) -> str:
+    async def volante_run(
+        goal: str, prefer: Objective | None = None, verify: bool = False
+    ) -> str:
         """Orchestrate GOAL across the configured models. Volante plans a task DAG,
         filters hard capability mismatches, and routes each sub-task to the best
         predicted fit using configured metadata and optional evaluation evidence. It
@@ -205,8 +244,15 @@ def build_server(runtime_factory: Callable[[], Any] | None = None) -> Any:
           - "cheap"               lowest cash cost that still meets the requirements
           - "local"               prefer locally hosted models
           - "cash_protect_quota"  spend cash before subscription quota
+
+        `verify` (default false) spends one extra model call + a sandbox run to
+        derive and execute `assert` checks from the GOAL against the answer. It is a
+        REPORT, not a gate: ~45% of answers it flags are correct, so read the
+        failing checks in the footer, don't treat them as a verdict.
         """
-        result = await run_goal(goal, prefer=prefer, runtime_factory=runtime_factory)
+        result = await run_goal(
+            goal, prefer=prefer, verify=verify, runtime_factory=runtime_factory
+        )
         return format_result(result)
 
     return server

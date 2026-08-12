@@ -108,6 +108,82 @@ def test_format_result_failure_notes_failed_task() -> None:
     assert "provider unavailable" in s
 
 
+async def test_run_goal_verify_flag_wires_the_runtime_detector() -> None:
+    """verify must actually arm the engine's detector, not be a documented no-op."""
+    rt = _FakeRuntime(_FakeResult())
+    rt.verify_answer = None  # prove the flag, not a pre-set default, decides
+
+    await run_goal("g", verify=False, runtime_factory=lambda: rt)
+    assert rt.verify_answer is None
+
+    await run_goal("g", verify=True, runtime_factory=lambda: rt)
+    assert rt.verify_answer is True
+
+
+async def test_run_goal_exposes_the_checks_report() -> None:
+    """An opt-in detector costs a real call; its report must survive to the caller."""
+    from volante.verify import CheckReport
+
+    res = _FakeResult()
+    res.checks = CheckReport(total=4, failed=[("src", "boom")])
+    out = await run_goal("g", runtime_factory=lambda: _FakeRuntime(res))
+    assert out["checks"] == {
+        "ran": True,
+        "total": 4,
+        "failed": [["src", "boom"]],
+        "error": None,
+        "all_passed": False,
+        "summary": "3/4 derived checks passed",
+    }
+    assert out["checks"]["summary"] == "3/4 derived checks passed"
+
+
+async def test_run_goal_checks_is_null_when_verification_did_not_run() -> None:
+    # "unverified" must be distinguishable from "missing field" on the wire.
+    out = await run_goal("g", runtime_factory=lambda: _FakeRuntime(_FakeResult()))
+    assert out["checks"] is None
+
+
+def test_format_result_surfaces_the_checks_report() -> None:
+    s = format_result(
+        {
+            "status": "success",
+            "final": "answer",
+            "billed_usd": 0.0,
+            "credit_usd": 0.25,
+            "duration_ms": 10,
+            "subscription_calls": 2,
+            "checks": {
+                "ran": True,
+                "total": 4,
+                "failed": [["src", "boom"], ["src2", "no"]],
+                "error": None,
+                "all_passed": False,
+                "summary": "2/4 derived checks passed",
+            },
+        }
+    )
+    assert "checks: 2/4 derived checks passed" in s
+    assert "✗ src   boom" in s
+    assert "✗ src2   no" in s
+
+
+def test_format_result_omits_checks_when_not_run() -> None:
+    s = format_result(
+        {
+            "status": "success",
+            "final": "answer",
+            "billed_usd": 0.0,
+            "credit_usd": 0.0,
+            "duration_ms": 10,
+            "subscription_calls": 0,
+            "checks": None,
+        }
+    )
+    assert "checks:" not in s
+    assert "✗" not in s
+
+
 async def test_default_factory_uses_shared_verified_bootstrap(monkeypatch) -> None:
     sentinel = lambda: _FakeRuntime(_FakeResult())  # noqa: E731
     seen: dict[str, object] = {}
