@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-15
+
+**Routing sees depth, calibration learns from real use, and the wallet is protected.**
+
 ### Added
 - **The routing estimate now sees context DEPTH, not just the difficulty label.** The
   default `estimated_input_tokens` rises (bounded, +16k cap) when a task description
