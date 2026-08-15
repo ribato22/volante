@@ -15,9 +15,7 @@ class _NeverRuns:
 
 class _FailingSandbox:
     async def run(self, code: str) -> ExecResult:
-        return ExecResult(
-            stdout="", stderr="SystemExit: 1", exit_code=1, timed_out=False
-        )
+        return ExecResult(stdout="", stderr="SystemExit: 1", exit_code=1, timed_out=False)
 
 
 class _Echo:
@@ -48,13 +46,13 @@ async def test_every_built_in_tool_marks_its_refusals_with_the_prefix(tmp_path) 
     from volante.tools.run_python import RunPythonTool
 
     refusals = [
-        await ReadFileTool(tmp_path).run({}),                       # missing argument
-        await ReadFileTool(tmp_path).run({"path": "../escape"}),    # policy denial
-        await ReadFileTool(tmp_path).run({"path": "absent.txt"}),   # not a file
-        await FetchUrlTool(["example.com"]).run({}),                # missing argument
+        await ReadFileTool(tmp_path).run({}),  # missing argument
+        await ReadFileTool(tmp_path).run({"path": "../escape"}),  # policy denial
+        await ReadFileTool(tmp_path).run({"path": "absent.txt"}),  # not a file
+        await FetchUrlTool(["example.com"]).run({}),  # missing argument
         await FetchUrlTool(["example.com"]).run({"url": "ftp://example.com"}),
         await FetchUrlTool(["example.com"]).run({"url": "http://elsewhere.test/"}),
-        await RunPythonTool(_NeverRuns()).run({}),                  # missing argument
+        await RunPythonTool(_NeverRuns()).run({}),  # missing argument
     ]
     for refusal in refusals:
         assert is_tool_error(refusal), f"refusal not marked as an error: {refusal!r}"

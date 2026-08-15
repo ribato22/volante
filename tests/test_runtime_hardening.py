@@ -99,9 +99,7 @@ class _RankedRouter:
 
 
 class _Projector:
-    def project(
-        self, task: Task, model_id: str, bb: object
-    ) -> CanonicalRequest:
+    def project(self, task: Task, model_id: str, bb: object) -> CanonicalRequest:
         return CanonicalRequest(
             messages=[],
             max_tokens=64,
@@ -166,9 +164,7 @@ class _AgenticDone:
 
 
 @pytest.mark.parametrize("task_id", ["../escape", "/tmp/escape", "", "x" * 65])
-def test_runtime_revalidates_custom_supervisor_task_ids(
-    task_id: str, tmp_path: Path
-) -> None:
+def test_runtime_revalidates_custom_supervisor_task_ids(task_id: str, tmp_path: Path) -> None:
     task = Task(
         id=task_id,
         description="unsafe",
@@ -191,9 +187,7 @@ def test_runtime_revalidates_custom_supervisor_task_ids(
     assert result.status == "failed"
     assert result.failed_task == "__planning__"
     assert result.error_code == "invalid_plan"
-    assert "task id" in (result.error_message or "") or "unsafe" in (
-        result.error_message or ""
-    )
+    assert "task id" in (result.error_message or "") or "unsafe" in (result.error_message or "")
     assert not (tmp_path / "escape").exists()
 
 
@@ -219,9 +213,7 @@ def _workspace_runtime(
         return {"run_python": object()}
 
     return Runtime(
-        _Supervisor(
-            [Task(id="task", description="use tools", type="code", mode="agentic")]
-        ),
+        _Supervisor([Task(id="task", description="use tools", type="code", mode="agentic")]),
         _RankedRouter(["m"]),
         _Projector(),
         Worker({"m": _Provider("m", [_response("unused", "m")])}, meter),
@@ -249,9 +241,7 @@ async def test_workspace_cleanup_runs_after_synthesis_exception(
     assert result.status == "failed"
     assert result.failed_task == "__synthesis__"
     assert result.error_code == "synthesis_error"
-    assert not (tmp_path / "runs").exists() or not any(
-        (tmp_path / "runs").iterdir()
-    )
+    assert not (tmp_path / "runs").exists() or not any((tmp_path / "runs").iterdir())
 
 
 @pytest.mark.asyncio
@@ -281,9 +271,7 @@ async def test_synthesis_phase_has_a_hard_deadline() -> None:
     meter = CostMeter()
     registry = Registry([_model("m")])
     runtime = Runtime(
-        _Supervisor(
-            [Task(id="task", description="work", type="code", mode="one_shot")]
-        ),
+        _Supervisor([Task(id="task", description="work", type="code", mode="one_shot")]),
         _RankedRouter(["m"]),
         _Projector(),
         Worker({"m": _Provider("m", [_response("artifact", "m")])}, meter),
@@ -382,9 +370,9 @@ async def test_invalid_planner_output_can_fall_back_after_bounded_corrections() 
 
     assert result.status == "success"
     assert primary.calls == 3
-    assert result.routing_decisions["__planning__"]["fallback_events"][0][
-        "reason"
-    ] == "invalid_plan"
+    assert (
+        result.routing_decisions["__planning__"]["fallback_events"][0]["reason"] == "invalid_plan"
+    )
 
 
 @pytest.mark.asyncio
@@ -414,9 +402,10 @@ async def test_hung_planner_reserves_deadline_for_fallback() -> None:
     result = await runtime.aexecute("goal")
 
     assert result.status == "success"
-    assert result.routing_decisions["__planning__"]["fallback_events"][0][
-        "reason"
-    ] == "provider_timeout"
+    assert (
+        result.routing_decisions["__planning__"]["fallback_events"][0]["reason"]
+        == "provider_timeout"
+    )
 
 
 @pytest.mark.asyncio
@@ -439,9 +428,7 @@ async def test_synthesis_provider_outage_falls_back_with_auditable_trace() -> No
         [_response("final from fallback", "fallback-wire")],
     )
     runtime = Runtime(
-        _Supervisor(
-            [Task(id="task", description="work", type="code", mode="one_shot")]
-        ),
+        _Supervisor([Task(id="task", description="work", type="code", mode="one_shot")]),
         _RankedRouter(["fallback"]),
         Projector(registry),
         Worker(
@@ -476,9 +463,7 @@ async def test_worker_truncation_returns_structured_incomplete_output() -> None:
     meter = CostMeter()
     registry = Registry([_model("m")])
     runtime = Runtime(
-        _Supervisor(
-            [Task(id="task", description="work", type="code", mode="one_shot")]
-        ),
+        _Supervisor([Task(id="task", description="work", type="code", mode="one_shot")]),
         _RankedRouter(["m"]),
         _Projector(),
         Worker(
@@ -510,9 +495,7 @@ async def test_synthesis_filter_returns_structured_incomplete_output() -> None:
     meter = CostMeter()
     registry = Registry([_model("m")])
     runtime = Runtime(
-        _Supervisor(
-            [Task(id="task", description="work", type="code", mode="one_shot")]
-        ),
+        _Supervisor([Task(id="task", description="work", type="code", mode="one_shot")]),
         _RankedRouter(["m"]),
         _Projector(),
         Worker({"m": _Provider("m", [_response("artifact", "m")])}, meter),
@@ -554,9 +537,7 @@ async def test_workspace_cleanup_runs_after_task_failure(tmp_path: Path) -> None
 
     assert result.status == "failed"
     assert result.failed_task == "task"
-    assert not (tmp_path / "runs").exists() or not any(
-        (tmp_path / "runs").iterdir()
-    )
+    assert not (tmp_path / "runs").exists() or not any((tmp_path / "runs").iterdir())
 
 
 class _AgenticWaits:
@@ -572,9 +553,7 @@ class _AgenticWaits:
 @pytest.mark.asyncio
 async def test_workspace_cleanup_runs_after_cancellation(tmp_path: Path) -> None:
     agentic = _AgenticWaits()
-    runtime = _workspace_runtime(
-        tmp_path, agentic_worker=agentic, synthesizer=_Synthesis()
-    )
+    runtime = _workspace_runtime(tmp_path, agentic_worker=agentic, synthesizer=_Synthesis())
     execution = asyncio.create_task(runtime.aexecute("goal"))
     await agentic.started.wait()
 
@@ -582,9 +561,7 @@ async def test_workspace_cleanup_runs_after_cancellation(tmp_path: Path) -> None
     with pytest.raises(asyncio.CancelledError):
         await execution
 
-    assert not (tmp_path / "runs").exists() or not any(
-        (tmp_path / "runs").iterdir()
-    )
+    assert not (tmp_path / "runs").exists() or not any((tmp_path / "runs").iterdir())
 
 
 @pytest.mark.asyncio
@@ -654,9 +631,7 @@ async def test_subscription_retry_attempts_consume_physical_cap(
         ]
     )
     runtime = Runtime(
-        _Supervisor(
-            [Task(id="t1", description="work", type="code", mode="one_shot")]
-        ),
+        _Supervisor([Task(id="t1", description="work", type="code", mode="one_shot")]),
         _RankedRouter(["sub", "direct"]),
         _Projector(),
         Worker({"sub": sub, "direct": direct}, meter),
@@ -679,17 +654,13 @@ def test_runtime_persists_explainable_routing_decision() -> None:
     strong = _model("strong", tier=4)
     registry = Registry([weak, strong])
     runtime = Runtime(
-        _Supervisor(
-            [Task(id="t1", description="work", type="code", mode="one_shot")]
-        ),
+        _Supervisor([Task(id="t1", description="work", type="code", mode="one_shot")]),
         Router(registry, prefer="quality"),
         Projector(registry),
         Worker(
             {
                 "weak": _Provider("weak", [_response("weak", "weak")]),
-                "strong": _Provider(
-                    "strong", [_response("strong", "wire-model-alias")]
-                ),
+                "strong": _Provider("strong", [_response("strong", "wire-model-alias")]),
             },
             meter,
         ),
@@ -729,9 +700,7 @@ def test_runtime_reroutes_live_unavailable_candidate_and_records_reason() -> Non
     )
     fallback = _Provider("weak", [_response("fallback", "weak-wire")])
     runtime = Runtime(
-        _Supervisor(
-            [Task(id="t1", description="work", type="code", mode="one_shot")]
-        ),
+        _Supervisor([Task(id="t1", description="work", type="code", mode="one_shot")]),
         Router(registry, prefer="quality"),
         Projector(registry),
         Worker({"weak": fallback, "strong": unavailable}, meter),
@@ -783,9 +752,7 @@ def test_runtime_retries_transient_outage_then_falls_back_to_next_provider(
         [_response("recovered", "fallback-wire")],
     )
     runtime = Runtime(
-        _Supervisor(
-            [Task(id="t1", description="work", type="code", mode="one_shot")]
-        ),
+        _Supervisor([Task(id="t1", description="work", type="code", mode="one_shot")]),
         Router(registry, prefer="quality"),
         Projector(registry),
         Worker({"primary": outage, "fallback": fallback}, meter),
@@ -862,9 +829,7 @@ def test_no_eligible_one_shot_model_is_capability_unavailable() -> None:
     meter = CostMeter()
     registry = Registry([_model("writer", strengths={"reasoning"})])
     runtime = Runtime(
-        _Supervisor(
-            [Task(id="code", description="implement", type="code", mode="one_shot")]
-        ),
+        _Supervisor([Task(id="code", description="implement", type="code", mode="one_shot")]),
         Router(registry),
         Projector(registry),
         Worker({"writer": _Provider("writer", [])}, meter),
@@ -883,13 +848,9 @@ def test_no_eligible_one_shot_model_is_capability_unavailable() -> None:
 
 def test_agentic_capability_error_preserves_actual_rejection_reason() -> None:
     meter = CostMeter()
-    registry = Registry(
-        [_model("tool-writer", tools=True, strengths={"reasoning"})]
-    )
+    registry = Registry([_model("tool-writer", tools=True, strengths={"reasoning"})])
     runtime = Runtime(
-        _Supervisor(
-            [Task(id="code", description="execute", type="code", mode="agentic")]
-        ),
+        _Supervisor([Task(id="code", description="execute", type="code", mode="agentic")]),
         Router(registry),
         Projector(registry),
         Worker({"tool-writer": _Provider("tool-writer", [])}, meter),
@@ -989,9 +950,7 @@ async def test_task_body_exception_converts_to_structured_failure(
     # (the per-task gather in aexecute has no surrounding except).
     meter = CostMeter()
     runtime = _ProviderErrorBody(
-        _Supervisor(
-            [Task(id="task", description="work", type="code", mode="one_shot")]
-        ),
+        _Supervisor([Task(id="task", description="work", type="code", mode="one_shot")]),
         _RankedRouter(["m"]),
         _Projector(),
         Worker({"m": _Provider("m", [_response("x", "m")])}, meter),
@@ -1222,9 +1181,7 @@ async def test_worker_blank_output_reroutes_to_the_next_candidate(
     blank = _Provider("blank", [_response("   ", "blank")])
     healthy = _Provider("healthy", [_response("real artifact", "healthy")])
     runtime = Runtime(
-        _Supervisor(
-            [Task(id="task", description="work", type="code", mode="one_shot")]
-        ),
+        _Supervisor([Task(id="task", description="work", type="code", mode="one_shot")]),
         _RankedRouter(["blank", "healthy"]),
         Projector(registry),
         Worker({"blank": blank, "healthy": healthy}, meter),
@@ -1256,9 +1213,7 @@ async def test_blank_output_is_classified_as_invalid_output_not_unavailable() ->
     blank = _Provider("blank", [_response("", "blank")])
     healthy = _Provider("healthy", [_response("final from healthy", "healthy")])
     runtime = Runtime(
-        _Supervisor(
-            [Task(id="task", description="work", type="code", mode="one_shot")]
-        ),
+        _Supervisor([Task(id="task", description="work", type="code", mode="one_shot")]),
         _RankedRouter(["healthy"]),
         Projector(registry),
         Worker({"healthy": _Provider("w", [_response("artifact", "healthy")])}, meter),

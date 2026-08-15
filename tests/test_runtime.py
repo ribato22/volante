@@ -192,8 +192,13 @@ def test_execute_routes_on_text_to_plan_and_synth_not_workers() -> None:
     )
     synthesizer = _StubSynthesizer()
     runtime = Runtime(
-        supervisor, router, projector, worker, synthesizer,
-        _registry("m1", "m2", "m3"), cm,
+        supervisor,
+        router,
+        projector,
+        worker,
+        synthesizer,
+        _registry("m1", "m2", "m3"),
+        cm,
     )
     chunks: list[str] = []
 
@@ -222,8 +227,13 @@ def test_execute_streams_workers_labeled_by_task_id() -> None:
         cost_meter=cm,
     )
     runtime = Runtime(
-        supervisor, router, _StubProjector(), worker, _StubSynthesizer(),
-        _registry("m1", "m2", "m3"), cm,
+        supervisor,
+        router,
+        _StubProjector(),
+        worker,
+        _StubSynthesizer(),
+        _registry("m1", "m2", "m3"),
+        cm,
     )
     events: list[tuple[str, str]] = []
 
@@ -248,8 +258,13 @@ def test_execute_without_on_text_streams_nothing() -> None:
         cost_meter=cm,
     )
     runtime = Runtime(
-        supervisor, router, _StubProjector(), worker, _StubSynthesizer(),
-        _registry("m1", "m2", "m3"), cm,
+        supervisor,
+        router,
+        _StubProjector(),
+        worker,
+        _StubSynthesizer(),
+        _registry("m1", "m2", "m3"),
+        cm,
     )
 
     result = runtime.execute("build")  # tanpa on_text
@@ -340,12 +355,8 @@ def _single_task_runtime(
 def test_non_retryable_error_fails_without_retry() -> None:
     cm = CostMeter()
     projector = _StubProjector()
-    failing = _RaisingProvider(
-        "m_fail", ProviderError("bad request", retryable=False, status=400)
-    )
-    runtime, synthesizer = _single_task_runtime(
-        cm, failing, model_id="m_fail", projector=projector
-    )
+    failing = _RaisingProvider("m_fail", ProviderError("bad request", retryable=False, status=400))
+    runtime, synthesizer = _single_task_runtime(cm, failing, model_id="m_fail", projector=projector)
 
     result = runtime.execute("do it")
 
@@ -422,9 +433,7 @@ def test_unexpected_exception_is_recorded_not_raised() -> None:
     cm = CostMeter()
     projector = _StubProjector()
     boom = _RaisingProvider("m_boom", ValueError("kaboom"))
-    runtime, synthesizer = _single_task_runtime(
-        cm, boom, model_id="m_boom", projector=projector
-    )
+    runtime, synthesizer = _single_task_runtime(cm, boom, model_id="m_boom", projector=projector)
 
     result = runtime.execute("do it")  # tidak melempar
 
@@ -458,8 +467,13 @@ def test_unexpected_exception_in_wave_stops_and_preserves_sibling() -> None:
     )
     synthesizer = _StubSynthesizer()
     runtime = Runtime(
-        supervisor, router, projector, worker, synthesizer,
-        _registry("m1", "m2", "m3"), cm,
+        supervisor,
+        router,
+        projector,
+        worker,
+        synthesizer,
+        _registry("m1", "m2", "m3"),
+        cm,
     )
 
     result = runtime.execute("build")
@@ -631,16 +645,12 @@ def test_reroute_quota_exhausted_tries_next_candidate_no_sleep(monkeypatch) -> N
     supervisor = _StubSupervisor(plan)
     router = _RankRouter({"T1": ["mA", "mB"]})
     # Projector NYATA: buktikan re-proyeksi per kandidat (req.max_tokens = max_output B).
-    registry = Registry(
-        [_sized_model("mA", 200_000, 8_192), _sized_model("mB", 8_192, 2_048)]
-    )
+    registry = Registry([_sized_model("mA", 200_000, 8_192), _sized_model("mB", 8_192, 2_048)])
     projector = Projector(registry)
     quota_a = _QuotaProvider("mA")
     recording_b = _RecordingProvider("mB")
     worker = Worker(providers={"mA": quota_a, "mB": recording_b}, cost_meter=cm)
-    runtime = Runtime(
-        supervisor, router, projector, worker, _StubSynthesizer(), registry, cm
-    )
+    runtime = Runtime(supervisor, router, projector, worker, _StubSynthesizer(), registry, cm)
 
     result = runtime.execute("build")
 
@@ -660,14 +670,17 @@ def test_non_quota_error_fails_without_walking_candidates() -> None:
     supervisor = _StubSupervisor(plan)
     router = _RankRouter({"T1": ["mA", "mB"]})
     projector = _StubProjector()
-    fail_a = _RaisingProvider(
-        "mA", ProviderError("bad request", retryable=False, status=400)
-    )
+    fail_a = _RaisingProvider("mA", ProviderError("bad request", retryable=False, status=400))
     recording_b = _RecordingProvider("mB")
     worker = Worker(providers={"mA": fail_a, "mB": recording_b}, cost_meter=cm)
     runtime = Runtime(
-        supervisor, router, projector, worker, _StubSynthesizer(),
-        _registry("mA", "mB"), cm,
+        supervisor,
+        router,
+        projector,
+        worker,
+        _StubSynthesizer(),
+        _registry("mA", "mB"),
+        cm,
     )
 
     result = runtime.execute("build")
@@ -720,12 +733,8 @@ def test_subscription_guard_reroutes_to_direct_when_cap_reached(monkeypatch) -> 
     sub = _CountingProvider("mSub")
     direct = _CountingProvider("mDirect")
     worker = Worker(providers={"mSub": sub, "mDirect": direct}, cost_meter=cm)
-    registry = Registry(
-        [_billed_model("mSub", "plan_included"), _billed_model("mDirect", "card")]
-    )
-    runtime = Runtime(
-        supervisor, router, projector, worker, _StubSynthesizer(), registry, cm
-    )
+    registry = Registry([_billed_model("mSub", "plan_included"), _billed_model("mDirect", "card")])
+    runtime = Runtime(supervisor, router, projector, worker, _StubSynthesizer(), registry, cm)
 
     result = runtime.execute("build")
 
@@ -862,12 +871,8 @@ def test_subscription_cap_counts_dispatch_even_when_call_fails(monkeypatch) -> N
     )
     direct = _CountingProvider("mDirect")
     worker = Worker(providers={"mSub": sub, "mDirect": direct}, cost_meter=cm)
-    registry = Registry(
-        [_billed_model("mSub", "plan_included"), _billed_model("mDirect", "card")]
-    )
-    runtime = Runtime(
-        supervisor, router, projector, worker, _StubSynthesizer(), registry, cm
-    )
+    registry = Registry([_billed_model("mSub", "plan_included"), _billed_model("mDirect", "card")])
+    runtime = Runtime(supervisor, router, projector, worker, _StubSynthesizer(), registry, cm)
 
     result = runtime.execute("build")
 

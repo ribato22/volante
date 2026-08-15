@@ -121,6 +121,7 @@ async def demo_agentic() -> None:
         temperature=0.0,
         task_id="demo",
     )
+
     def _emit(s: str) -> None:
         print(s, end="", flush=True)
 
@@ -155,9 +156,7 @@ async def demo_orchestrate() -> None:
         return
     make_runtime = make_runtime_factory(registry, providers, model_id)
     runtime = make_runtime()
-    goal = (
-        "Write a short haiku about concurrency, then explain the haiku in one sentence."
-    )
+    goal = "Write a short haiku about concurrency, then explain the haiku in one sentence."
     print(f"Orchestrate demo — planner/synth model={model_id}\n")
 
     def _emit(s: str) -> None:

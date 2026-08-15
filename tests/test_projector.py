@@ -66,8 +66,8 @@ def test_project_includes_only_dependency_artifacts() -> None:
     assert "ARTIFACT_ONE_UNIQUE" in usr_text
     assert "ARTIFACT_TWO_UNIQUE" not in usr_text  # non-dependency TIDAK bocor
     assert req.task_id == "t3"
-    assert req.run_id == ""      # diisi Runtime, bukan Projector
-    assert req.attempt == 0      # diisi Runtime, bukan Projector
+    assert req.run_id == ""  # diisi Runtime, bukan Projector
+    assert req.attempt == 0  # diisi Runtime, bukan Projector
     assert req.max_tokens == 4_000
 
 
@@ -107,7 +107,7 @@ def test_project_trims_per_artifact_and_keeps_every_dependency() -> None:
     assert "[artifact t1 truncated in the middle]" in usr_text
     assert "HEAD_ONE_" in usr_text
     assert "_TAIL_ONE" in usr_text
-    assert huge not in usr_text          # benar-benar terpangkas
+    assert huge not in usr_text  # benar-benar terpangkas
     # Marker per-artifact hanya untuk yang terpangkas (t2 utuh -> tanpa marker t2).
     assert "[artifact t2 truncated in the middle]" not in usr_text
     # Scoping tetap: artifact non-dependency tak pernah masuk.
@@ -167,8 +167,4 @@ def test_shared_input_budget_caps_output_reserve_before_applying_margin() -> Non
     assert model_input_token_budget(1_000, 700) == 425
     assert model_input_char_budget(1_000, 700) == 1_700
     assert req.max_tokens == 500
-    assert sum(
-        len(block.text)
-        for message in req.messages
-        for block in message.content
-    ) <= 1_700
+    assert sum(len(block.text) for message in req.messages for block in message.content) <= 1_700

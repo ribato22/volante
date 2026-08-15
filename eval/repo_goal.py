@@ -100,9 +100,7 @@ def build_repo_task(
         id=task_id,
         goal=goal,
         reference_test=render_runner(change, regression),
-        repo=RepoSpec(
-            starting_files=tuple(starting_files), probe_files=tuple(probe_files)
-        ),
+        repo=RepoSpec(starting_files=tuple(starting_files), probe_files=tuple(probe_files)),
     )
 
 
@@ -131,9 +129,7 @@ def gate_findings(task: EvalTask, golden: str) -> list[str]:
     from eval.harness import _score_reference, repo_files_for
 
     def score(answer: str) -> float:
-        return _score_reference(
-            answer, task.reference_test, repo_files_for(answer, task.repo)
-        )[0]
+        return _score_reference(answer, task.reference_test, repo_files_for(answer, task.repo))[0]
 
     findings: list[str] = []
 
@@ -160,8 +156,11 @@ def gate_findings(task: EvalTask, golden: str) -> list[str]:
     # none of the three score checks can see.
     for path, body in task.repo.starting_files:
         marker = next(
-            (ln.strip() for ln in body.splitlines()
-             if ln.strip() and not ln.lstrip().startswith(('"""', "#", "from", "import"))),
+            (
+                ln.strip()
+                for ln in body.splitlines()
+                if ln.strip() and not ln.lstrip().startswith(('"""', "#", "from", "import"))
+            ),
             "",
         )
         if marker and marker not in task.goal:
@@ -189,9 +188,9 @@ def gate_findings(task: EvalTask, golden: str) -> list[str]:
     # "costs at least TWO change cases", which is the bar this suite actually claims.
     # Testing only "costs something" let a file worth one case count as load-bearing.
     n_change = int(_N_CHANGE_RE.search(task.reference_test).group(1))
-    change_only = task.reference_test.replace(
-        '"passed": cp * rp,', '"passed": cp,'
-    ).replace('"total": len(CHANGE) * len(REGRESSION),', '"total": len(CHANGE),')
+    change_only = task.reference_test.replace('"passed": cp * rp,', '"passed": cp,').replace(
+        '"total": len(CHANGE) * len(REGRESSION),', '"total": len(CHANGE),'
+    )
 
     def change_cases(answer: str) -> float:
         from eval.harness import _score_reference as _sr
@@ -199,8 +198,9 @@ def gate_findings(task: EvalTask, golden: str) -> list[str]:
         return _sr(answer, change_only, repo_files_for(answer, task.repo))[0] * n_change
 
     blocks = re.split(r"\n\n(?=```)", golden)
-    named = [(i, m.group(1)) for i, b in enumerate(blocks)
-             if (m := re.search(r"#\s*path:\s*(\S+)", b))]
+    named = [
+        (i, m.group(1)) for i, b in enumerate(blocks) if (m := re.search(r"#\s*path:\s*(\S+)", b))
+    ]
     full = change_cases(golden)
     for index, path in named:
         partial = "\n\n".join(b for i, b in enumerate(blocks) if i != index)

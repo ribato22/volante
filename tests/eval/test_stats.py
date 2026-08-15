@@ -93,17 +93,22 @@ def test_pairs_needed_matches_the_observed_spread() -> None:
 
 
 def _fake_result(base: list[float], orch: list[float]) -> dict:
-    arm = lambda v: {"composite": sum(v) / len(v), "cost": 0.0, "ms": 1,  # noqa: E731
-                     "estimated": False, "measured": True}
+    def arm(v: list[float]) -> dict:
+        return {
+            "composite": sum(v) / len(v),
+            "cost": 0.0,
+            "ms": 1,
+            "estimated": False,
+            "measured": True,
+        }
+
     return {
         "per_goal": [
             {
                 "id": "g",
                 "winner": "baseline",
-                "arms": {"baseline": arm(base), "orchestration": arm(orch),
-                         "agentic": arm(base)},
-                "scores": {"baseline": arm(base), "orchestration": arm(orch),
-                           "agentic": arm(base)},
+                "arms": {"baseline": arm(base), "orchestration": arm(orch), "agentic": arm(base)},
+                "scores": {"baseline": arm(base), "orchestration": arm(orch), "agentic": arm(base)},
                 "series": {"baseline": base, "orchestration": orch, "agentic": base},
             }
         ],
@@ -128,8 +133,11 @@ def _fake_result_across_goals(base: list[float], orch: list[float]) -> dict:
     result = _fake_result(base, orch)
     template = result["per_goal"][0]
     result["per_goal"] = [
-        {**template, "id": f"g{i}",
-         "series": {"baseline": [b], "orchestration": [o], "agentic": [b]}}
+        {
+            **template,
+            "id": f"g{i}",
+            "series": {"baseline": [b], "orchestration": [o], "agentic": [b]},
+        }
         for i, (b, o) in enumerate(zip(base, orch, strict=True))
     ]
     return result
@@ -140,9 +148,7 @@ def test_the_report_refuses_to_call_a_noisy_gap_evidence() -> None:
     from eval.run import format_report
 
     report = format_report(
-        _fake_result_across_goals(
-            [0.414, 0.492, 0.708, 0.497], [0.742, 0.721, 0.656, 0.476]
-        )
+        _fake_result_across_goals([0.414, 0.492, 0.708, 0.497], [0.742, 0.721, 0.656, 0.476])
     )
 
     assert "INCLUDES zero" in report

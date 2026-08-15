@@ -37,29 +37,31 @@ _TRUNCATION_MARKER = b"\n...[CLI output truncated; tail retained]...\n"
 # and unrelated project secrets are deliberately excluded. Users behind a
 # corporate proxy can explicitly opt individual variables in through
 # VOLANTE_CLI_AGENT_PASSTHROUGH=HTTPS_PROXY,HTTP_PROXY,NO_PROXY.
-_SAFE_CHILD_ENV = frozenset({
-    "PATH",
-    "HOME",
-    "USER",
-    "LOGNAME",
-    "SHELL",
-    "TMPDIR",
-    "TMP",
-    "TEMP",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "TERM",
-    "NO_COLOR",
-    "XDG_CONFIG_HOME",
-    "XDG_CACHE_HOME",
-    "CODEX_HOME",
-    "CLAUDE_CONFIG_DIR",
-    "SSL_CERT_FILE",
-    "SSL_CERT_DIR",
-    "REQUESTS_CA_BUNDLE",
-    "NODE_EXTRA_CA_CERTS",
-})
+_SAFE_CHILD_ENV = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TERM",
+        "NO_COLOR",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "CODEX_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "NODE_EXTRA_CA_CERTS",
+    }
+)
 
 
 def _est(s: str) -> int:
@@ -107,9 +109,7 @@ class _BoundedCapture:
         return bytes(self._head + separator + self._tail).decode(errors="replace")
 
 
-async def _drain(
-    reader: asyncio.StreamReader | None, capture: _BoundedCapture
-) -> None:
+async def _drain(reader: asyncio.StreamReader | None, capture: _BoundedCapture) -> None:
     if reader is None:
         return
     while chunk := await reader.read(64 * 1024):
@@ -166,9 +166,7 @@ async def _communicate_bounded(
     except TimeoutError:
         _killpg(proc)
         await _settle(proc, combined, *tasks)
-        return CliRunResult(
-            stdout.text(), stderr.text(), -9, timed_out=True
-        )
+        return CliRunResult(stdout.text(), stderr.text(), -9, timed_out=True)
     except asyncio.CancelledError:
         _killpg(proc)
         await _settle(proc, combined, *tasks)
@@ -214,9 +212,7 @@ def _release_pipes(proc: asyncio.subprocess.Process) -> None:
         transport.close()
 
 
-async def _settle(
-    proc: asyncio.subprocess.Process, *awaitables: object
-) -> None:
+async def _settle(proc: asyncio.subprocess.Process, *awaitables: object) -> None:
     """Reap after a kill, in bounded time.
 
     THE BUG THIS EXISTS FOR. Every post-kill path used to do a bare `await
@@ -348,9 +344,7 @@ async def _stream_lines(
         except TimeoutError:
             _killpg(proc)
             await _settle(proc, stderr_task)
-            return CliRunResult(
-                stdout.text(), stderr.text(), -9, timed_out=True
-            )
+            return CliRunResult(stdout.text(), stderr.text(), -9, timed_out=True)
         except asyncio.CancelledError:
             _killpg(proc)
             await _settle(proc, stderr_task)
@@ -476,9 +470,7 @@ class CliAgentProvider:
             if name.strip()
         )
         base = {
-            key: value
-            for key, value in os.environ.items()
-            if key in names or key.startswith("LC_")
+            key: value for key, value in os.environ.items() if key in names or key.startswith("LC_")
         }
         return self.adapter.child_env(base, depth=depth + 1)
 
@@ -497,9 +489,7 @@ class CliAgentProvider:
                 scratch_dir=Path(scratch),
             )
             async with self._semaphore():
-                result = await self._runner(
-                    argv, stdin=prompt, env=env, timeout=self.timeout
-                )
+                result = await self._runner(argv, stdin=prompt, env=env, timeout=self.timeout)
         if result.timed_out or result.returncode != 0 or self.adapter.is_error(result):
             raise self.adapter.classify_error(result)
         return self.adapter.parse(result, req)

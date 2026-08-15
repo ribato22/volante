@@ -56,9 +56,7 @@ class _FakeClient:
 
 def _provider(monkeypatch, resp):
     client = _FakeClient(resp)
-    monkeypatch.setattr(
-        "volante.providers.openai_compat.AsyncOpenAI", lambda **kw: client
-    )
+    monkeypatch.setattr("volante.providers.openai_compat.AsyncOpenAI", lambda **kw: client)
     return OpenAICompatProvider(base_url="http://x/v1", api_key="k", model="kimi-x"), client
 
 

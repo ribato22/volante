@@ -137,12 +137,9 @@ async def measure(
                 shown = "unmeasured" if score is None else f"{score:.2f}"
                 print(f"  {wire:<14} {task.id:<15} run{run + 1}  {shown}")
         measurements[model_id] = by_type
-        summary = "  ".join(
-            _summarize(t, v) for t, v in sorted(by_type.items())
-        )
+        summary = "  ".join(_summarize(t, v) for t, v in sorted(by_type.items()))
         print(f"  -> {model_id}: {summary}\n")
     return measurements
-
 
 
 def model_id_for(prefix: str, wire: str, env: Mapping[str, str] | None = None) -> str:

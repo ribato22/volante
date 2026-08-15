@@ -161,9 +161,7 @@ class AnthropicProvider:
         # Volante owns retry/reroute policy at the orchestration layer. Disable the
         # SDK's hidden retries so one logical attempt cannot multiply physical
         # calls, latency, cost, or subscription-budget accounting.
-        self._client = anthropic.AsyncAnthropic(
-            api_key=api_key, timeout=timeout, max_retries=0
-        )
+        self._client = anthropic.AsyncAnthropic(api_key=api_key, timeout=timeout, max_retries=0)
 
     async def complete(self, req: CanonicalRequest) -> CanonicalResponse:
         system_text, messages = _split_messages(req.messages)

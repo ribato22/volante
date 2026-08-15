@@ -1120,15 +1120,11 @@ def create_app(
                     status_code=400, detail="Invalid Content-Length header."
                 ) from exc
             if declared_length > max_body_bytes:
-                raise HTTPException(
-                    status_code=413, detail="Request body is too large."
-                )
+                raise HTTPException(status_code=413, detail="Request body is too large.")
         raw = bytearray()
         async for chunk in request.stream():
             if len(raw) + len(chunk) > max_body_bytes:
-                raise HTTPException(
-                    status_code=413, detail="Request body is too large."
-                )
+                raise HTTPException(status_code=413, detail="Request body is too large.")
             raw.extend(chunk)
         try:
             body = json.loads(bytes(raw))

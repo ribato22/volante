@@ -58,9 +58,7 @@ def test_a_solution_that_does_not_import_is_a_failure_not_a_clean_run() -> None:
 
 
 def test_a_clean_run_reports_every_check_passing() -> None:
-    report = read_report(
-        'VOLANTE_CHECKS {"failed": [], "total": 3}', "", ["a", "b", "c"]
-    )
+    report = read_report('VOLANTE_CHECKS {"failed": [], "total": 3}', "", ["a", "b", "c"])
 
     assert report.all_passed
     assert report.summary() == "3/3 derived checks passed"
@@ -127,11 +125,7 @@ async def _run(goal: str, answer: str, *, verify: bool, sandbox=None):
 
             self.calls += 1
             # The verification pass asks for checks, not for another answer.
-            body = (
-                "```python\nassert f() == 1\n```"
-                if req.task_id == "__verify__"
-                else answer
-            )
+            body = "```python\nassert f() == 1\n```" if req.task_id == "__verify__" else answer
             return CanonicalResponse(
                 content=[TextBlock(text=body)],
                 usage=Usage(prompt_tokens=1, completion_tokens=1),
@@ -234,9 +228,7 @@ def test_a_single_grounded_check_is_not_a_pass() -> None:
 
 
 def test_enough_grounded_checks_passing_is_a_pass() -> None:
-    report = read_report(
-        'VOLANTE_CHECKS {"failed": [], "total": 3}', "", ["a", "b", "c"]
-    )
+    report = read_report('VOLANTE_CHECKS {"failed": [], "total": 3}', "", ["a", "b", "c"])
 
     assert report.all_passed
     assert not report.inconclusive

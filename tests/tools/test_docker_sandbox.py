@@ -178,9 +178,7 @@ async def test_termination_is_bounded_when_the_docker_kill_client_hangs(
     assert kill_client.killed is True, "the stuck kill client was left running"
 
 
-async def test_flood_output_is_bounded_and_kills_container(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_flood_output_is_bounded_and_kills_container(tmp_path: Path, monkeypatch) -> None:
     killed: dict[str, str] = {}
     flood = _FloodProc()
 
@@ -214,9 +212,7 @@ async def test_cancellation_kills_container(tmp_path: Path, monkeypatch) -> None
         return hang
 
     monkeypatch.setattr(ds, "_spawn", fake_spawn)
-    task = asyncio.create_task(
-        DockerSandbox(tmp_path, timeout_s=30.0).run("while True: pass")
-    )
+    task = asyncio.create_task(DockerSandbox(tmp_path, timeout_s=30.0).run("while True: pass"))
     await asyncio.sleep(0)
     task.cancel()
 

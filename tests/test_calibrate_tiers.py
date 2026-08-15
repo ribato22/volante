@@ -50,9 +50,7 @@ def test_the_best_measured_model_tops_the_scale() -> None:
 
 def test_tiers_stay_inside_the_declared_range() -> None:
     """`tier` is documented 1..4; a long tail of models must not walk off the bottom."""
-    many = {
-        f"m{i}": {"task_scores": {"code": 1.0 - i * 0.1}} for i in range(8)
-    }
+    many = {f"m{i}": {"task_scores": {"code": 1.0 - i * 0.1}} for i in range(8)}
 
     tiers = suggest_tiers(many)["code"]
 

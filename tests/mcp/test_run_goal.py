@@ -218,8 +218,12 @@ def test_format_result_marks_estimated_amounts() -> None:
     # out, rather than a bare marker attached to one ledger.
     marked = format_result(
         {
-            "status": "success", "final": "answer", "billed_usd": 0.42,
-            "credit_usd": 0.0, "duration_ms": 1000, "subscription_calls": 0,
+            "status": "success",
+            "final": "answer",
+            "billed_usd": 0.42,
+            "credit_usd": 0.0,
+            "duration_ms": 1000,
+            "subscription_calls": 0,
             "cost_estimated": True,
         }
     )
@@ -231,8 +235,12 @@ def test_format_result_marks_estimated_amounts() -> None:
 def test_format_result_leaves_authoritative_amounts_unmarked() -> None:
     plain = format_result(
         {
-            "status": "success", "final": "answer", "billed_usd": 0.42,
-            "credit_usd": 0.0, "duration_ms": 1000, "subscription_calls": 0,
+            "status": "success",
+            "final": "answer",
+            "billed_usd": 0.42,
+            "credit_usd": 0.0,
+            "duration_ms": 1000,
+            "subscription_calls": 0,
             "cost_estimated": False,
         }
     )
@@ -246,8 +254,12 @@ def test_format_result_surfaces_a_capability_notice() -> None:
     # execution was disabled is indistinguishable from a full-capability one.
     text = format_result(
         {
-            "status": "success", "final": "answer", "billed_usd": 0.0,
-            "credit_usd": 0.0, "duration_ms": 10, "subscription_calls": 0,
+            "status": "success",
+            "final": "answer",
+            "billed_usd": 0.0,
+            "credit_usd": 0.0,
+            "duration_ms": 10,
+            "subscription_calls": 0,
             "capability_notice": "Code execution (run_python) is disabled: no Docker daemon.",
         }
     )
@@ -257,8 +269,12 @@ def test_format_result_surfaces_a_capability_notice() -> None:
 def test_format_result_omits_the_notice_when_fully_capable() -> None:
     text = format_result(
         {
-            "status": "success", "final": "answer", "billed_usd": 0.0,
-            "credit_usd": 0.0, "duration_ms": 10, "subscription_calls": 0,
+            "status": "success",
+            "final": "answer",
+            "billed_usd": 0.0,
+            "credit_usd": 0.0,
+            "duration_ms": 10,
+            "subscription_calls": 0,
         }
     )
     assert "notice:" not in text

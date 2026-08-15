@@ -32,7 +32,7 @@ from volante.types import (
 # Bangun tiga backtick tanpa menaruh literalnya di sumber (jaga fence markdown).
 FENCE = "`" * 3
 
-GOOD_CODE = '''\
+GOOD_CODE = """\
 import re
 
 
@@ -42,7 +42,7 @@ def slugify(text):
     s = re.sub(r"[^a-z0-9-]+", "", s)
     s = re.sub(r"-+", "-", s)
     return s.strip("-")
-'''
+"""
 
 
 def _model(model_id: str = "strong-model") -> ModelInfo:
@@ -89,9 +89,7 @@ class _SpyProvider:
 class _StubRuntime:
     """Runtime stand-in yang mengekspos kontrak PUBLIK `aexecute` (bukan _aexecute)."""
 
-    def __init__(
-        self, final: str, *, cost_usd: float = 0.02, duration_ms: int = 2500
-    ) -> None:
+    def __init__(self, final: str, *, cost_usd: float = 0.02, duration_ms: int = 2500) -> None:
         self._final = final
         self._cost_usd = cost_usd
         self._duration_ms = duration_ms
@@ -311,8 +309,7 @@ def test_score_code_kills_forked_child_on_success_path(tmp_path):
         # Parent (runner import) menunggu anak siap dulu -> pidfile dijamin ada
         # sebelum score_code kembali (hilangkan race).
         f"    while not os.path.exists({str(readyfile)!r}):\n"
-        "        time.sleep(0.01)\n"
-        + GOOD_CODE
+        "        time.sleep(0.01)\n" + GOOD_CODE
     )
     score = score_code(forking, REFERENCE_TEST)
     assert score == 1.0  # jalur sukses: skor tetap benar
@@ -351,11 +348,7 @@ def test_score_reference_naive_forgery_rejected_and_measured_zero():
     # Pemisahan proses: forgery (cetak JSON sempurna + os._exit saat import) kini
     # membunuh SERVER, bukan runner. Runner tepercaya mengukur semua case gagal ->
     # skor 0.0 TERUKUR (bukan 1.0 palsu). Solusi tak pernah menyentuh stdout/nonce runner.
-    forgery = (
-        "import json, os\n"
-        "print(json.dumps({'passed': 999, 'total': 999}))\n"
-        "os._exit(0)\n"
-    )
+    forgery = "import json, os\nprint(json.dumps({'passed': 999, 'total': 999}))\nos._exit(0)\n"
     score, measured = harness._score_reference(forgery, REFERENCE_TEST)
     assert score == 0.0  # forgery TIDAK menghasilkan skor tinggi
     assert measured is True  # runner mengukur kegagalan (server mati -> semua case gagal)
@@ -421,10 +414,7 @@ def test_score_reference_broken_runner_is_unmeasured_not_zero():
 
 def test_score_reference_runner_emitting_untagged_is_unmeasured():
     # Runner yang mencetak JSON TANPA _TAG (tak ikut kontrak) -> tak dipercaya.
-    untagged = (
-        "import json\n"
-        "print(json.dumps({'passed': 8, 'total': 8}))\n"
-    )
+    untagged = "import json\nprint(json.dumps({'passed': 8, 'total': 8}))\n"
     score, measured = harness._score_reference(GOOD_CODE, untagged)
     assert score == 0.0
     assert measured is False
@@ -439,9 +429,7 @@ def test_score_reference_syntax_error_solution_is_measured_zero():
 
 
 def test_score_reference_good_solution_is_measured_one():
-    score, measured = harness._score_reference(
-        f"{FENCE}python\n{GOOD_CODE}{FENCE}", REFERENCE_TEST
-    )
+    score, measured = harness._score_reference(f"{FENCE}python\n{GOOD_CODE}{FENCE}", REFERENCE_TEST)
     assert score == 1.0
     assert measured is True
 
@@ -487,9 +475,7 @@ def test_score_reference_preamble_injected_after_future_import(head):
     # __future__` walau ada docstring/komentar/blank sebelumnya — kalau tidak,
     # `from __future__` tergeser dari baris-1 -> SyntaxError -> semua arm 0.0 palsu.
     runner = _minimal_runner(head)
-    score, measured = harness._score_reference(
-        f"{FENCE}python\n{GOOD_CODE}{FENCE}", runner
-    )
+    score, measured = harness._score_reference(f"{FENCE}python\n{GOOD_CODE}{FENCE}", runner)
     assert measured is True, f"runner dgn head={head!r} harus valid & terukur"
     assert score == 1.0
 
@@ -645,13 +631,17 @@ def test_compare_dict_shape_and_cost_tiebreak():
 
 def test_compare_winner_by_composite_over_cost():
     win = compare(
-        _run_result(cost_usd=0.10), _baseline(cost_usd=0.01),
-        {"composite": 0.9}, {"composite": 0.4},
+        _run_result(cost_usd=0.10),
+        _baseline(cost_usd=0.01),
+        {"composite": 0.9},
+        {"composite": 0.4},
     )
     assert win["winner"] == "orchestration"  # composite lebih tinggi kalahkan biaya
     lose = compare(
-        _run_result(cost_usd=0.01), _baseline(cost_usd=0.10),
-        {"composite": 0.3}, {"composite": 0.8},
+        _run_result(cost_usd=0.01),
+        _baseline(cost_usd=0.10),
+        {"composite": 0.3},
+        {"composite": 0.8},
     )
     assert lose["winner"] == "baseline"
 
@@ -718,8 +708,13 @@ async def test_run_eval_runs_k_times_and_returns_compare_dict():
         return rt
 
     result = await run_eval(
-        SLUGIFY_GOAL, REFERENCE_TEST, make_runtime, provider, "strong-model",
-        _registry(), k=2,
+        SLUGIFY_GOAL,
+        REFERENCE_TEST,
+        make_runtime,
+        provider,
+        "strong-model",
+        _registry(),
+        k=2,
     )
     assert len(runtimes) == 2  # tiap sisi berjalan EVAL_K=2 kali
     assert set(result) >= {"orch_composite", "base_composite", "winner"}

@@ -44,6 +44,7 @@ class _StreamCtx:
         async def _gen():
             for d in self._deltas:
                 yield d
+
         return _gen()
 
     async def get_final_message(self):

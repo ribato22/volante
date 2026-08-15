@@ -81,10 +81,10 @@ async def test_loop_runs_tool_then_finishes() -> None:
 
     assert isinstance(res, AgenticResult)
     assert res.final_text == "done, tests pass"
-    assert tool.calls == [{"code": "print(1)"}]                 # tool dieksekusi
-    assert res.usage_total["m1"].completion_tokens == 4         # 2 turn x 2
-    assert meter.totals()["m1"].prompt_tokens == 6              # shared meter jg terisi
-    assert any(t.kind == "tool_use" for t in res.turns)         # jejak terekam
+    assert tool.calls == [{"code": "print(1)"}]  # tool dieksekusi
+    assert res.usage_total["m1"].completion_tokens == 4  # 2 turn x 2
+    assert meter.totals()["m1"].prompt_tokens == 6  # shared meter jg terisi
+    assert any(t.kind == "tool_use" for t in res.turns)  # jejak terekam
     assert any(t.kind == "tool_result" for t in res.turns)
 
 
@@ -367,10 +367,10 @@ async def test_quota_exhausted_propagates_without_backoff(monkeypatch) -> None:
     with pytest.raises(_PE) as ei:
         await worker.run(_req(), "m1", tools)
 
-    assert ei.value.quota_exhausted is True   # dipropagasi ke Runtime (bukan dibuang)
+    assert ei.value.quota_exhausted is True  # dipropagasi ke Runtime (bukan dibuang)
     assert ei.value.retryable is False
-    assert provider.calls == 1                # short-circuit: TAK ada retry
-    assert slept == []                        # TAK ada backoff/sleep
+    assert provider.calls == 1  # short-circuit: TAK ada retry
+    assert slept == []  # TAK ada backoff/sleep
 
 
 @pytest.mark.asyncio
@@ -430,9 +430,7 @@ async def test_call_gate_counts_every_agentic_retry_attempt() -> None:
     gated: list[str] = []
     worker.set_call_gate(gated.append)
 
-    result = await worker.run(
-        _req(), "m1", {"run_python": _RecordingTool()}
-    )
+    result = await worker.run(_req(), "m1", {"run_python": _RecordingTool()})
 
     assert result.final_text == "recovered"
     assert gated == ["m1", "m1", "m1"]
@@ -453,11 +451,7 @@ class _CaptureSecondTurn:
         self.requests.append(req)
         if len(self.requests) == 1:
             return _resp(
-                [
-                    ToolUseBlock(
-                        id="u1", name="run_python", input={"code": "print(1)"}
-                    )
-                ],
+                [ToolUseBlock(id="u1", name="run_python", input={"code": "print(1)"})],
                 "tool_use",
             )
         return _resp([TextBlock(text="bounded")], "end_turn")
@@ -474,9 +468,7 @@ async def test_agentic_tool_results_are_trimmed_to_selected_model_context() -> N
     )
     worker = AgenticWorker({"m1": provider}, CostMeter(), char_budget=400_000)
 
-    result = await worker.run(
-        req, "m1", {"run_python": _HugeResultTool()}
-    )
+    result = await worker.run(req, "m1", {"run_python": _HugeResultTool()})
 
     assert result.final_text == "bounded"
     second = provider.requests[1]
@@ -603,7 +595,9 @@ async def test_declared_requirements_are_still_enforced() -> None:
 
     with pytest.raises(CapabilityUnavailableError, match="required tools"):
         await worker.run(
-            _req(), "m1", {"run_python": _RecordingTool()},
+            _req(),
+            "m1",
+            {"run_python": _RecordingTool()},
             required_tools=frozenset({"run_python"}),
         )
 
@@ -620,17 +614,20 @@ async def test_one_response_cannot_request_an_unbounded_tool_batch() -> None:
         for i in range(_MAX_TOOL_CALLS_PER_TURN + 3)
     ]
     tool = _RecordingTool("read_file")
-    provider = FakeProvider(responses=[
-        _resp(calls, "tool_use"),
-        _resp([TextBlock(text="fewer calls this time")], "end_turn"),
-    ])
+    provider = FakeProvider(
+        responses=[
+            _resp(calls, "tool_use"),
+            _resp([TextBlock(text="fewer calls this time")], "end_turn"),
+        ]
+    )
     worker = AgenticWorker({"read_file": provider, "m1": provider}, CostMeter())
 
     result = await worker.run(_req(), "m1", {"read_file": tool})
 
     assert len(tool.calls) == _MAX_TOOL_CALLS_PER_TURN
     refusals = [
-        t.payload for t in result.turns
+        t.payload
+        for t in result.turns
         if t.kind == "tool_result" and t.payload.startswith("error:")
     ]
     assert len(refusals) == 3
@@ -648,10 +645,12 @@ async def test_non_object_tool_arguments_become_a_correctable_tool_error() -> No
     # got a turn to correct itself, and no other candidate was tried either — the
     # reroute paths only look at ProviderError and TimeoutError.
     tool = _RecordingTool("read_file")
-    provider = FakeProvider(responses=[
-        _resp([ToolUseBlock(id="u1", name="read_file", input=[])], "tool_use"),
-        _resp([TextBlock(text="recovered with a proper object")], "end_turn"),
-    ])
+    provider = FakeProvider(
+        responses=[
+            _resp([ToolUseBlock(id="u1", name="read_file", input=[])], "tool_use"),
+            _resp([TextBlock(text="recovered with a proper object")], "end_turn"),
+        ]
+    )
     worker = AgenticWorker({"m1": provider}, CostMeter())
 
     result = await worker.run(_req(), "m1", {"read_file": tool})
@@ -666,15 +665,19 @@ async def test_non_object_tool_arguments_become_a_correctable_tool_error() -> No
 async def test_non_object_arguments_do_not_satisfy_a_required_tool() -> None:
     # It is a refused call, so it must not count as the capability being obtained —
     # otherwise the crash is traded for the quieter bug next door.
-    provider = FakeProvider(responses=[
-        _resp([ToolUseBlock(id="u1", name="read_file", input="a string")], "tool_use"),
-        _resp([TextBlock(text="claimed success")], "end_turn"),
-    ])
+    provider = FakeProvider(
+        responses=[
+            _resp([ToolUseBlock(id="u1", name="read_file", input="a string")], "tool_use"),
+            _resp([TextBlock(text="claimed success")], "end_turn"),
+        ]
+    )
     worker = AgenticWorker({"m1": provider}, CostMeter())
 
     with pytest.raises(CapabilityUnavailableError, match="every call returned an error"):
         await worker.run(
-            _req(), "m1", {"read_file": _RecordingTool("read_file")},
+            _req(),
+            "m1",
+            {"read_file": _RecordingTool("read_file")},
             required_tools=frozenset({"read_file"}),
         )
 
@@ -714,17 +717,19 @@ async def test_a_required_tool_that_only_errored_does_not_satisfy_the_requiremen
     # Counting a denied, malformed or failed call as having used it lets a task that
     # required trusted file evidence report success without ever obtaining any.
     tool = _RefusingTool()
-    provider = FakeProvider(responses=[
-        _resp([ToolUseBlock(id="u1", name="read_file", input={"path": "../../etc/passwd"})],
-              "tool_use"),
-        _resp([TextBlock(text="Per the file, the answer is 42.")], "end_turn"),
-    ])
+    provider = FakeProvider(
+        responses=[
+            _resp(
+                [ToolUseBlock(id="u1", name="read_file", input={"path": "../../etc/passwd"})],
+                "tool_use",
+            ),
+            _resp([TextBlock(text="Per the file, the answer is 42.")], "end_turn"),
+        ]
+    )
     worker = AgenticWorker({"m1": provider}, CostMeter())
 
     with pytest.raises(CapabilityUnavailableError, match="every call returned an error"):
-        await worker.run(
-            _req(), "m1", {"read_file": tool}, required_tools=frozenset({"read_file"})
-        )
+        await worker.run(_req(), "m1", {"read_file": tool}, required_tools=frozenset({"read_file"}))
     assert tool.calls == 1
 
 
@@ -737,7 +742,9 @@ async def test_a_requirement_never_invoked_still_says_so() -> None:
 
     with pytest.raises(CapabilityUnavailableError, match="never invoked"):
         await worker.run(
-            _req(), "m1", {"read_file": _RefusingTool()},
+            _req(),
+            "m1",
+            {"read_file": _RefusingTool()},
             required_tools=frozenset({"read_file"}),
         )
 
@@ -747,11 +754,17 @@ async def test_a_required_tool_that_recovers_after_an_error_is_satisfied() -> No
     # The boundary of the change: refusing to count a FAILED call must not refuse to
     # count the successful retry that follows it.
     tool = _RefusesOnceThenWorks()
-    provider = FakeProvider(responses=[
-        _resp([ToolUseBlock(id="u1", name="read_file", input={"path": "typo.txt"})], "tool_use"),
-        _resp([ToolUseBlock(id="u2", name="read_file", input={"path": "real.txt"})], "tool_use"),
-        _resp([TextBlock(text="The file says 42.")], "end_turn"),
-    ])
+    provider = FakeProvider(
+        responses=[
+            _resp(
+                [ToolUseBlock(id="u1", name="read_file", input={"path": "typo.txt"})], "tool_use"
+            ),
+            _resp(
+                [ToolUseBlock(id="u2", name="read_file", input={"path": "real.txt"})], "tool_use"
+            ),
+            _resp([TextBlock(text="The file says 42.")], "end_turn"),
+        ]
+    )
     worker = AgenticWorker({"m1": provider}, CostMeter())
 
     result = await worker.run(

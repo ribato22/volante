@@ -25,17 +25,28 @@ from volante.worker import Worker
 
 def _model(mid: str, ctx: int) -> ModelInfo:
     return ModelInfo(
-        id=mid, provider="fake", strengths={"coding"}, context_window=ctx,
-        max_output_tokens=4096, supports_tools=True,
-        cost_per_1k_in=0.001, cost_per_1k_out=0.002,
+        id=mid,
+        provider="fake",
+        strengths={"coding"},
+        context_window=ctx,
+        max_output_tokens=4096,
+        supports_tools=True,
+        cost_per_1k_in=0.001,
+        cost_per_1k_out=0.002,
     )
 
 
 def _billed_model(mid: str, billing: str) -> ModelInfo:
     return ModelInfo(
-        id=mid, provider="fake", strengths={"coding"}, context_window=100_000,
-        max_output_tokens=4096, supports_tools=True,
-        cost_per_1k_in=0.001, cost_per_1k_out=0.002, billing=billing,
+        id=mid,
+        provider="fake",
+        strengths={"coding"},
+        context_window=100_000,
+        max_output_tokens=4096,
+        supports_tools=True,
+        cost_per_1k_in=0.001,
+        cost_per_1k_out=0.002,
+        billing=billing,
     )
 
 
@@ -60,7 +71,9 @@ class _ToolThenQuota:
             return CanonicalResponse(
                 content=[ToolUseBlock(id="a1", name="run_python", input={"code": "x"})],
                 usage=Usage(prompt_tokens=5, completion_tokens=3),
-                model=self.name, stop_reason="tool_use", latency_ms=1,
+                model=self.name,
+                stop_reason="tool_use",
+                latency_ms=1,
             )
         raise ProviderError("plan quota exhausted", retryable=False, quota_exhausted=True)
 
@@ -83,12 +96,16 @@ class _ToolThenDone:
             return CanonicalResponse(
                 content=[ToolUseBlock(id="b1", name="run_python", input={"code": "y"})],
                 usage=Usage(prompt_tokens=3, completion_tokens=2),
-                model=self.name, stop_reason="tool_use", latency_ms=1,
+                model=self.name,
+                stop_reason="tool_use",
+                latency_ms=1,
             )
         return CanonicalResponse(
             content=[TextBlock(text="done via B")],
             usage=Usage(prompt_tokens=3, completion_tokens=2),
-            model=self.name, stop_reason="end_turn", latency_ms=1,
+            model=self.name,
+            stop_reason="end_turn",
+            latency_ms=1,
         )
 
     async def stream(self, req, on_text) -> CanonicalResponse:
@@ -121,7 +138,9 @@ class _DirectDone:
         return CanonicalResponse(
             content=[TextBlock(text=f"done via {self.name}")],
             usage=Usage(prompt_tokens=3, completion_tokens=2),
-            model=self.name, stop_reason="end_turn", latency_ms=1,
+            model=self.name,
+            stop_reason="end_turn",
+            latency_ms=1,
         )
 
     async def stream(self, req, on_text) -> CanonicalResponse:
@@ -175,7 +194,8 @@ class _Projector:
         self.last_bb = bb
         return CanonicalRequest(
             messages=[text("user", task.description)],
-            max_tokens=self._mt[model_id], task_id=task.id,
+            max_tokens=self._mt[model_id],
+            task_id=task.id,
         )
 
 
@@ -218,10 +238,10 @@ async def test_agentic_reroutes_on_quota_to_next_candidate_reprojected(
     res = await rt.aexecute("goal")
 
     assert res.status == "success"
-    assert res.partial_artifacts["t1"] == "done via B"       # kandidat B menyelesaikan
-    assert mB.seen_max_tokens[0] == 64                        # RE-PROYEKSI ke budget B (bukan A)
-    assert slept == []                                        # reroute TANPA backoff/sleep
-    assert mA.calls == 2                                      # A: tool_use lalu quota_exhausted
+    assert res.partial_artifacts["t1"] == "done via B"  # kandidat B menyelesaikan
+    assert mB.seen_max_tokens[0] == 64  # RE-PROYEKSI ke budget B (bukan A)
+    assert slept == []  # reroute TANPA backoff/sleep
+    assert mA.calls == 2  # A: tool_use lalu quota_exhausted
     # Kerja PARSIAL kandidat A ter-meter (turn tool_use sebelum quota) — bukti
     # "restart from scratch": TurnRecord A TAK dipersist, tapi cost sudah accrue.
     assert "mA" in cm.totals()
@@ -231,9 +251,7 @@ async def test_agentic_reroutes_on_quota_to_next_candidate_reprojected(
 
 
 @pytest.mark.asyncio
-async def test_agentic_all_candidates_quota_exhausted_fails(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_agentic_all_candidates_quota_exhausted_fails(tmp_path: Path, monkeypatch) -> None:
     async def _no_sleep(delay: float) -> None:
         return None
 
@@ -260,15 +278,13 @@ async def test_agentic_all_candidates_quota_exhausted_fails(
 
     res = await rt.aexecute("goal")
 
-    assert res.status == "failed"       # semua kandidat quota_exhausted -> gagal
+    assert res.status == "failed"  # semua kandidat quota_exhausted -> gagal
     assert res.failed_task == "t1"
-    assert mB.calls == 2                # B benar-benar dicoba (bukan berhenti di A)
+    assert mB.calls == 2  # B benar-benar dicoba (bukan berhenti di A)
 
 
 @pytest.mark.asyncio
-async def test_agentic_subscription_cap_reroutes_to_direct(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_agentic_subscription_cap_reroutes_to_direct(tmp_path: Path, monkeypatch) -> None:
     # residu-3: cap kuota per-run juga harus melindungi jalur agentic (konsumen
     # kuota terberat), bukan hanya jalur one-shot.
     monkeypatch.setenv("VOLANTE_MAX_SUBSCRIPTION_CALLS", "2")
@@ -349,9 +365,5 @@ async def test_agentic_exhausted_transient_outage_reroutes_to_healthy_provider(
     assert result.partial_artifacts["t1"] == "done via mB"
     assert outage.calls == 2
     assert healthy.calls == 2
-    statuses = [
-        entry.payload
-        for entry in projector.last_bb.entries()
-        if entry.kind == "status"
-    ]
+    statuses = [entry.payload for entry in projector.last_bb.entries() if entry.kind == "status"]
     assert any("provider_unavailable" in status for status in statuses)

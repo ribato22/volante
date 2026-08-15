@@ -111,9 +111,7 @@ async def test_credentials_in_the_url_are_refused() -> None:
     # userinfo must be refused, not stripped: whatever survives into Host/SNI/path
     # leaks to an origin the MODEL chose, and an older httpx put it on the wire
     # verbatim. A model has no business authenticating.
-    out = await FetchUrlTool({"example.com"}).run(
-        {"url": "https://user:secret@example.com/x"}
-    )
+    out = await FetchUrlTool({"example.com"}).run({"url": "https://user:secret@example.com/x"})
     assert "credentials" in out
 
 
@@ -142,9 +140,7 @@ async def test_stream_stops_reading_after_cap(monkeypatch) -> None:
                 yield chunk
 
     _patch(monkeypatch, _TrackedResp(status=200), {})
-    out = await FetchUrlTool({"example.com"}, max_bytes=100).run(
-        {"url": "https://example.com"}
-    )
+    out = await FetchUrlTool({"example.com"}, max_bytes=100).run({"url": "https://example.com"})
     assert out.endswith("A" * 80 + "B" * 20)
     assert reads == [0, 1]
 
@@ -234,9 +230,7 @@ async def test_a_stalled_resolver_cannot_outlast_the_timeout(monkeypatch) -> Non
     monkeypatch.setattr("volante.tools.fetch_url._resolve", _never_answers)
     started = time.monotonic()
 
-    out = await FetchUrlTool({"example.com"}, timeout_s=0.3).run(
-        {"url": "https://example.com/p"}
-    )
+    out = await FetchUrlTool({"example.com"}, timeout_s=0.3).run({"url": "https://example.com/p"})
     elapsed = time.monotonic() - started
 
     assert out.startswith("error:")
@@ -247,9 +241,7 @@ async def test_a_stalled_resolver_cannot_outlast_the_timeout(monkeypatch) -> Non
 async def test_a_normal_fetch_is_untouched_by_the_deadline(monkeypatch) -> None:
     _patch(monkeypatch, _FakeResp("quick body", 200), {})
 
-    out = await FetchUrlTool({"example.com"}, timeout_s=5.0).run(
-        {"url": "https://example.com/p"}
-    )
+    out = await FetchUrlTool({"example.com"}, timeout_s=5.0).run({"url": "https://example.com/p"})
 
     assert "quick body" in out
 
@@ -316,6 +308,7 @@ async def test_a_real_compressed_bomb_never_reaches_a_decoder(monkeypatch) -> No
 # Once the Docker sandbox blocks the sandbox's own egress, this tool is the only
 # way out, so an allowlisted name resolving inward is a credential leak. Each
 # address below is a real metadata/internal endpoint, not a synthetic example.
+
 
 @pytest.mark.parametrize(
     "address,what",

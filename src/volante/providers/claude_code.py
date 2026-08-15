@@ -69,14 +69,19 @@ class ClaudeCodeAdapter:
         scratch_dir: Path,
     ) -> list[str]:
         out = [
-            "claude", "-p",
-            "--input-format", "text",
-            "--output-format", ("stream-json" if stream else "json"),
-            "--model", model,
-            "--tools", "",              # REQUIRED: drop every built-in tool (§8.1)
-            "--strict-mcp-config",      # zero MCP; NEVER --bare (it kills OAuth)
-            "--safe-mode",              # disable user/project hooks, plugins, skills, memory
-            "--no-session-persistence", # no prompt/task retention on disk
+            "claude",
+            "-p",
+            "--input-format",
+            "text",
+            "--output-format",
+            ("stream-json" if stream else "json"),
+            "--model",
+            model,
+            "--tools",
+            "",  # REQUIRED: drop every built-in tool (§8.1)
+            "--strict-mcp-config",  # zero MCP; NEVER --bare (it kills OAuth)
+            "--safe-mode",  # disable user/project hooks, plugins, skills, memory
+            "--no-session-persistence",  # no prompt/task retention on disk
             "--disable-slash-commands",
             "--no-chrome",
             # Belt-and-suspenders (§13 gate, live-verified 2026-07-23, CLI 2.1.161):
@@ -85,7 +90,8 @@ class ClaudeCodeAdapter:
             # `--tools ""` alone did NOT remove LSP's AVAILABILITY. Disallow it
             # explicitly too so availability-removal is complete, not just relying
             # on runtime permission denial.
-            "--disallowedTools", "LSP",
+            "--disallowedTools",
+            "LSP",
         ]
         if stream:
             # the CLI requires --verbose for `--print --output-format stream-json`

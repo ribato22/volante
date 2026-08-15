@@ -66,9 +66,7 @@ async def _default_runtime_factory(prefer: str | None) -> Callable[[], Any]:
         cached = _factory_cache.get(objective)
         if cached is not None:
             return cached
-        registry, providers, model_id = build_providers_from_env(
-            include_subscription=True
-        )
+        registry, providers, model_id = build_providers_from_env(include_subscription=True)
         factory = await make_verified_runtime_factory(
             registry, providers, model_id, prefer=objective
         )
@@ -119,8 +117,7 @@ async def run_goal(
     # rejected for free. The error names every legal value so one retry is enough.
     if prefer is not None and prefer not in _OBJECTIVES:
         raise ValueError(
-            f"unknown routing objective {prefer!r}; "
-            f"expected one of {sorted(_OBJECTIVES)}"
+            f"unknown routing objective {prefer!r}; expected one of {sorted(_OBJECTIVES)}"
         )
     factory = runtime_factory
     if factory is None:
@@ -230,9 +227,7 @@ def build_server(runtime_factory: Callable[[], Any] | None = None) -> Any:
     server = FastMCP("volante")
 
     @server.tool()
-    async def volante_run(
-        goal: str, prefer: Objective | None = None, verify: bool = False
-    ) -> str:
+    async def volante_run(goal: str, prefer: Objective | None = None, verify: bool = False) -> str:
         """Orchestrate GOAL across the configured models. Volante plans a task DAG,
         filters hard capability mismatches, and routes each sub-task to the best
         predicted fit using configured metadata and optional evaluation evidence. It
@@ -250,9 +245,7 @@ def build_server(runtime_factory: Callable[[], Any] | None = None) -> Any:
         REPORT, not a gate: ~45% of answers it flags are correct, so read the
         failing checks in the footer, don't treat them as a verdict.
         """
-        result = await run_goal(
-            goal, prefer=prefer, verify=verify, runtime_factory=runtime_factory
-        )
+        result = await run_goal(goal, prefer=prefer, verify=verify, runtime_factory=runtime_factory)
         return format_result(result)
 
     return server

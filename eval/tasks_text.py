@@ -29,9 +29,16 @@ from eval.tasks import EvalTask, TextCheck
 # over-applies them — which is what makes the score informative rather than binary.
 
 ANALYZE_KEYS = (
-    "MEDIAN_MINUTES", "MEAN_MINUTES", "VAN_DELIVERED", "DRONE_PARCELS",
-    "DELIVERED_PARCELS", "CANCEL_RATE", "TOP_DEPOT", "LOW_DEPOT",
-    "SLOWER_DEPOT", "SLOWEST_ID",
+    "MEDIAN_MINUTES",
+    "MEAN_MINUTES",
+    "VAN_DELIVERED",
+    "DRONE_PARCELS",
+    "DELIVERED_PARCELS",
+    "CANCEL_RATE",
+    "TOP_DEPOT",
+    "LOW_DEPOT",
+    "SLOWER_DEPOT",
+    "SLOWEST_ID",
 )
 
 _KEY_LINE = re.compile(r"^\s*(?:[-*+>\u2022]\s*)?([A-Z][A-Z_]{2,})\s*:\s*(.*?)\s*$")
@@ -125,7 +132,7 @@ ANALYZE_CHECKS = (
     TextCheck("slowest_id", _pair("SLOWEST_ID", "R21", 160, 160)),
 )
 
-ANALYZE_GOAL = '''\
+ANALYZE_GOAL = """\
 Analyse this delivery log. Use only the data below.
 
 DATA (id,depot,mode,status,parcels,minutes):
@@ -172,7 +179,7 @@ LOW_DEPOT: depot with the smallest total parcels, then that total.
 SLOWER_DEPOT: whichever of NORTH and EAST has the higher median minutes, then that median, 1 decimal place.
 SLOWEST_ID: id of the record with the highest minutes, then those minutes.
 
-OUTPUT: exactly 10 lines, one per key, in the order listed, each as `KEY: value` - nothing else. No prose, headings, fences, units, working or extra lines. Numbers are bare (no % or commas). A two-part value is two space-separated tokens (format examples only: "SOUTH 999", "R99 999"). Any alternative, range, hedge or annotation inside a value scores zero for that line.'''
+OUTPUT: exactly 10 lines, one per key, in the order listed, each as `KEY: value` - nothing else. No prose, headings, fences, units, working or extra lines. Numbers are bare (no % or commas). A two-part value is two space-separated tokens (format examples only: "SOUTH 999", "R99 999"). Any alternative, range, hedge or annotation inside a value scores zero for that line."""
 
 TEXT_SUITE = [
     EvalTask(
@@ -192,7 +199,7 @@ TEXT_SUITE = [
 # wording must be chosen, and the internal identifiers that ARE in the prompt are
 # exactly what the negative checks punish for appearing.
 
-WRITE_GOAL = '''\
+WRITE_GOAL = """\
 You are writing the customer-facing status update for an incident that has now ended.
 
 Internal incident record (NOT for publication):
@@ -216,7 +223,7 @@ Write the public status update. It must:
 
 Publish nothing from the internal record that a customer has no use for: no ticket
 reference, no service names, no pod or infrastructure detail.
-'''
+"""
 
 
 def _words(out: str) -> int:
@@ -258,26 +265,39 @@ WRITE_CHECKS = (
     # notice reading worse than the incident was.
     TextCheck(
         "existing_sessions_ok",
-        lambda o: _has_any(o, ("already signed in", "already logged in",
-                               "existing session", "remained signed in",
-                               "stayed signed in", "were not affected")),
+        lambda o: _has_any(
+            o,
+            (
+                "already signed in",
+                "already logged in",
+                "existing session",
+                "remained signed in",
+                "stayed signed in",
+                "were not affected",
+            ),
+        ),
     ),
-    TextCheck("sign_in_named", lambda o: _has_any(o, ("sign in", "sign-in", "log in",
-                                                      "login", "signing in"))),
-    TextCheck("prevention_named", lambda o: _has_any(o, ("alert", "monitor",
-                                                         "expiry", "expiration",
-                                                         "renew", "rotat"))),
+    TextCheck(
+        "sign_in_named",
+        lambda o: _has_any(o, ("sign in", "sign-in", "log in", "login", "signing in")),
+    ),
+    TextCheck(
+        "prevention_named",
+        lambda o: _has_any(o, ("alert", "monitor", "expiry", "expiration", "renew", "rotat")),
+    ),
     TextCheck("within_120_words", lambda o: 0 < _words(o) <= 120),
     # Added after the attack: an EMPTY answer collected every negative check for free
     # — nothing forbidden is present when nothing is present — and scored the same as
     # copying the prompt. Positives that require real content are what put a floor
     # under that, and each of these is something the update genuinely needs.
     TextCheck("window_stated", lambda o: bool(re.search(r"08[:.]52|09[:.]31", o))),
-    TextCheck("resolved_stated", lambda o: _has_any(o, ("resolved", "restored",
-                                                        "fixed", "back to normal",
-                                                        "has ended", "mitigated"))),
-    TextCheck("apology_or_thanks", lambda o: _has_any(o, ("sorry", "apolog",
-                                                          "thank", "regret"))),
+    TextCheck(
+        "resolved_stated",
+        lambda o: _has_any(
+            o, ("resolved", "restored", "fixed", "back to normal", "has ended", "mitigated")
+        ),
+    ),
+    TextCheck("apology_or_thanks", lambda o: _has_any(o, ("sorry", "apolog", "thank", "regret"))),
     # The negatives are the whole defence. Every one of these strings IS in the
     # prompt, so a model that pads with the internal record scores worse, not better.
     TextCheck("no_ticket", _forbids(lambda o: "inc-4471" in o.lower()), negative=True),
@@ -301,7 +321,7 @@ WRITE_CHECKS = (
 # naming many candidates per need would otherwise satisfy a positive check by
 # accident, which is exactly how the first research rubric leaked 83%.
 
-RESEARCH_GOAL = '''\
+RESEARCH_GOAL = """\
 A colleague is writing a Python tool and wants to use only the standard library.
 Name exactly one standard-library module or function for each need below, and justify
 each in one sentence.
@@ -320,7 +340,7 @@ each in one sentence.
 
 For each need give the name, then the sentence. Do not list alternatives — one answer
 per need, the one you would actually use.
-'''
+"""
 
 # Each need has a WRONG answer that is the first thing pattern-matching reaches for:
 # eval, ==, random, a hand-written loop, and the builtin hash(). Those are what make
@@ -338,11 +358,25 @@ _R_NEEDS = (
 # for. `hash(` is the builtin whose value is salted per process — the exact trap in
 # need 5.
 _R_DECOYS = (
-    "eval(", "exec(", "json.loads", "pickle",
-    "round(", "abs(", "decimal", "numpy",
-    "random.", "uuid", "os.urandom", "time.time",
-    "sorted(", "defaultdict", "collections.counter",
-    "hash(", "id(", "md5", "repr(",
+    "eval(",
+    "exec(",
+    "json.loads",
+    "pickle",
+    "round(",
+    "abs(",
+    "decimal",
+    "numpy",
+    "random.",
+    "uuid",
+    "os.urandom",
+    "time.time",
+    "sorted(",
+    "defaultdict",
+    "collections.counter",
+    "hash(",
+    "id(",
+    "md5",
+    "repr(",
 )
 
 
@@ -369,9 +403,9 @@ RESEARCH_CHECKS = tuple(
 
 TEXT_SUITE.extend(
     [
-        EvalTask(id="incident_note", goal=WRITE_GOAL, task_type="write",
-                 checks=WRITE_CHECKS),
-        EvalTask(id="stdlib_pick", goal=RESEARCH_GOAL, task_type="research",
-                 checks=RESEARCH_CHECKS),
+        EvalTask(id="incident_note", goal=WRITE_GOAL, task_type="write", checks=WRITE_CHECKS),
+        EvalTask(
+            id="stdlib_pick", goal=RESEARCH_GOAL, task_type="research", checks=RESEARCH_CHECKS
+        ),
     ]
 )

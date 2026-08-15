@@ -13,9 +13,14 @@ from volante.worker import Worker
 
 def _model(mid: str) -> ModelInfo:
     return ModelInfo(
-        id=mid, provider="fake", strengths={"coding"}, context_window=100_000,
-        max_output_tokens=4096, supports_tools=True,
-        cost_per_1k_in=0.001, cost_per_1k_out=0.002,
+        id=mid,
+        provider="fake",
+        strengths={"coding"},
+        context_window=100_000,
+        max_output_tokens=4096,
+        supports_tools=True,
+        cost_per_1k_in=0.001,
+        cost_per_1k_out=0.002,
     )
 
 
@@ -92,8 +97,8 @@ def test_agentic_task_routed_to_agentic_worker(tmp_path: Path) -> None:
     res = rt.execute("goal")  # execute() = wrapper blocking (asyncio.run)
 
     assert res.status == "success"
-    assert agentic.seen == [("t1", ["run_python"])]     # dialihkan + tools per-task
-    assert res.partial_artifacts["t1"] == "done:t1"     # final_text jadi artifact
+    assert agentic.seen == [("t1", ["run_python"])]  # dialihkan + tools per-task
+    assert res.partial_artifacts["t1"] == "done:t1"  # final_text jadi artifact
 
 
 def test_agentic_task_streams_labeled_by_task_id(tmp_path: Path) -> None:

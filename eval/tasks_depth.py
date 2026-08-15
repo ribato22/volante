@@ -438,7 +438,7 @@ Reply with the complete solution.py. Also add a pytest test module (functions na
 covering the precedence rules, and a short README."""
 
 
-RESOLVE_REFERENCE_TEST: str = '''\
+RESOLVE_REFERENCE_TEST: str = """\
 from __future__ import annotations
 
 import json
@@ -518,7 +518,7 @@ def main() -> None:
 
 main()
 sys.exit(0)
-'''
+"""
 
 # Its own suite. Adding it to EVAL_SUITE would silently redefine what every
 # historical comparison measured.

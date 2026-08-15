@@ -103,9 +103,7 @@ async def stream_events(runtime: Any, goal: str) -> AsyncIterator[dict]:
                 }
             )
         except Exception as exc:  # noqa: BLE001 - surface ANY failure to the UI
-            await queue.put(
-                {"type": "error", "message": f"{type(exc).__name__}: {exc}"}
-            )
+            await queue.put({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
         finally:
             current = asyncio.current_task()
             if current is None or current.cancelling() == 0:

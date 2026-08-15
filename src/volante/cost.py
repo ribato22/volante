@@ -95,8 +95,7 @@ class CostMeter:
             else:
                 self._totals[model_id] = Usage(
                     prompt_tokens=current.prompt_tokens + usage.prompt_tokens,
-                    completion_tokens=current.completion_tokens
-                    + usage.completion_tokens,
+                    completion_tokens=current.completion_tokens + usage.completion_tokens,
                     estimated=current.estimated or usage.estimated,
                 )
         self._has_estimated = self._has_estimated or other._has_estimated

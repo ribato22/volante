@@ -317,26 +317,55 @@ CHANGE = [
     ("499 light", "_probe", "value", [[["TEA", 1]], [], "shipping"], 499),
     ("499 at exactly 500 g", "_probe", "value", [[["APL", 1], ["TEA", 2]], [], "shipping"], 499),
     # payable 4800, but 5232 with tax: thresholding after tax frees this.
-    ("499 threshold is BEFORE tax",
-     "_probe", "value", [[["SAF", 1], ["TEA", 2]], [], "shipping"], 499),
+    (
+        "499 threshold is BEFORE tax",
+        "_probe",
+        "value",
+        [[["SAF", 1], ["TEA", 2]], [], "shipping"],
+        499,
+    ),
     # subtotal 5200, payable 4680 after SAVE10: thresholding on subtotal frees this.
-    ("499 threshold is AFTER discounts",
-     "_probe", "value", [[["SAF", 1], ["TEA", 3]], ["SAVE10"], "shipping"], 499),
+    (
+        "499 threshold is AFTER discounts",
+        "_probe",
+        "value",
+        [[["SAF", 1], ["TEA", 3]], ["SAVE10"], "shipping"],
+        499,
+    ),
     # --- 899: over 500 g, up to 2000 g
     ("899 just over 500 g", "_probe", "value", [[["APL", 2], ["TEA", 1]], [], "shipping"], 899),
     ("899 at exactly 2000 g", "_probe", "value", [[["MLK", 2]], [], "shipping"], 899),
-    ("899 threshold is BEFORE tax",
-     "_probe", "value", [[["SAF", 1], ["TEA", 1], ["APL", 2]], [], "shipping"], 899),
-    ("899 threshold is AFTER discounts",
-     "_probe", "value", [[["SAF", 1], ["MLK", 1], ["TEA", 2]], ["SAVE10"], "shipping"], 899),
+    (
+        "899 threshold is BEFORE tax",
+        "_probe",
+        "value",
+        [[["SAF", 1], ["TEA", 1], ["APL", 2]], [], "shipping"],
+        899,
+    ),
+    (
+        "899 threshold is AFTER discounts",
+        "_probe",
+        "value",
+        [[["SAF", 1], ["MLK", 1], ["TEA", 2]], ["SAVE10"], "shipping"],
+        899,
+    ),
     # --- 1499: over 2000 g
-    ("1499 just over 2000 g",
-     "_probe", "value", [[["MLK", 2], ["TEA", 1]], [], "shipping"], 1499),
+    ("1499 just over 2000 g", "_probe", "value", [[["MLK", 2], ["TEA", 1]], [], "shipping"], 1499),
     ("1499 heavy", "_probe", "value", [[["OIL", 2], ["MLK", 3]], [], "shipping"], 1499),
-    ("1499 threshold is BEFORE tax",
-     "_probe", "value", [[["OIL", 3], ["MLK", 4]], [], "shipping"], 1499),
-    ("1499 threshold is AFTER discounts",
-     "_probe", "value", [[["MLK", 24]], ["SAVE25"], "shipping"], 1499),
+    (
+        "1499 threshold is BEFORE tax",
+        "_probe",
+        "value",
+        [[["OIL", 3], ["MLK", 4]], [], "shipping"],
+        1499,
+    ),
+    (
+        "1499 threshold is AFTER discounts",
+        "_probe",
+        "value",
+        [[["MLK", 24]], ["SAVE25"], "shipping"],
+        1499,
+    ),
     # --- free: payable at or above 5000
     ("free at exactly 5000", "_probe", "value", [[["OIL", 2], ["TEA", 6]], [], "shipping"], 0),
     ("free above 5000", "_probe", "value", [[["OIL", 4]], [], "shipping"], 0),
@@ -347,13 +376,21 @@ CHANGE = [
     # --- composite criteria, each on a cart with a DIFFERENT shipping value so that
     # no single constant collects them all.
     ("weight_grams", "_probe", "value", [[["OIL", 3], ["MLK", 4]], [], "weight_grams"], 6250),
-    ("total is payable + tax + shipping",
-     "_probe", "value", [[["OIL", 2]], [], "total"], 3733),
-    ("receipt row order with a discount", "_probe", "receipt", [[["MLK", 24]], ["SAVE10"]],
-     [["SUBTOTAL", 6000], ["DISCOUNT", -600], ["SHIPPING", 0],
-      ["TAX", 486], ["TOTAL", 5886]]),
-    ("receipt row order without a discount", "_probe", "receipt", [[["TEA", 1]], []],
-     [["SUBTOTAL", 400], ["SHIPPING", 499], ["TAX", 36], ["TOTAL", 935]]),
+    ("total is payable + tax + shipping", "_probe", "value", [[["OIL", 2]], [], "total"], 3733),
+    (
+        "receipt row order with a discount",
+        "_probe",
+        "receipt",
+        [[["MLK", 24]], ["SAVE10"]],
+        [["SUBTOTAL", 6000], ["DISCOUNT", -600], ["SHIPPING", 0], ["TAX", 486], ["TOTAL", 5886]],
+    ),
+    (
+        "receipt row order without a discount",
+        "_probe",
+        "receipt",
+        [[["TEA", 1]], []],
+        [["SUBTOTAL", 400], ["SHIPPING", 499], ["TAX", 36], ["TOTAL", 935]],
+    ),
 ]
 
 REGRESSION = [
@@ -363,19 +400,33 @@ REGRESSION = [
     # case handed an EMPTY answer 1 of 13 and put the whole goal's floor at 0.0769.
     # A model that taxes shipping still fails it; it just fails as a regression, which
     # is what breaking existing behaviour is.
-    ("tax is not charged on shipping",
-     "_probe", "value", [[["OIL", 3], ["MLK", 4]], [], "tax"], 441),
+    (
+        "tax is not charged on shipping",
+        "_probe",
+        "value",
+        [[["OIL", 3], ["MLK", 4]], [], "tax"],
+        441,
+    ),
     # 19% off, not 20%: the rule the request says is deliberate.
-    ("coupons still compound",
-     "_probe", "value", [[["MLK", 24]], ["SAVE10", "SAVE10"], "discount"], 1140),
+    (
+        "coupons still compound",
+        "_probe",
+        "value",
+        [[["MLK", 24]], ["SAVE10", "SAVE10"], "discount"],
+        1140,
+    ),
     # A second two-coupon case: "tidying" the compounding rule into an additive one is
     # the most tempting change to make while passing through pricing.py, and with a
     # single case it cost 1/13 of one factor. Compound 1690 here; additive gives 1820.
-    ("coupons still compound, different pair",
-     "_probe", "value", [[["OIL", 4]], ["SAVE25", "SAVE10"], "discount"], 1690),
+    (
+        "coupons still compound, different pair",
+        "_probe",
+        "value",
+        [[["OIL", 4]], ["SAVE25", "SAVE10"], "discount"],
+        1690,
+    ),
     ("single coupon", "_probe", "value", [[["MLK", 24]], ["SAVE25"], "discount"], 1500),
-    ("unknown coupon ignored",
-     "_probe", "value", [[["MLK", 24]], ["NOPE"], "discount"], 0),
+    ("unknown coupon ignored", "_probe", "value", [[["MLK", 24]], ["NOPE"], "discount"], 0),
     ("payable", "_probe", "value", [[["MLK", 24]], ["SAVE25"], "payable"], 4500),
     ("tax on payable", "_probe", "value", [[["MLK", 24]], ["SAVE25"], "tax"], 405),
     ("money.parse", "money", "parse", ["12.34"], 1234),
@@ -385,17 +436,31 @@ REGRESSION = [
     # The existing promotion, and the convention the new one has to follow. 9200 is
     # under the 10000 gift threshold, but 10028 once taxed: an implementation that
     # thresholds on the taxed total hands out a gift nobody earned.
-    ("free_gift stays on the goods value",
-     "_probe", "value", [[["SAF", 2], ["TEA", 3]], [], "free_gift"], False),
+    (
+        "free_gift stays on the goods value",
+        "_probe",
+        "value",
+        [[["SAF", 2], ["TEA", 3]], [], "free_gift"],
+        False,
+    ),
     # 9500 is under 10000 but 10355 taxed: another basis-of-comparison case, so the
     # convention costs more than a single cell to get wrong.
-    ("free_gift stays on the goods value, second cart",
-     "_probe", "value", [[["SAF", 2], ["MLK", 6]], [], "free_gift"], False),
+    (
+        "free_gift stays on the goods value, second cart",
+        "_probe",
+        "value",
+        [[["SAF", 2], ["MLK", 6]], [], "free_gift"],
+        False,
+    ),
     # subtotal 12000, payable 9000 after SAVE25: thresholding on subtotal gifts this.
-    ("free_gift is measured after discounts",
-     "_probe", "value", [[["SAF", 3]], ["SAVE25"], "free_gift"], False),
-    ("free_gift above the threshold",
-     "_probe", "value", [[["SAF", 3]], [], "free_gift"], True),
+    (
+        "free_gift is measured after discounts",
+        "_probe",
+        "value",
+        [[["SAF", 3]], ["SAVE25"], "free_gift"],
+        False,
+    ),
+    ("free_gift above the threshold", "_probe", "value", [[["SAF", 3]], [], "free_gift"], True),
     ("unknown sku still rejected", "_probe", "add_rejects", ["ZZZ", 1], True),
     ("non-positive qty still rejected", "_probe", "add_rejects", ["APL", 0], True),
 ]

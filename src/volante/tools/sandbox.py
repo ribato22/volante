@@ -43,9 +43,7 @@ def write_model_code(path: os.PathLike[str] | str, code: str) -> None:
         os.close(fd)
 
 
-def read_model_file(
-    path: os.PathLike[str] | str, *, max_bytes: int
-) -> str | None:
+def read_model_file(path: os.PathLike[str] | str, *, max_bytes: int) -> str | None:
     """Read a model-authored workspace file, or ``None`` if it is not one.
 
     The read side of ``write_model_code``. Guarding only the write reverses the
@@ -82,6 +80,7 @@ def read_model_file(
     finally:
         os.close(fd)
     return data.decode("utf-8", errors="ignore")
+
 
 # The wrapper runs INSIDE the child process: it sets RLIMIT_CPU before running the
 # snippet. This avoids preexec_fn (fork-unsafe & not safe inside an asyncio event
@@ -170,12 +169,8 @@ async def _collect_bounded_output(
     stderr = _BoundedCapture(max_output_bytes)
     output_limit_reached = asyncio.Event()
     tasks = [
-        asyncio.create_task(
-            _drain_bounded(proc.stdout, stdout, output_limit_reached)
-        ),
-        asyncio.create_task(
-            _drain_bounded(proc.stderr, stderr, output_limit_reached)
-        ),
+        asyncio.create_task(_drain_bounded(proc.stdout, stdout, output_limit_reached)),
+        asyncio.create_task(_drain_bounded(proc.stderr, stderr, output_limit_reached)),
         asyncio.create_task(proc.wait()),
     ]
     completion = asyncio.gather(*tasks)
@@ -320,7 +315,11 @@ class Sandbox:
         script = self.workspace / "_snippet.py"
         write_model_code(script, code)
         proc = await _spawn(
-            sys.executable, "-c", _WRAPPER, str(self.cpu_s), str(script),
+            sys.executable,
+            "-c",
+            _WRAPPER,
+            str(self.cpu_s),
+            str(script),
             cwd=str(self.workspace),
             env=_clean_env(self.workspace),
             stdout=asyncio.subprocess.PIPE,
@@ -420,9 +419,7 @@ def resolve_sandbox_mode(env: Any = None) -> tuple[str, str]:
             "VOLANTE_SANDBOX=subprocess (host filesystem and network are reachable)",
         )
     if raw:
-        raise ValueError(
-            f"VOLANTE_SANDBOX must be 'docker' or 'subprocess', got {raw!r}"
-        )
+        raise ValueError(f"VOLANTE_SANDBOX must be 'docker' or 'subprocess', got {raw!r}")
     if docker_available():
         return "docker", "auto-selected: a Docker daemon is available"
     return (
@@ -449,6 +446,4 @@ def sandbox_for(workspace, *, mode: str | None = None):
         return DockerSandbox(workspace)
     if mode == "subprocess":
         return Sandbox(workspace)
-    raise SandboxUnavailableError(
-        f"refusing to execute model-generated code: {reason}"
-    )
+    raise SandboxUnavailableError(f"refusing to execute model-generated code: {reason}")

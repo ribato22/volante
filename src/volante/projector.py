@@ -26,10 +26,7 @@ def model_input_token_budget(context_window: int, max_output_tokens: int) -> int
 def model_input_char_budget(context_window: int, max_output_tokens: int) -> int:
     """Character form of :func:`model_input_token_budget` for prompt trimming."""
 
-    return (
-        model_input_token_budget(context_window, max_output_tokens)
-        * _CHARS_PER_TOKEN
-    )
+    return model_input_token_budget(context_window, max_output_tokens) * _CHARS_PER_TOKEN
 
 
 def _mid_trim(content: str, dep_id: str, char_share: int) -> str:
@@ -88,12 +85,8 @@ class Projector:
         deps = [dep for dep in task.depends_on if dep in artifacts]
 
         # Input token budget with a 0.85 safety margin (PATCH v2.1).
-        max_tokens = min(
-            model.max_output_tokens, max(1, model.context_window // 2)
-        )
-        char_budget = model_input_char_budget(
-            model.context_window, max_tokens
-        )
+        max_tokens = min(model.max_output_tokens, max(1, model.context_window // 2))
+        char_budget = model_input_char_budget(model.context_window, max_tokens)
 
         labels = {dep: f"[artifact:{dep}]\n" for dep in deps}
         # Fixed framing is small but still part of context. Fail before a provider
@@ -107,9 +100,7 @@ class Projector:
             + sum(len(label) for label in labels.values())
         )
         if fixed >= char_budget:
-            raise ValueError(
-                f"model {model_id!r} context is too small for worker prompt framing"
-            )
+            raise ValueError(f"model {model_id!r} context is too small for worker prompt framing")
         remaining = char_budget - fixed
         # Bound both user-controlled strings before allocating the rest fairly to
         # dependency artifacts. Large goals/tasks therefore cannot make the first
@@ -129,10 +120,7 @@ class Projector:
             # Each dependency gets its own labelled block; no artifact can starve
             # another because each receives an equal share of remaining context.
             share = remaining // len(deps)  # content space per dependency (even)
-            blocks = [
-                f"{labels[dep]}{_mid_trim(str(artifacts[dep]), dep, share)}"
-                for dep in deps
-            ]
+            blocks = [f"{labels[dep]}{_mid_trim(str(artifacts[dep]), dep, share)}" for dep in deps]
             user_content = f"{task_line}\n\n" + "\n\n".join(blocks)
 
         return CanonicalRequest(

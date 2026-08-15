@@ -47,9 +47,7 @@ def test_published_schema_names_the_legal_objectives() -> None:
     from volante_mcp.server import build_server
 
     tools = asyncio.run(build_server().list_tools())
-    prefer = next(t for t in tools if t.name == "volante_run").inputSchema[
-        "properties"
-    ]["prefer"]
+    prefer = next(t for t in tools if t.name == "volante_run").inputSchema["properties"]["prefer"]
     enums = [branch["enum"] for branch in prefer["anyOf"] if "enum" in branch]
 
     assert enums, "prefer is published without an enum; agents are left guessing"

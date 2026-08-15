@@ -8,8 +8,9 @@ def _arm(comp, cost, ms=1, est=False):
 
 
 def test_highest_composite_wins():
-    out = compare_arms({"baseline": _arm(0.5, 0.01), "orchestration": _arm(0.9, 0.05),
-                        "agentic": _arm(0.7, 0.03)})
+    out = compare_arms(
+        {"baseline": _arm(0.5, 0.01), "orchestration": _arm(0.9, 0.05), "agentic": _arm(0.7, 0.03)}
+    )
     assert out["winner"] == "orchestration"
     assert set(out["arms"]) == {"baseline", "orchestration", "agentic"}
 

@@ -25,8 +25,18 @@ def _bb(payloads: dict[str, str]) -> Blackboard:
     plan = [Task(id=tid, description="d", type="code", mode="one_shot") for tid in payloads]
     bb = Blackboard(goal="build the module", plan=plan)
     for i, (tid, payload) in enumerate(payloads.items()):
-        bb.append(Entry(run_id="r1", task_id=tid, attempt=0, kind="artifact",
-                        payload=payload, model_id="m", usage=None, timestamp=float(i)))
+        bb.append(
+            Entry(
+                run_id="r1",
+                task_id=tid,
+                attempt=0,
+                kind="artifact",
+                payload=payload,
+                model_id="m",
+                usage=None,
+                timestamp=float(i),
+            )
+        )
     return bb
 
 
@@ -43,10 +53,12 @@ class _ExplodingProvider:
 
 
 async def test_it_assembles_without_calling_a_model() -> None:
-    bb = _bb({
-        "t0": "Here is the first part:\n```python\ndef alpha():\n    return 1\n```",
-        "t1": "And the second:\n```python\ndef beta():\n    return 2\n```",
-    })
+    bb = _bb(
+        {
+            "t0": "Here is the first part:\n```python\ndef alpha():\n    return 1\n```",
+            "t1": "And the second:\n```python\ndef beta():\n    return 2\n```",
+        }
+    )
 
     out = await ArtifactAssembler().synthesize("build the module", bb)
 
@@ -58,10 +70,12 @@ async def test_it_assembles_without_calling_a_model() -> None:
 async def test_it_keeps_the_plan_order() -> None:
     # Dependencies are resolved by the planner; assembling out of order would put a
     # caller before the helper it calls.
-    bb = _bb({
-        "t0": "```python\ndef helper():\n    return 1\n```",
-        "t1": "```python\ndef uses_helper():\n    return helper()\n```",
-    })
+    bb = _bb(
+        {
+            "t0": "```python\ndef helper():\n    return 1\n```",
+            "t1": "```python\ndef uses_helper():\n    return helper()\n```",
+        }
+    )
 
     out = await ArtifactAssembler().synthesize("g", bb)
 

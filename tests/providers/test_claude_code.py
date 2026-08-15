@@ -40,18 +40,25 @@ def test_argv_json_append_is_canonical_no_bare(tmp_path) -> None:
         scratch_dir=tmp_path,
     )
     assert argv == [
-        "claude", "-p",
-        "--input-format", "text",
-        "--output-format", "json",
-        "--model", "opus",
-        "--tools", "",
+        "claude",
+        "-p",
+        "--input-format",
+        "text",
+        "--output-format",
+        "json",
+        "--model",
+        "opus",
+        "--tools",
+        "",
         "--strict-mcp-config",
         "--safe-mode",
         "--no-session-persistence",
         "--disable-slash-commands",
         "--no-chrome",
-        "--disallowedTools", "LSP",
-        "--append-system-prompt-file", str(tmp_path / "system-prompt.txt"),
+        "--disallowedTools",
+        "LSP",
+        "--append-system-prompt-file",
+        str(tmp_path / "system-prompt.txt"),
     ]
     # OAuth langganan HARUS hidup + tak boleh skip permission (§8.1).
     assert "--bare" not in argv
@@ -65,8 +72,12 @@ def test_argv_stream_switches_output_format(tmp_path) -> None:
     stream_dir.mkdir()
     json_dir.mkdir()
     argv = ClaudeCodeAdapter().argv(
-        _req("SYS", "hi"), model="opus", max_output=4096,
-        system_prompt_mode="append", stream=True, scratch_dir=stream_dir,
+        _req("SYS", "hi"),
+        model="opus",
+        max_output=4096,
+        system_prompt_mode="append",
+        stream=True,
+        scratch_dir=stream_dir,
     )
     assert "--output-format" in argv
     assert argv[argv.index("--output-format") + 1] == "stream-json"
@@ -74,8 +85,12 @@ def test_argv_stream_switches_output_format(tmp_path) -> None:
     # its absence broke a real run. json (non-stream) mode must NOT carry --verbose.
     assert "--verbose" in argv
     json_argv = ClaudeCodeAdapter().argv(
-        _req("SYS", "hi"), model="opus", max_output=4096,
-        system_prompt_mode="append", stream=False, scratch_dir=json_dir,
+        _req("SYS", "hi"),
+        model="opus",
+        max_output=4096,
+        system_prompt_mode="append",
+        stream=False,
+        scratch_dir=json_dir,
     )
     assert "--verbose" not in json_argv
 
@@ -88,8 +103,12 @@ def test_argv_disallows_lsp_explicitly_stream_and_nonstream(tmp_path) -> None:
     # availability-removal explicit for LSP too, in BOTH stream and non-stream argv.
     for stream in (False, True):
         argv = ClaudeCodeAdapter().argv(
-            _req(None, "hi"), model="opus", max_output=4096,
-            system_prompt_mode="append", stream=stream, scratch_dir=tmp_path,
+            _req(None, "hi"),
+            model="opus",
+            max_output=4096,
+            system_prompt_mode="append",
+            stream=stream,
+            scratch_dir=tmp_path,
         )  # no system message here, so no prompt file is written
         assert "--disallowedTools" in argv
         assert argv[argv.index("--disallowedTools") + 1] == "LSP"
@@ -102,8 +121,12 @@ def test_argv_disallows_lsp_explicitly_stream_and_nonstream(tmp_path) -> None:
 
 def test_argv_replace_mode_uses_system_prompt_flag(tmp_path) -> None:
     argv = ClaudeCodeAdapter().argv(
-        _req("SYS", "hi"), model="opus", max_output=4096,
-        system_prompt_mode="replace", stream=False, scratch_dir=tmp_path,
+        _req("SYS", "hi"),
+        model="opus",
+        max_output=4096,
+        system_prompt_mode="replace",
+        stream=False,
+        scratch_dir=tmp_path,
     )
     assert "--system-prompt-file" in argv
     assert "--append-system-prompt-file" not in argv
@@ -111,8 +134,12 @@ def test_argv_replace_mode_uses_system_prompt_flag(tmp_path) -> None:
 
 def test_argv_omits_system_flag_when_no_system_message(tmp_path) -> None:
     argv = ClaudeCodeAdapter().argv(
-        _req(None, "hi"), model="opus", max_output=4096,
-        system_prompt_mode="append", stream=False, scratch_dir=tmp_path,
+        _req(None, "hi"),
+        model="opus",
+        max_output=4096,
+        system_prompt_mode="append",
+        stream=False,
+        scratch_dir=tmp_path,
     )
     assert "--append-system-prompt-file" not in argv
     assert "--system-prompt-file" not in argv
@@ -128,8 +155,11 @@ def test_the_goal_never_reaches_the_process_table(tmp_path) -> None:
     goal = "CONFIDENTIAL-acquisition-target-valuation"
     argv = ClaudeCodeAdapter().argv(
         _req(f"You are a worker. Overall goal: {goal}", "do it"),
-        model="opus", max_output=4096, system_prompt_mode="replace",
-        stream=False, scratch_dir=tmp_path,
+        model="opus",
+        max_output=4096,
+        system_prompt_mode="replace",
+        stream=False,
+        scratch_dir=tmp_path,
     )
 
     assert not any(goal in element for element in argv), "goal is visible in argv"
@@ -143,8 +173,12 @@ def test_the_system_prompt_file_is_owner_only(tmp_path) -> None:
     import stat as _stat
 
     argv = ClaudeCodeAdapter().argv(
-        _req("SYS", "hi"), model="opus", max_output=4096,
-        system_prompt_mode="replace", stream=False, scratch_dir=tmp_path,
+        _req("SYS", "hi"),
+        model="opus",
+        max_output=4096,
+        system_prompt_mode="replace",
+        stream=False,
+        scratch_dir=tmp_path,
     )
 
     written = Path(argv[argv.index("--system-prompt-file") + 1])
@@ -169,29 +203,33 @@ def test_child_env_scrubs_api_key_forcing_subscription() -> None:
     # (§8.2, fix: no double-bump).
     env = a.child_env(base, depth=0)
     assert env[DEPTH_ENV] == "0"
-    assert env["PATH"] == "/bin"                        # base diteruskan
+    assert env["PATH"] == "/bin"  # base diteruskan
     # §13 gate decision: SCRUB ANTHROPIC_API_KEY so `claude -p` always bills the
     # OAuth subscription (plan_included), never the metered API card, even if the
     # user has the key exported. Mirrors CodexAdapter's key scrub.
     assert "ANTHROPIC_API_KEY" not in env
     assert base["ANTHROPIC_API_KEY"] == "sk-would-bill-card"  # caller dict NOT mutated
-    assert base[DEPTH_ENV] == "0"                       # tak mutasi input
+    assert base[DEPTH_ENV] == "0"  # tak mutasi input
 
 
 def test_parse_json_result_sets_usage_cost_and_latency() -> None:
     payload = {
-        "type": "result", "subtype": "success", "is_error": False,
-        "duration_ms": 4213, "result": "Paris.",
-        "total_cost_usd": 0.0123, "usage": {"input_tokens": 812, "output_tokens": 37},
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "duration_ms": 4213,
+        "result": "Paris.",
+        "total_cost_usd": 0.0123,
+        "usage": {"input_tokens": 812, "output_tokens": 37},
     }
     res = CliRunResult(stdout=json.dumps(payload), stderr="", returncode=0)
     resp = ClaudeCodeAdapter().parse(res, _req("SYS", "capital of France?"))
     assert resp.content == [TextBlock(text="Paris.")]
     assert resp.usage == Usage(prompt_tokens=812, completion_tokens=37)
-    assert resp.usage.estimated is False        # token nyata dari JSON
-    assert resp.cost_usd == 0.0123              # total_cost_usd → carrier kredit (§5.3)
-    assert resp.latency_ms == 4213             # duration_ms
-    assert resp.stop_reason == "end_turn"      # subtype "success" -> end_turn
+    assert resp.usage.estimated is False  # token nyata dari JSON
+    assert resp.cost_usd == 0.0123  # total_cost_usd → carrier kredit (§5.3)
+    assert resp.latency_ms == 4213  # duration_ms
+    assert resp.stop_reason == "end_turn"  # subtype "success" -> end_turn
 
 
 def test_parse_unparseable_json_falls_back_to_estimated_usage() -> None:
@@ -200,7 +238,7 @@ def test_parse_unparseable_json_falls_back_to_estimated_usage() -> None:
     resp = ClaudeCodeAdapter().parse(res, _req(None, "0123456789012345"))
     assert resp.content == [TextBlock(text="not json at all")]
     assert resp.usage.estimated is True
-    assert resp.usage.prompt_tokens == 4       # _est("0123456789012345") == 16 // 4
+    assert resp.usage.prompt_tokens == 4  # _est("0123456789012345") == 16 // 4
     assert resp.cost_usd is None
 
 
@@ -228,8 +266,8 @@ def test_parse_json_without_usage_estimates_but_keeps_cost() -> None:
     payload = {"type": "result", "subtype": "success", "result": "hi", "total_cost_usd": 0.5}
     res = CliRunResult(stdout=json.dumps(payload), stderr="", returncode=0)
     resp = ClaudeCodeAdapter().parse(res, _req(None, "q"))
-    assert resp.usage.estimated is True         # usage hilang -> estimasi
-    assert resp.cost_usd == 0.5                 # tapi cost otoritatif tetap dipakai
+    assert resp.usage.estimated is True  # usage hilang -> estimasi
+    assert resp.cost_usd == 0.5  # tapi cost otoritatif tetap dipakai
 
 
 def test_parse_delta_extracts_assistant_text() -> None:
@@ -256,14 +294,18 @@ def test_classify_error_not_logged_in_is_quota_exhausted() -> None:
     a = ClaudeCodeAdapter()
     res = CliRunResult(stdout="", stderr="Not logged in. Please run /login", returncode=1)
     err = a.classify_error(res)
-    assert err.quota_exhausted is True     # pragmatis: reroute tanpa backoff (Fase 5)
-    assert err.retryable is False          # quota_exhausted -> WAJIB non-retryable (Fase 4)
+    assert err.quota_exhausted is True  # pragmatis: reroute tanpa backoff (Fase 5)
+    assert err.retryable is False  # quota_exhausted -> WAJIB non-retryable (Fase 4)
 
 
 def test_classify_error_usage_limit_is_quota_exhausted() -> None:
     a = ClaudeCodeAdapter()
-    payload = {"type": "result", "is_error": True, "subtype": "error",
-               "result": "Claude usage limit reached. Try again later."}
+    payload = {
+        "type": "result",
+        "is_error": True,
+        "subtype": "error",
+        "result": "Claude usage limit reached. Try again later.",
+    }
     res = CliRunResult(stdout=json.dumps(payload), stderr="", returncode=0)
     err = a.classify_error(res)
     assert err.quota_exhausted is True
@@ -310,6 +352,7 @@ _FIXTURES = Path(__file__).parent / "fixtures"
 def _runner_returning(result: CliRunResult):
     async def runner(argv, *, stdin, env, timeout, on_line=None):
         return result
+
     return runner
 
 
@@ -352,7 +395,7 @@ async def test_complete_through_provider_carries_cost_usd() -> None:
     assert resp.content[0].text == "The capital of France is Paris."
     assert resp.usage == Usage(prompt_tokens=812, completion_tokens=37)
     assert resp.usage.estimated is False
-    assert resp.cost_usd == 0.0123          # total_cost_usd -> carrier kredit (§5.3)
+    assert resp.cost_usd == 0.0123  # total_cost_usd -> carrier kredit (§5.3)
     assert resp.latency_ms == 4213
 
 
@@ -360,13 +403,21 @@ _STREAM_LINES = [
     json.dumps({"type": "system", "subtype": "init", "session_id": "s1"}),
     json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Paris"}]}}),
     json.dumps(
-        {"type": "assistant",
-         "message": {"content": [{"type": "text", "text": " is the capital."}]}}
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": " is the capital."}]},
+        }
     ),
     json.dumps(
-        {"type": "result", "subtype": "success", "is_error": False,
-         "result": "Paris is the capital.", "total_cost_usd": 0.004,
-         "usage": {"input_tokens": 5, "output_tokens": 6}, "duration_ms": 900}
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "Paris is the capital.",
+            "total_cost_usd": 0.004,
+            "usage": {"input_tokens": 5, "output_tokens": 6},
+            "duration_ms": 900,
+        }
     ),
 ]
 
@@ -379,24 +430,21 @@ def _stream_runner(lines: list[str]):
             if on_line is not None and on_line(ln):  # truthy -> provider minta stop
                 break
         return final
+
     return runner
 
 
 async def test_stream_forwards_assistant_text_deltas() -> None:
-    provider = CliAgentProvider(
-        ClaudeCodeAdapter(), "opus", runner=_stream_runner(_STREAM_LINES)
-    )
+    provider = CliAgentProvider(ClaudeCodeAdapter(), "opus", runner=_stream_runner(_STREAM_LINES))
     req = CanonicalRequest(messages=[text("user", "capital?")], max_tokens=64)
     got: list[str] = []
     resp = await provider.stream(req, got.append)
-    assert got == ["Paris", " is the capital."]   # init/result -> parse_delta None
+    assert got == ["Paris", " is the capital."]  # init/result -> parse_delta None
     assert isinstance(resp, CanonicalResponse)
 
 
 async def test_stream_early_stop_on_truthy_callback() -> None:
-    provider = CliAgentProvider(
-        ClaudeCodeAdapter(), "opus", runner=_stream_runner(_STREAM_LINES)
-    )
+    provider = CliAgentProvider(ClaudeCodeAdapter(), "opus", runner=_stream_runner(_STREAM_LINES))
     req = CanonicalRequest(messages=[text("user", "capital?")], max_tokens=64)
     got: list[str] = []
 
@@ -422,9 +470,7 @@ def test_stream_result_line_none_when_no_result_line() -> None:
 async def test_stream_through_provider_surfaces_usage_and_cost() -> None:
     # §5.3: cost_usd is the primary credit source -- a STREAMED subscription call
     # must surface REAL usage/cost from the terminal result line, not Usage(0, 0).
-    provider = CliAgentProvider(
-        ClaudeCodeAdapter(), "opus", runner=_stream_runner(_STREAM_LINES)
-    )
+    provider = CliAgentProvider(ClaudeCodeAdapter(), "opus", runner=_stream_runner(_STREAM_LINES))
     req = CanonicalRequest(messages=[text("user", "capital?")], max_tokens=64)
     resp = await provider.stream(req, lambda _d: False)
     assert resp.content[0].text == "Paris is the capital."
@@ -440,8 +486,12 @@ _STREAM_LINES_TERMINAL_ERROR = [
         {"type": "assistant", "message": {"content": [{"type": "text", "text": "Working..."}]}}
     ),
     json.dumps(
-        {"type": "result", "subtype": "error_during_execution", "is_error": True,
-         "result": "Claude usage limit reached. Try again later."}
+        {
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": True,
+            "result": "Claude usage limit reached. Try again later.",
+        }
     ),
 ]
 
@@ -458,7 +508,7 @@ async def test_stream_terminal_is_error_reroutes() -> None:
     req = CanonicalRequest(messages=[text("user", "capital?")], max_tokens=64)
     with pytest.raises(ProviderError) as ei:
         await provider.stream(req, lambda _d: False)
-    assert ei.value.quota_exhausted is True   # reroute, not a bogus success/credit
+    assert ei.value.quota_exhausted is True  # reroute, not a bogus success/credit
     assert ei.value.retryable is False
 
 
@@ -468,9 +518,9 @@ def test_claude_code_model_info_seed() -> None:
     mi = claude_code_model_info("opus")
     assert mi.id == "claude-code/opus"
     assert mi.provider == "claude_code"
-    assert mi.billing == "plan_included"     # cash $0, valuasi kredit (§5.1)
+    assert mi.billing == "plan_included"  # cash $0, valuasi kredit (§5.1)
     assert mi.tier == 4
-    assert mi.supports_tools is False        # jalur --tools "" (§8.1)
+    assert mi.supports_tools is False  # jalur --tools "" (§8.1)
     # The underlying Opus rate, used ONLY to value plan consumption as credit_usd.
     # This assertion used to read (0.015, 0.075) and so ENFORCED the 3x error the
     # 0.3.1 release was named for: the fix landed everywhere except here, and the

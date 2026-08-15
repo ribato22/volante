@@ -207,9 +207,7 @@ async def test_synthesize_records_usage_keyed_by_model_id() -> None:
 
 async def test_synthesize_forwards_provider_authoritative_cost() -> None:
     meter = CostMeter()
-    provider = FakeProvider(
-        responses=[_resp("FINAL", cost_usd=0.456)]
-    )
+    provider = FakeProvider(responses=[_resp("FINAL", cost_usd=0.456)])
     synth = Synthesizer(provider=provider, model_id="synth-model", cost_meter=meter)
 
     await synth.synthesize("Write a report", _bb_with_artifacts())
@@ -298,18 +296,31 @@ async def test_synthesizer_call_gate_runs_immediately_before_provider() -> None:
 
 
 def _bb_with(payloads: list[str]) -> Blackboard:
-    plan = [Task(id=f"t{i}", description="d", type="code", mode="one_shot")
-            for i, _ in enumerate(payloads)]
+    plan = [
+        Task(id=f"t{i}", description="d", type="code", mode="one_shot")
+        for i, _ in enumerate(payloads)
+    ]
     bb = Blackboard(goal="assemble it", plan=plan)
     for i, payload in enumerate(payloads):
-        bb.append(Entry(run_id="r1", task_id=f"t{i}", attempt=0, kind="artifact",
-                        payload=payload, model_id="m", usage=None, timestamp=float(i)))
+        bb.append(
+            Entry(
+                run_id="r1",
+                task_id=f"t{i}",
+                attempt=0,
+                kind="artifact",
+                payload=payload,
+                model_id="m",
+                usage=None,
+                timestamp=float(i),
+            )
+        )
     return bb
 
 
 def _budget(bb: Blackboard, *, context_window=200_000, max_output_tokens=64_000) -> int:
-    synth = Synthesizer(provider=_CapturingProvider(_resp("x")), model_id="m",
-                        cost_meter=CostMeter())
+    synth = Synthesizer(
+        provider=_CapturingProvider(_resp("x")), model_id="m", cost_meter=CostMeter()
+    )
     synth.set_model_limits(context_window=context_window, max_output_tokens=max_output_tokens)
     return synth._build_prompt("assemble it", bb)[2]
 
@@ -422,7 +433,7 @@ class _SequenceProvider:
 
 
 _BROKEN = '```python\ndef f():\n    return 1\n\nREADME = """\n# docs\n```\n'
-_GOOD = '```python\ndef f():\n    return 1\n```\n\n```markdown\n# docs\n```\n'
+_GOOD = "```python\ndef f():\n    return 1\n```\n\n```markdown\n# docs\n```\n"
 
 
 async def _synthesize_with(answers: list[str]) -> tuple[str, int]:
@@ -459,7 +470,7 @@ async def test_a_still_broken_retry_never_returns_something_worse() -> None:
     A persistently broken model costs exactly one extra call, and the caller gets the
     first answer rather than whatever the second attempt degraded into.
     """
-    second = '```python\nstill broken(\n```\n'
+    second = "```python\nstill broken(\n```\n"
     final, calls = await _synthesize_with([_BROKEN, second])
 
     assert calls == 2

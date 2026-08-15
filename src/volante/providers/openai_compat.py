@@ -71,9 +71,7 @@ def _to_chat_messages(messages: list[CanonicalMessage]) -> list[dict]:
         tool_results = [b for b in m.content if isinstance(b, ToolResultBlock)]
         if tool_results:
             for tr in tool_results:
-                out.append(
-                    {"role": "tool", "tool_call_id": tr.tool_use_id, "content": tr.content}
-                )
+                out.append({"role": "tool", "tool_call_id": tr.tool_use_id, "content": tr.content})
             continue
         tool_uses = [b for b in m.content if isinstance(b, ToolUseBlock)]
         text_out = "".join(b.text for b in m.content if isinstance(b, TextBlock))
@@ -98,9 +96,7 @@ def _to_chat_messages(messages: list[CanonicalMessage]) -> list[dict]:
 
 
 def _join_input_text(messages: list[CanonicalMessage]) -> str:
-    return "".join(
-        b.text for m in messages for b in m.content if isinstance(b, TextBlock)
-    )
+    return "".join(b.text for m in messages for b in m.content if isinstance(b, TextBlock))
 
 
 def _status_of(err: BaseException) -> int | None:
@@ -111,9 +107,7 @@ def _status_of(err: BaseException) -> int | None:
 
 
 def _is_network_error(err: BaseException) -> bool:
-    if isinstance(
-        err, (APITimeoutError, APIConnectionError, TimeoutError, ConnectionError)
-    ):
+    if isinstance(err, (APITimeoutError, APIConnectionError, TimeoutError, ConnectionError)):
         return True
     name = type(err).__name__
     return name.endswith("TimeoutError") or name.endswith("ConnectionError")
@@ -254,9 +248,7 @@ class OpenAICompatProvider:
                 prompt_tokens=_est(_join_input_text(req.messages)),
                 completion_tokens=_est(
                     text_out
-                    + "".join(
-                        getattr(tc.function, "arguments", "") or "" for tc in tool_calls
-                    )
+                    + "".join(getattr(tc.function, "arguments", "") or "" for tc in tool_calls)
                 ),
                 estimated=True,
             )
@@ -355,9 +347,7 @@ class OpenAICompatProvider:
             content.append(ToolUseBlock(id=acc["id"] or "", name=acc["name"] or "", input=args))
         if not content:
             content = [TextBlock(text="")]
-        stop_reason = (
-            "early_stop" if stopped else _canonical_stop_reason(finish_reason)
-        )
+        stop_reason = "early_stop" if stopped else _canonical_stop_reason(finish_reason)
 
         prompt_toks = getattr(usage_obj, "prompt_tokens", None)
         completion_toks = getattr(usage_obj, "completion_tokens", None)

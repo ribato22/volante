@@ -54,31 +54,51 @@ class DockerSandbox:
 
     def _argv(self, name: str) -> list[str]:
         return [
-            "docker", "run", "--rm", "--name", name,
-            "--network", "none",
-            "-v", f"{self.workspace}:/work", "-w", "/work",
-            "--memory", f"{self.mem_mb}m",
-            "--cpus", str(self.cpus),
-            "--pids-limit", str(self.pids),
-            "--cap-drop", "ALL",
-            "--security-opt", "no-new-privileges",
+            "docker",
+            "run",
+            "--rm",
+            "--name",
+            name,
+            "--network",
+            "none",
+            "-v",
+            f"{self.workspace}:/work",
+            "-w",
+            "/work",
+            "--memory",
+            f"{self.mem_mb}m",
+            "--cpus",
+            str(self.cpus),
+            "--pids-limit",
+            str(self.pids),
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
             # The bind-mounted workspace is created by this host process with the
             # caller's normal permissions (typically 0755). Running as ``nobody``
             # made it readable but not writable, contradicting the persistent
             # workspace contract. Matching the host's numeric identity grants
             # write access only to the intentionally mounted workspace; the
             # container root remains read-only and capabilities stay dropped.
-            "--user", f"{os.getuid()}:{os.getgid()}",
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
             "--read-only",
-            "--tmpfs", "/tmp:rw,size=64m",
-            self.image, "python", "_snippet.py",
+            "--tmpfs",
+            "/tmp:rw,size=64m",
+            self.image,
+            "python",
+            "_snippet.py",
         ]
 
     async def _kill(self, name: str) -> None:
         try:
             k = await _spawn(
-                "docker", "kill", name,
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                "docker",
+                "kill",
+                name,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
         except OSError:
             return

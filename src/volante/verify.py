@@ -85,7 +85,7 @@ _MIN_GROUNDED_CHECKS = 3
 # Each assertion runs on its own so one failure cannot hide the rest, and the reason is
 # captured so a reader can see whether the CHECK or the CODE was wrong. Runs inside the
 # sandbox, which is what the sandbox is for: these assertions are model-written.
-_RUNNER = '''
+_RUNNER = """
 import json
 _failed = []
 for _src in _ASSERTS:
@@ -94,7 +94,7 @@ for _src in _ASSERTS:
     except Exception as _exc:
         _failed.append([_src, type(_exc).__name__ + ": " + str(_exc)[:160]])
 print("VOLANTE_CHECKS " + json.dumps({"failed": _failed, "total": len(_ASSERTS)}))
-'''
+"""
 
 _MARKER = "VOLANTE_CHECKS "
 
@@ -114,20 +114,12 @@ class CheckReport:
     @property
     def inconclusive(self) -> bool:
         """Too few grounded checks to say anything. NOT a pass."""
-        return (
-            self.error is None
-            and not self.failed
-            and 0 < self.total < _MIN_GROUNDED_CHECKS
-        )
+        return self.error is None and not self.failed and 0 < self.total < _MIN_GROUNDED_CHECKS
 
     @property
     def all_passed(self) -> bool:
         """Every check passed AND there were enough of them to mean it."""
-        return (
-            self.total >= _MIN_GROUNDED_CHECKS
-            and not self.failed
-            and self.error is None
-        )
+        return self.total >= _MIN_GROUNDED_CHECKS and not self.failed and self.error is None
 
     def summary(self) -> str:
         if self.error is not None:
@@ -177,11 +169,7 @@ def extract_python(answer: str) -> str:
 def parse_assertions(derived: str) -> list[str]:
     """The `assert` lines out of a derivation, ignoring whatever else it wrote."""
     body = extract_python(derived)
-    return [
-        line.strip()
-        for line in body.splitlines()
-        if line.strip().startswith("assert ")
-    ]
+    return [line.strip() for line in body.splitlines() if line.strip().startswith("assert ")]
 
 
 def build_program(solution: str, assertions: list[str]) -> str:

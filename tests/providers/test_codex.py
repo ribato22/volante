@@ -27,22 +27,33 @@ def test_name_is_codex() -> None:
 
 def test_argv_has_exec_json_skip_git_and_model(tmp_path) -> None:
     argv = CodexAdapter().argv(
-        _req(), model="gpt-5-codex", max_output=4096,
-        system_prompt_mode="append", stream=False, scratch_dir=tmp_path,
+        _req(),
+        model="gpt-5-codex",
+        max_output=4096,
+        system_prompt_mode="append",
+        stream=False,
+        scratch_dir=tmp_path,
     )
     assert argv == [
-        "codex", "exec", "--json", "--skip-git-repo-check",
-        "--sandbox", "read-only",
+        "codex",
+        "exec",
+        "--json",
+        "--skip-git-repo-check",
+        "--sandbox",
+        "read-only",
         "--ephemeral",
         "--ignore-user-config",
         "--ignore-rules",
-        "--config", "model=gpt-5-codex",
+        "--config",
+        "model=gpt-5-codex",
     ]
 
 
 def test_argv_identical_when_stream_true(tmp_path) -> None:
     common = dict(
-        model="gpt-5-codex", max_output=4096, system_prompt_mode="append",
+        model="gpt-5-codex",
+        max_output=4096,
+        system_prompt_mode="append",
         scratch_dir=tmp_path,
     )
     assert CodexAdapter().argv(_req(), stream=False, **common) == CodexAdapter().argv(
@@ -54,12 +65,20 @@ def test_argv_omits_config_model_pair_when_model_empty(tmp_path) -> None:
     # Empty model (CODEX_MODEL unset) -> codex exec must fall back to the user's OWN
     # configured default, not an explicit `--config model=` (empty value breaks a real spawn).
     argv = CodexAdapter().argv(
-        _req(), model="", max_output=4096, system_prompt_mode="append", stream=False,
+        _req(),
+        model="",
+        max_output=4096,
+        system_prompt_mode="append",
+        stream=False,
         scratch_dir=tmp_path,
     )
     assert argv == [
-        "codex", "exec", "--json", "--skip-git-repo-check",
-        "--sandbox", "read-only",
+        "codex",
+        "exec",
+        "--json",
+        "--skip-git-repo-check",
+        "--sandbox",
+        "read-only",
         "--ephemeral",
         "--ignore-user-config",
         "--ignore-rules",
@@ -69,8 +88,12 @@ def test_argv_omits_config_model_pair_when_model_empty(tmp_path) -> None:
 
 def test_argv_includes_config_model_pair_when_model_set(tmp_path) -> None:
     argv = CodexAdapter().argv(
-        _req(), model="gpt-5-codex", max_output=4096,
-        system_prompt_mode="append", stream=False, scratch_dir=tmp_path,
+        _req(),
+        model="gpt-5-codex",
+        max_output=4096,
+        system_prompt_mode="append",
+        stream=False,
+        scratch_dir=tmp_path,
     )
     assert "--config" in argv
     assert "model=gpt-5-codex" in argv
@@ -86,8 +109,8 @@ def test_child_env_scrubs_openai_and_codex_keys() -> None:
     env = CodexAdapter().child_env(base, depth=0)
     assert "OPENAI_API_KEY" not in env
     assert "CODEX_API_KEY" not in env
-    assert env["PATH"] == "/usr/bin"           # unrelated keys preserved
-    assert env["HOME"] == "/home/u"            # needed to reach ~/.codex/auth.json
+    assert env["PATH"] == "/usr/bin"  # unrelated keys preserved
+    assert env["HOME"] == "/home/u"  # needed to reach ~/.codex/auth.json
     assert base["OPENAI_API_KEY"] == "sk-leak"  # caller dict NOT mutated
 
 
@@ -139,27 +162,28 @@ def test_stdin_is_prompt_text_system_then_user() -> None:
 def _item_completed(text: str, *, item_type: str = "agent_message") -> str:
     # REAL wire shape (live-verified 2026-07-23): agent text lives inside
     # item.completed's `item`, not a top-level `agent_message` event.
-    return json.dumps({
-        "type": "item.completed",
-        "item": {"id": "item_0", "type": item_type, "text": text},
-    })
-
-
-_JSONL = "\n".join([
-    json.dumps({"type": "thread.started", "thread_id": "th_1"}),
-    json.dumps({"type": "turn.started"}),
-    _item_completed("Hello from Codex"),
-    json.dumps({"type": "turn.completed",
-                "usage": {"input_tokens": 120, "output_tokens": 34}}),
-])
-
-
-def _run_result(stdout: str, *, stderr: str = "", returncode: int = 0,
-                timed_out: bool = False):
-    from volante.providers.cli_agent import CliRunResult
-    return CliRunResult(
-        stdout=stdout, stderr=stderr, returncode=returncode, timed_out=timed_out
+    return json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"id": "item_0", "type": item_type, "text": text},
+        }
     )
+
+
+_JSONL = "\n".join(
+    [
+        json.dumps({"type": "thread.started", "thread_id": "th_1"}),
+        json.dumps({"type": "turn.started"}),
+        _item_completed("Hello from Codex"),
+        json.dumps({"type": "turn.completed", "usage": {"input_tokens": 120, "output_tokens": 34}}),
+    ]
+)
+
+
+def _run_result(stdout: str, *, stderr: str = "", returncode: int = 0, timed_out: bool = False):
+    from volante.providers.cli_agent import CliRunResult
+
+    return CliRunResult(stdout=stdout, stderr=stderr, returncode=returncode, timed_out=timed_out)
 
 
 def test_parse_final_text_and_usage_from_turn_completed() -> None:
@@ -173,26 +197,30 @@ def test_parse_final_text_and_usage_from_turn_completed() -> None:
 
 
 def test_parse_usage_estimated_when_turn_completed_lacks_usage() -> None:
-    jsonl = "\n".join([
-        json.dumps({"type": "thread.started", "thread_id": "th_2"}),
-        _item_completed("abcdefgh"),
-        json.dumps({"type": "turn.completed"}),  # no usage key
-    ])
+    jsonl = "\n".join(
+        [
+            json.dumps({"type": "thread.started", "thread_id": "th_2"}),
+            _item_completed("abcdefgh"),
+            json.dumps({"type": "turn.completed"}),  # no usage key
+        ]
+    )
     resp = CodexAdapter().parse(_run_result(jsonl), _req("0123456789012345"))
     assert resp.content[0].text == "abcdefgh"
     assert resp.usage.estimated is True
-    assert resp.usage.prompt_tokens == 4       # len("0123456789012345") // 4
-    assert resp.usage.completion_tokens == 2   # len("abcdefgh") // 4
+    assert resp.usage.prompt_tokens == 4  # len("0123456789012345") // 4
+    assert resp.usage.completion_tokens == 2  # len("abcdefgh") // 4
 
 
 def test_parse_without_turn_completed_is_not_reported_complete() -> None:
     # `turn.completed` IS codex's statement that the turn finished. Output holding
     # agent text but no such event is a turn that stopped early; returning end_turn
     # regardless meant the one signal we have was never read.
-    jsonl = "\n".join([
-        json.dumps({"type": "thread.started", "thread_id": "th_3"}),
-        _item_completed("The answer so far is incomp"),
-    ])
+    jsonl = "\n".join(
+        [
+            json.dumps({"type": "thread.started", "thread_id": "th_3"}),
+            _item_completed("The answer so far is incomp"),
+        ]
+    )
     resp = CodexAdapter().parse(_run_result(jsonl), _req("q"))
     assert resp.content[0].text == "The answer so far is incomp"
     with pytest.raises(IncompleteOutputError):
@@ -205,14 +233,18 @@ def test_parse_ignores_total_cost_usd_field_cost_stays_none() -> None:
     # turn.completed, parse() must still ignore it. The registry-rate fallback
     # (CODEX_COST_IN/CODEX_COST_OUT via build_codex_model) is applied downstream
     # by CostMeter using token counts, not by trusting an unverified wire field here.
-    jsonl = "\n".join([
-        _item_completed("done"),
-        json.dumps({
-            "type": "turn.completed",
-            "usage": {"input_tokens": 10, "output_tokens": 5},
-            "total_cost_usd": 0.0123,  # hypothetical stray field -- must be ignored
-        }),
-    ])
+    jsonl = "\n".join(
+        [
+            _item_completed("done"),
+            json.dumps(
+                {
+                    "type": "turn.completed",
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                    "total_cost_usd": 0.0123,  # hypothetical stray field -- must be ignored
+                }
+            ),
+        ]
+    )
     resp = CodexAdapter().parse(_run_result(jsonl), _req())
     assert resp.cost_usd is None
 
@@ -246,17 +278,14 @@ def test_classify_not_logged_in_is_quota_exhausted_non_retryable() -> None:
 
 def test_classify_usage_limit_is_quota_exhausted() -> None:
     err = CodexAdapter().classify_error(
-        _run_result("", stderr="You've hit your usage limit. Try again in 3h 12m.",
-                    returncode=1)
+        _run_result("", stderr="You've hit your usage limit. Try again in 3h 12m.", returncode=1)
     )
     assert err.quota_exhausted is True
     assert err.retryable is False
 
 
 def test_classify_timeout_is_retryable_not_quota() -> None:
-    err = CodexAdapter().classify_error(
-        _run_result("", returncode=-9, timed_out=True)
-    )
+    err = CodexAdapter().classify_error(_run_result("", returncode=-9, timed_out=True))
     assert err.retryable is True
     assert err.quota_exhausted is False
 
@@ -279,18 +308,22 @@ def test_classify_generic_failure_is_non_retryable_non_quota() -> None:
 
 
 def test_is_error_true_for_explicit_error_event() -> None:
-    jsonl = "\n".join([
-        json.dumps({"type": "thread.started", "thread_id": "th_3"}),
-        json.dumps({"type": "error", "message": "codex: sandbox denied"}),
-    ])
+    jsonl = "\n".join(
+        [
+            json.dumps({"type": "thread.started", "thread_id": "th_3"}),
+            json.dumps({"type": "error", "message": "codex: sandbox denied"}),
+        ]
+    )
     assert CodexAdapter().is_error(_run_result(jsonl)) is True
 
 
 def test_is_error_true_when_turn_completed_carries_error_field() -> None:
-    jsonl = "\n".join([
-        _item_completed("partial"),
-        json.dumps({"type": "turn.completed", "error": {"message": "turn failed"}}),
-    ])
+    jsonl = "\n".join(
+        [
+            _item_completed("partial"),
+            json.dumps({"type": "turn.completed", "error": {"message": "turn failed"}}),
+        ]
+    )
     assert CodexAdapter().is_error(_run_result(jsonl)) is True
 
 
@@ -327,11 +360,13 @@ def test_parse_reads_volante_stream_message_sentinel_on_turn_completed() -> None
     # This is the shape stream_result_line() synthesizes: a single turn.completed
     # line carrying the sentinel. parse() must recover the text from it exactly
     # like it would from an earlier agent_message event.
-    jsonl = json.dumps({
-        "type": "turn.completed",
-        "usage": {"input_tokens": 7, "output_tokens": 3},
-        "_volante_stream_message": "bridged text",
-    })
+    jsonl = json.dumps(
+        {
+            "type": "turn.completed",
+            "usage": {"input_tokens": 7, "output_tokens": 3},
+            "_volante_stream_message": "bridged text",
+        }
+    )
     resp = CodexAdapter().parse(_run_result(jsonl), _req())
     assert resp.content[0].text == "bridged text"
 
@@ -341,14 +376,18 @@ def test_parse_ignores_real_message_key_on_turn_completed() -> None:
     # CLI ever emits a `message`/status field directly on a real turn.completed,
     # parse()'s non-synthetic complete() path must NOT treat it as agent text --
     # only the Volante-internal `_volante_stream_message` sentinel is honored.
-    jsonl = "\n".join([
-        _item_completed("real answer"),
-        json.dumps({
-            "type": "turn.completed",
-            "message": "some unrelated real-CLI status string",
-            "usage": {"input_tokens": 7, "output_tokens": 3},
-        }),
-    ])
+    jsonl = "\n".join(
+        [
+            _item_completed("real answer"),
+            json.dumps(
+                {
+                    "type": "turn.completed",
+                    "message": "some unrelated real-CLI status string",
+                    "usage": {"input_tokens": 7, "output_tokens": 3},
+                }
+            ),
+        ]
+    )
     resp = CodexAdapter().parse(_run_result(jsonl), _req())
     assert resp.content[0].text == "real answer"  # NOT duplicated/corrupted
 
@@ -364,28 +403,33 @@ def test_codex_detected_true_on_exit_zero() -> None:
     def fake_run(argv, **kwargs):
         assert argv == ["codex", "login", "status"]
         return subprocess.CompletedProcess(argv, 0, stdout="Logged in", stderr="")
+
     assert codex_detected(run=fake_run) is True
 
 
 def test_codex_detected_false_on_nonzero() -> None:
     def fake_run(argv, **kwargs):
         return subprocess.CompletedProcess(argv, 1, stdout="", stderr="Not logged in")
+
     assert codex_detected(run=fake_run) is False
 
 
 def test_codex_detected_false_when_binary_missing() -> None:
     def fake_run(argv, **kwargs):
         raise FileNotFoundError("codex")
+
     assert codex_detected(run=fake_run) is False
 
 
 def test_build_codex_model_reads_env_tier_and_plan_included() -> None:
-    mi = build_codex_model({
-        "CODEX_MODEL": "gpt-5-codex",
-        "CODEX_TIER": "4",
-        "CODEX_CONTEXT": "400000",
-        "CODEX_MAX_OUTPUT": "8192",
-    })
+    mi = build_codex_model(
+        {
+            "CODEX_MODEL": "gpt-5-codex",
+            "CODEX_TIER": "4",
+            "CODEX_CONTEXT": "400000",
+            "CODEX_MAX_OUTPUT": "8192",
+        }
+    )
     assert mi.id == "codex/gpt-5-codex"
     assert mi.provider == "codex"
     assert mi.tier == 4
@@ -408,9 +452,7 @@ def test_build_codex_model_rejects_false_tool_capability_claim() -> None:
 
 @pytest.mark.parametrize("value", ["", "0", "false", "no", "off"])
 def test_build_codex_model_accepts_explicit_tools_disabled(value: str) -> None:
-    mi = build_codex_model(
-        {"CODEX_MODEL": "gpt-5-codex", "CODEX_TIER": "3", "CODEX_TOOLS": value}
-    )
+    mi = build_codex_model({"CODEX_MODEL": "gpt-5-codex", "CODEX_TIER": "3", "CODEX_TOOLS": value})
     assert mi.supports_tools is False
 
 
@@ -447,6 +489,7 @@ class _CaptureRunner:
 
     async def __call__(self, argv, *, stdin, env, timeout, on_line=None):
         from volante.providers.cli_agent import CliRunResult
+
         self.argv = argv
         self.env = env
         self.stdin = stdin
@@ -460,6 +503,7 @@ class _CaptureRunner:
 def test_codex_adapter_conforms_to_protocol() -> None:
     from volante.providers.base import LLMProvider
     from volante.providers.cli_agent import CliAgentAdapter, CliAgentProvider
+
     adapter = CodexAdapter()
     assert isinstance(adapter, CliAgentAdapter)
     provider = CliAgentProvider(adapter, "gpt-5-codex", runner=_CaptureRunner(_JSONL))
@@ -482,6 +526,7 @@ async def test_complete_through_provider_nets_depth_one_at_top_level(monkeypatch
 
 async def test_complete_through_cli_agent_provider_scrubs_env(monkeypatch) -> None:
     from volante.providers.cli_agent import CliAgentProvider
+
     monkeypatch.setenv("OPENAI_API_KEY", "sk-should-be-scrubbed")
     monkeypatch.setenv("CODEX_API_KEY", "cdx-should-be-scrubbed")
     runner = _CaptureRunner(_JSONL)
@@ -554,6 +599,7 @@ def test_parse_delta_on_real_live_fixture_only_yields_item_completed_agent_messa
 
 async def test_stream_forwards_item_completed_agent_message_delta() -> None:
     from volante.providers.cli_agent import CliAgentProvider
+
     runner = _CaptureRunner(_JSONL)
     provider = CliAgentProvider(CodexAdapter(), "gpt-5-codex", runner=runner)
     chunks: list[str] = []
@@ -564,11 +610,13 @@ async def test_stream_forwards_item_completed_agent_message_delta() -> None:
     assert "Hello from Codex" in resp.content[0].text
 
 
-_JSONL_TERMINAL_ERROR = "\n".join([
-    json.dumps({"type": "thread.started", "thread_id": "th_4"}),
-    _item_completed("Working..."),
-    json.dumps({"type": "turn.completed", "error": {"message": "sandbox denied"}}),
-])
+_JSONL_TERMINAL_ERROR = "\n".join(
+    [
+        json.dumps({"type": "thread.started", "thread_id": "th_4"}),
+        _item_completed("Working..."),
+        json.dumps({"type": "turn.completed", "error": {"message": "sandbox denied"}}),
+    ]
+)
 
 
 async def test_stream_through_provider_surfaces_usage_and_cost() -> None:
@@ -624,7 +672,8 @@ def test_a_recovered_transient_error_does_not_discard_a_paid_answer() -> None:
     # complete() raise on a run that exited 0, produced the right answer and burned
     # real tokens — the answer is thrown away and the quota is still spent.
     transient = next(
-        line for line in (_FIXTURES / _AUTH_FAILURE).read_text().splitlines()
+        line
+        for line in (_FIXTURES / _AUTH_FAILURE).read_text().splitlines()
         if line.strip() and json.loads(line).get("type") == "error"
     )
     success = (_FIXTURES / "codex_result.2026-07-23-live.jsonl").read_text().splitlines()

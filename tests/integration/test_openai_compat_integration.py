@@ -16,9 +16,7 @@ async def test_ollama_roundtrip():
     base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
     model = os.environ.get("OLLAMA_MODEL", "llama3.2")
 
-    provider = OpenAICompatProvider(
-        base_url=base_url, api_key="ollama", model=model, timeout=30.0
-    )
+    provider = OpenAICompatProvider(base_url=base_url, api_key="ollama", model=model, timeout=30.0)
     req = CanonicalRequest(
         messages=[text("user", "Reply with the single word: pong")],
         max_tokens=16,

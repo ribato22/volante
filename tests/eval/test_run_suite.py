@@ -120,10 +120,12 @@ def _factory(final_for, *, estimated: bool = False):
 
 async def test_run_suite_shape_and_orchestration_verdict():
     make_runtime, _ = _factory(lambda goal: STRONG)
-    provider = FakeProvider(responses=(
-        [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
-        + [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
-    ))
+    provider = FakeProvider(
+        responses=(
+            [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
+            + [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
+        )
+    )
     result = await run_suite(
         EVAL_SUITE[:2], make_runtime, provider, "strong-model", _registry(), k=1
     )
@@ -151,10 +153,11 @@ async def test_run_suite_shape_and_orchestration_verdict():
 async def test_run_suite_agentic_majority_verdict():
     # baseline & orchestration lemah; agentic menulis test+readme -> agentic menang.
     make_runtime, _ = _factory(lambda goal: WEAK)
-    provider = FakeProvider(responses=(
-        [_text_resp(WEAK), *_agentic(_A_MID_CODE)]
-        + [_text_resp(WEAK), *_agentic(_A_MID_CODE)]
-    ))
+    provider = FakeProvider(
+        responses=(
+            [_text_resp(WEAK), *_agentic(_A_MID_CODE)] + [_text_resp(WEAK), *_agentic(_A_MID_CODE)]
+        )
+    )
     result = await run_suite(
         EVAL_SUITE[:2], make_runtime, provider, "strong-model", _registry(), k=1
     )
@@ -168,10 +171,11 @@ async def test_run_suite_agentic_majority_verdict():
 async def test_run_suite_tie_verdict_on_split():
     # slugify: orch STRONG -> orch menang; roman: orch lemah, agentic MID -> agentic.
     make_runtime, _ = _factory(lambda goal: STRONG if "slugify" in goal else WEAK)
-    provider = FakeProvider(responses=(
-        [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
-        + [_text_resp(WEAK), *_agentic(_A_MID_CODE)]
-    ))
+    provider = FakeProvider(
+        responses=(
+            [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)] + [_text_resp(WEAK), *_agentic(_A_MID_CODE)]
+        )
+    )
     result = await run_suite(
         EVAL_SUITE[:2], make_runtime, provider, "strong-model", _registry(), k=1
     )
@@ -193,20 +197,18 @@ async def test_run_suite_respects_k():
     assert len(calls) == 4
     # Aggregate cost includes every physical evaluation run, not only the final
     # repetition for each goal.
-    assert result["aggregate"]["cost_total"]["baseline"] == pytest.approx(
-        4 * BASE_COST_EACH
-    )
-    assert result["aggregate"]["cost_total"]["orchestration"] == pytest.approx(
-        4 * ORCH_COST_EACH
-    )
+    assert result["aggregate"]["cost_total"]["baseline"] == pytest.approx(4 * BASE_COST_EACH)
+    assert result["aggregate"]["cost_total"]["orchestration"] == pytest.approx(4 * ORCH_COST_EACH)
 
 
 async def test_run_suite_any_estimated_flag():
     make_runtime, _ = _factory(lambda goal: STRONG, estimated=True)
-    provider = FakeProvider(responses=(
-        [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
-        + [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
-    ))
+    provider = FakeProvider(
+        responses=(
+            [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
+            + [_text_resp(WEAK), *_agentic(_A_WEAK_CODE)]
+        )
+    )
     result = await run_suite(
         EVAL_SUITE[:2], make_runtime, provider, "strong-model", _registry(), k=1
     )

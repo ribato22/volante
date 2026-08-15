@@ -145,9 +145,7 @@ def test_costs_usd_card_model_goes_to_billed() -> None:
 def test_costs_usd_plan_included_goes_to_credit() -> None:
     m = CostMeter()
     m.add("p", Usage(prompt_tokens=1000, completion_tokens=1000))
-    reg = _FakeRegistry(
-        models={"p": _mi("p", cost_in=1.0, cost_out=2.0, billing="plan_included")}
-    )
+    reg = _FakeRegistry(models={"p": _mi("p", cost_in=1.0, cost_out=2.0, billing="plan_included")})
     billed, credit = m.costs_usd(reg)
     # Nilai konsumsi 3.0 -> credit (bukan cash); billed 0.0 (kejujuran §5.3).
     assert billed == 0.0
@@ -157,9 +155,7 @@ def test_costs_usd_plan_included_goes_to_credit() -> None:
 def test_costs_usd_plan_credit_also_goes_to_credit() -> None:
     m = CostMeter()
     m.add("p", Usage(prompt_tokens=1000, completion_tokens=0))
-    reg = _FakeRegistry(
-        models={"p": _mi("p", cost_in=2.0, cost_out=9.0, billing="plan_credit")}
-    )
+    reg = _FakeRegistry(models={"p": _mi("p", cost_in=2.0, cost_out=9.0, billing="plan_credit")})
     billed, credit = m.costs_usd(reg)
     # plan_credit (dorman) juga -> credit untuk iterasi ini.
     assert billed == 0.0
@@ -217,9 +213,7 @@ def test_add_cost_usd_fully_direct_uses_authoritative_usd_not_rate() -> None:
     # Setiap call membawa cost_usd otoritatif -> kontribusi = SUM cost_usd (bukan token*rate).
     m = CostMeter()
     m.add("p", Usage(prompt_tokens=1000, completion_tokens=1000), cost_usd=0.42)
-    reg = _FakeRegistry(
-        models={"p": _mi("p", cost_in=1.0, cost_out=2.0, billing="plan_included")}
-    )
+    reg = _FakeRegistry(models={"p": _mi("p", cost_in=1.0, cost_out=2.0, billing="plan_included")})
     billed, credit = m.costs_usd(reg)
     # Rate akan menilai 3.0, tapi FULLY-direct -> credit == 0.42 (no rate double-count).
     assert billed == 0.0
@@ -230,7 +224,7 @@ def test_add_cost_usd_mixed_direct_and_rate_same_model() -> None:
     # residu-4 PER-CALL: satu call otoritatif (cost_usd), satu call fallback (rate).
     m = CostMeter()
     m.add("a", Usage(prompt_tokens=100, completion_tokens=100), cost_usd=5.0)  # direct
-    m.add("a", Usage(prompt_tokens=100, completion_tokens=100))               # rate/fallback
+    m.add("a", Usage(prompt_tokens=100, completion_tokens=100))  # rate/fallback
     reg = _FakeRegistry(models={"a": _mi("a", cost_in=1.0, cost_out=2.0)})  # card -> billed
     billed, credit = m.costs_usd(reg)
     # total token=400, direct token=200 -> fraksi non-direct=0.5.
@@ -254,7 +248,7 @@ def test_add_cost_usd_mixed_direct_and_rate_different_split() -> None:
     # tunggal, karena cost_per_1k_in != cost_per_1k_out di sini.
     m = CostMeter()
     m.add("a", Usage(prompt_tokens=200, completion_tokens=0), cost_usd=1.0)  # direct
-    m.add("a", Usage(prompt_tokens=0, completion_tokens=200))               # fallback
+    m.add("a", Usage(prompt_tokens=0, completion_tokens=200))  # fallback
     reg = _FakeRegistry(models={"a": _mi("a", cost_in=1.0, cost_out=2.0)})  # card -> billed
     billed, credit = m.costs_usd(reg)
     # residual prompt = 200-200=0 ; residual completion = 200-0=200

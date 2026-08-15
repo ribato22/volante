@@ -208,6 +208,7 @@ def _killpg(pgid: int) -> None:
     except (ProcessLookupError, PermissionError):
         pass
 
+
 # Tiga backtick sebagai penanda fence, dibangun tanpa literal agar tak merusak
 # blok kode dokumen.
 _TRIPLE = chr(96) * 3
@@ -217,9 +218,7 @@ _PY_FENCE = re.compile(
 )
 # Dipisah dari _PY_FENCE: pembuka dan penutup dicari terpisah supaya penutupnya bisa
 # DIPILIH (lihat extract_python), bukan sekadar yang pertama muncul.
-_PY_FENCE_OPEN = re.compile(
-    _TRIPLE + r"[^\S\r\n]*python[^\S\r\n]*\r?\n", re.IGNORECASE
-)
+_PY_FENCE_OPEN = re.compile(_TRIPLE + r"[^\S\r\n]*python[^\S\r\n]*\r?\n", re.IGNORECASE)
 # Penutup harus di awal baris: ``` di tengah baris adalah bagian dari teks.
 _FENCE_CLOSE = re.compile(r"(?m)^[^\S\r\n]*" + _TRIPLE)
 _README_HEADING = re.compile(r"(?m)^#{1,6}\s+\S")
@@ -466,7 +465,7 @@ def _score_reference(
             for line in out.splitlines():
                 idx = line.rfind(tag)
                 if idx != -1:
-                    payload = line[idx + len(tag):]
+                    payload = line[idx + len(tag) :]
             if payload is None:
                 return (0.0, False)  # tak ada hasil tepercaya -> tak terukur
             try:
@@ -562,9 +561,7 @@ def repo_files_for(output: str, repo: RepoSpec | None) -> dict[str, str] | None:
     return files
 
 
-def score_task(
-    output: str, reference_test: str, repo: RepoSpec | None = None
-) -> dict[str, float]:
+def score_task(output: str, reference_test: str, repo: RepoSpec | None = None) -> dict[str, float]:
     """Skor komposit berbobot: code .7 / has_tests .15 / has_readme .15.
 
     `reference_test` diteruskan apa adanya ke score_code (runner per-goal). Key
@@ -580,14 +577,8 @@ def score_task(
     repo_files = repo_files_for(output, repo)
     code, measured = _score_reference(output, reference_test, repo_files)
     has_tests = 1.0 if "def test_" in output else 0.0
-    has_readme = (
-        1.0
-        if ("readme" in output.lower() or _README_HEADING.search(output))
-        else 0.0
-    )
-    composite = (
-        code if repo is not None else 0.7 * code + 0.15 * has_tests + 0.15 * has_readme
-    )
+    has_readme = 1.0 if ("readme" in output.lower() or _README_HEADING.search(output)) else 0.0
+    composite = code if repo is not None else 0.7 * code + 0.15 * has_tests + 0.15 * has_readme
     return {
         "code": code,
         "has_tests": has_tests,
@@ -928,9 +919,7 @@ def mean_scores(scores: list[dict[str, float]]) -> dict[str, float]:
         return {"code": 0.0, "has_tests": 0.0, "has_readme": 0.0, "composite": 0.0}
     n = len(scores)
     keys = [
-        k
-        for k, v in scores[0].items()
-        if isinstance(v, (int, float)) and not isinstance(v, bool)
+        k for k, v in scores[0].items() if isinstance(v, (int, float)) and not isinstance(v, bool)
     ]
     return {k: sum(s[k] for s in scores) / n for k in keys}
 
@@ -958,10 +947,7 @@ async def run_eval(
         base_last = await run_baseline(goal, provider, model_id, registry)
         orch_scores.append(score_task(orch_last.final or "", reference_test))
         base_scores.append(score_task(base_last.output, reference_test))
-    return compare(
-        orch_last, base_last, mean_scores(orch_scores), mean_scores(base_scores)
-    )
-
+    return compare(orch_last, base_last, mean_scores(orch_scores), mean_scores(base_scores))
 
 
 def _delta_dict(d: PairedDelta) -> dict[str, Any]:
@@ -1008,9 +994,7 @@ async def run_suite(
         for _ in range(k):
             b_run = await run_baseline(t.goal, baseline_provider, model_id, registry)
             o_run = await run_orchestration(t.goal, make_runtime())
-            a_run = await run_agentic_single(
-                t.goal, baseline_provider, model_id, registry, t.repo
-            )
+            a_run = await run_agentic_single(t.goal, baseline_provider, model_id, registry, t.repo)
             b_runs.append(b_run)
             o_runs.append(o_run)
             a_runs.append(a_run)
@@ -1036,9 +1020,7 @@ async def run_suite(
         o_measured = any(s.get("measured", True) for s in o_scores)
         a_measured = any(s.get("measured", True) for s in a_scores)
         deltas = {
-            "orchestration_vs_baseline": _delta_dict(
-                paired_delta(b_series, o_series)
-            ),
+            "orchestration_vs_baseline": _delta_dict(paired_delta(b_series, o_series)),
             "agentic_vs_baseline": _delta_dict(paired_delta(b_series, a_series)),
         }
         series = {"baseline": b_series, "orchestration": o_series, "agentic": a_series}
@@ -1050,9 +1032,7 @@ async def run_suite(
                 "cost": sum(run.cost_usd for run in b_runs),
                 "ms": round(sum(run.duration_ms for run in b_runs) / len(b_runs)),
                 "estimated": any(
-                    usage.estimated
-                    for run in b_runs
-                    for usage in run.usage_total.values()
+                    usage.estimated for run in b_runs for usage in run.usage_total.values()
                 ),
                 "measured": b_measured,
             },
@@ -1061,9 +1041,7 @@ async def run_suite(
                 "cost": sum(run.cost_usd for run in o_runs),
                 "ms": round(sum(run.duration_ms for run in o_runs) / len(o_runs)),
                 "estimated": any(
-                    usage.estimated
-                    for run in o_runs
-                    for usage in run.usage_total.values()
+                    usage.estimated for run in o_runs for usage in run.usage_total.values()
                 ),
                 "measured": o_measured,
             },
@@ -1072,9 +1050,7 @@ async def run_suite(
                 "cost": sum(run.cost_usd for run in a_runs),
                 "ms": round(sum(run.duration_ms for run in a_runs) / len(a_runs)),
                 "estimated": any(
-                    usage.estimated
-                    for run in a_runs
-                    for usage in run.usage_total.values()
+                    usage.estimated for run in a_runs for usage in run.usage_total.values()
                 ),
                 "measured": a_measured,
                 # Jumlah iterasi (dari k) yang gagal terminal + sampel sebab.
@@ -1084,38 +1060,36 @@ async def run_suite(
             },
         }
         cmp = compare_arms(arms)
-        per_goal.append({
-            "id": t.id,
-            "winner": cmp["winner"],
-            "arms": cmp["arms"],
-            "scores": {
-                "baseline": b_mean,
-                "orchestration": o_mean,
-                "agentic": a_mean,
-            },
-            # The paired analysis, and the per-iteration series it came from. A mean
-            # without these cannot say whether it is a finding or noise, which is what
-            # produced three corrections in this project.
-            "deltas": deltas,
-            "series": series,
-        })
+        per_goal.append(
+            {
+                "id": t.id,
+                "winner": cmp["winner"],
+                "arms": cmp["arms"],
+                "scores": {
+                    "baseline": b_mean,
+                    "orchestration": o_mean,
+                    "agentic": a_mean,
+                },
+                # The paired analysis, and the per-iteration series it came from. A mean
+                # without these cannot say whether it is a finding or noise, which is what
+                # produced three corrections in this project.
+                "deltas": deltas,
+                "series": series,
+            }
+        )
 
     names = ("baseline", "orchestration", "agentic")
     wins = {n: sum(1 for g in per_goal if g["winner"] == n) for n in names}
     ties = sum(1 for g in per_goal if g["winner"] == "tie")
     cost_total = {n: sum(g["arms"][n]["cost"] for g in per_goal) for n in names}
-    any_estimated = any(
-        g["arms"][n]["estimated"] for g in per_goal for n in names
-    )
+    any_estimated = any(g["arms"][n]["estimated"] for g in per_goal for n in names)
     # Total iterasi agentic yang gagal terminal: bila > 0, sebagian skor 0.0 arm
     # agentic bisa jadi infra/provider, bukan kapabilitas — verdict harus dibaca hati2.
     agentic_errors = sum(g["arms"]["agentic"].get("errors", 0) for g in per_goal)
     # Goal yang TAK SATU arm pun terukur (tak ada hasil ber-nonce tepercaya) = sinyal
     # kuat runner referensi-nya rusak (H2): skor 0.0-nya artefak harness, bukan solusi.
     unmeasured_goals = [
-        g["id"]
-        for g in per_goal
-        if not any(g["arms"][n].get("measured", True) for n in names)
+        g["id"] for g in per_goal if not any(g["arms"][n].get("measured", True) for n in names)
     ]
     best = max(wins.values())
     leaders = [n for n in names if wins[n] == best]

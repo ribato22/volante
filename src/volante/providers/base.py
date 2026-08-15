@@ -19,9 +19,7 @@ class LLMProvider(Protocol):
 
     async def complete(self, req: CanonicalRequest) -> CanonicalResponse: ...
 
-    async def stream(
-        self, req: CanonicalRequest, on_text: OnText
-    ) -> CanonicalResponse: ...
+    async def stream(self, req: CanonicalRequest, on_text: OnText) -> CanonicalResponse: ...
 
 
 async def call_provider(
@@ -148,21 +146,21 @@ def ensure_complete_response(
 # Substring signals (lowercased) that a 400/402/429 is credit/quota DEPLETION
 # (not a per-minute rate limit). Depletion -> reroute, WITHOUT backoff.
 _QUOTA_SIGNALS: tuple[str, ...] = (
-    "credit balance",              # Anthropic 400: "Your credit balance is too low"
+    "credit balance",  # Anthropic 400: "Your credit balance is too low"
     "out of credit",
-    "insufficient_quota",          # OpenAI error code
+    "insufficient_quota",  # OpenAI error code
     "insufficient quota",
     "exceeded your current quota",
     "quota exceeded",
-    "usage limit",                 # plan cap
-    "billing_hard_limit",          # OpenAI error code
-    "payment required",            # HTTP 402 semantics
+    "usage limit",  # plan cap
+    "billing_hard_limit",  # OpenAI error code
+    "payment required",  # HTTP 402 semantics
 )
 
 # Transient rate-limit signals: backing off in place really is the right move.
 _RATE_LIMIT_SIGNALS: tuple[str, ...] = (
     "rate limit",
-    "rate_limit",                  # OpenAI code rate_limit_exceeded
+    "rate_limit",  # OpenAI code rate_limit_exceeded
     "too many requests",
     "requests per",
     "tokens per",
@@ -214,9 +212,7 @@ def is_candidate_unavailable(
     low = message.lower()
     if any(signal in low for signal in _CANDIDATE_UNAVAILABLE_SIGNALS):
         return True
-    return status == 404 and any(
-        noun in low for noun in ("model", "deployment", "engine")
-    )
+    return status == 404 and any(noun in low for noun in ("model", "deployment", "engine"))
 
 
 def classify_429(message: str, *, billing: str) -> tuple[bool, bool]:

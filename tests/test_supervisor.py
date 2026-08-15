@@ -332,8 +332,11 @@ async def test_plan_rejects_an_oversized_task_graph() -> None:
     huge = json.dumps(
         [
             {
-                "id": f"t{i}", "description": f"step {i}", "type": "research",
-                "mode": "one_shot", "depends_on": [],
+                "id": f"t{i}",
+                "description": f"step {i}",
+                "type": "research",
+                "mode": "one_shot",
+                "depends_on": [],
             }
             for i in range(_MAX_PLAN_TASKS + 1)
         ]
@@ -350,8 +353,11 @@ async def test_a_plan_at_the_limit_is_still_accepted() -> None:
     at_limit = json.dumps(
         [
             {
-                "id": f"t{i}", "description": f"step {i}", "type": "research",
-                "mode": "one_shot", "depends_on": [],
+                "id": f"t{i}",
+                "description": f"step {i}",
+                "type": "research",
+                "mode": "one_shot",
+                "depends_on": [],
             }
             for i in range(_MAX_PLAN_TASKS)
         ]
@@ -461,10 +467,21 @@ async def test_planning_call_is_billed_even_when_plan_invalid() -> None:
 async def test_plan_defaults_missing_difficulty_but_rejects_invalid_values() -> None:
     plan_json = json.dumps(
         [
-            {"id": "a", "description": "hard one", "type": "code",
-             "mode": "one_shot", "depends_on": [], "difficulty": "hard"},
-            {"id": "b", "description": "no difficulty key", "type": "code",
-             "mode": "one_shot", "depends_on": []},
+            {
+                "id": "a",
+                "description": "hard one",
+                "type": "code",
+                "mode": "one_shot",
+                "depends_on": [],
+                "difficulty": "hard",
+            },
+            {
+                "id": "b",
+                "description": "no difficulty key",
+                "type": "code",
+                "mode": "one_shot",
+                "depends_on": [],
+            },
         ]
     )
     provider = FakeProvider(responses=[_resp(plan_json)])
@@ -743,9 +760,7 @@ async def test_plan_rejects_unsafe_task_ids(task_id: str) -> None:
         ("difficulty", "extreme"),
     ],
 )
-async def test_plan_rejects_unknown_task_discriminators(
-    field: str, value: str
-) -> None:
+async def test_plan_rejects_unknown_task_discriminators(field: str, value: str) -> None:
     item = {
         "id": "t1",
         "description": "invalid discriminator",

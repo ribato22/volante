@@ -14,7 +14,6 @@ _BILLING_MODES = frozenset({"card", "plan_credit", "plan_included"})
 logger = logging.getLogger(__name__)
 
 
-
 def _validate_model(model: ModelInfo) -> None:
     """Reject invalid inventory records before they can influence routing."""
     if not isinstance(model.id, str) or not model.id.strip():
@@ -114,9 +113,7 @@ class Registry:
         for model in self._models:
             _validate_model(model)
         ids = [m.id for m in self._models]
-        duplicates = sorted(
-            model_id for model_id, count in Counter(ids).items() if count > 1
-        )
+        duplicates = sorted(model_id for model_id, count in Counter(ids).items() if count > 1)
         if duplicates:
             raise ValueError(f"duplicate model ids: {duplicates}")
         self._by_id: dict[str, ModelInfo] = {m.id: m for m in self._models}
@@ -135,8 +132,7 @@ class Registry:
         if unknown_profiles:
             if not (set(self._quality_profiles) & set(self._by_id)):
                 raise ValueError(
-                    "quality profiles reference unknown models: "
-                    f"{sorted(unknown_profiles)}"
+                    f"quality profiles reference unknown models: {sorted(unknown_profiles)}"
                 )
             logger.warning(
                 "ignoring %d quality profile(s) for models not configured here: %s",

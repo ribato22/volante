@@ -39,9 +39,11 @@ def test_a_solution_that_cannot_be_graded_is_null() -> None:
     # timed out, or it was broken. That says nothing about the model, and 0.0 claims
     # it does.
     broken_runner = EvalTask(
-        id="broken", goal="irrelevant",
+        id="broken",
+        goal="irrelevant",
         reference_test="raise SystemExit('the reference runner is broken')\n",
-        task_type="code", checks=(),
+        task_type="code",
+        checks=(),
     )
 
     assert score_for_calibration(broken_runner, "def f():\n    return 1\n") is None

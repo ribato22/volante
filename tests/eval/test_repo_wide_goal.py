@@ -209,7 +209,8 @@ _NAMES = [re.search(r"# path: (\S+)", b).group(1) for b in _BLOCKS]
 
 def _score(answer: str) -> float:
     return _score_reference(
-        answer, RECORDKIT_TASK.reference_test,
+        answer,
+        RECORDKIT_TASK.reference_test,
         repo_files_for(answer, RECORDKIT_TASK.repo),
     )[0]
 
@@ -261,12 +262,8 @@ def test_dropping_the_keystone_file_is_the_most_expensive() -> None:
     """`fields.py` is what every other module reads. Losing it should be visibly
     worse than losing a leaf, and the score should say so rather than flattening
     every kind of incompleteness into one number."""
-    without_fields = "\n\n".join(
-        b for i, b in enumerate(_BLOCKS) if _NAMES[i] != "fields.py"
-    )
-    without_leaf = "\n\n".join(
-        b for i, b in enumerate(_BLOCKS) if _NAMES[i] != "summary.py"
-    )
+    without_fields = "\n\n".join(b for i, b in enumerate(_BLOCKS) if _NAMES[i] != "fields.py")
+    without_leaf = "\n\n".join(b for i, b in enumerate(_BLOCKS) if _NAMES[i] != "summary.py")
 
     assert _score(without_fields) < 0.2
     assert _score(without_leaf) > 0.7
@@ -289,15 +286,15 @@ def test_the_starting_project_passes_every_format_independent_regression() -> No
     independent = [c for c in REGRESSION if c[2] in ("errors_for", "parse_rejects")]
     assert len(independent) == 5, "the format-independent set changed; re-derive it"
 
-    runner = RECORDKIT_TASK.reference_test.replace(
-        f"REGRESSION = {REGRESSION!r}", f"REGRESSION = {independent!r}"
-    ).replace('"passed": cp * rp,', '"passed": rp,').replace(
-        '"total": len(CHANGE) * len(REGRESSION),', '"total": len(REGRESSION),'
+    runner = (
+        RECORDKIT_TASK.reference_test.replace(
+            f"REGRESSION = {REGRESSION!r}", f"REGRESSION = {independent!r}"
+        )
+        .replace('"passed": cp * rp,', '"passed": rp,')
+        .replace('"total": len(CHANGE) * len(REGRESSION),', '"total": len(REGRESSION),')
     )
 
-    score, measured = _score_reference(
-        "", runner, repo_files_for("", RECORDKIT_TASK.repo)
-    )
+    score, measured = _score_reference("", runner, repo_files_for("", RECORDKIT_TASK.repo))
 
     assert (score, measured) == (1.0, True)
 

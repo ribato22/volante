@@ -131,9 +131,7 @@ class FetchUrlTool:
 
     name = "fetch_url"
 
-    def __init__(
-        self, allowed_domains, max_bytes: int = 100_000, timeout_s: float = 10.0
-    ) -> None:
+    def __init__(self, allowed_domains, max_bytes: int = 100_000, timeout_s: float = 10.0) -> None:
         if max_bytes < 1:
             raise ValueError("max_bytes must be positive")
         self.allowed_domains = {d.lower() for d in allowed_domains}
@@ -203,9 +201,7 @@ class FetchUrlTool:
         # Cancelling that await does not stop the resolver's own thread, but it does
         # return the deadline to the caller, which is what timeout_s promises.
         try:
-            return await asyncio.wait_for(
-                self._fetch(url, host, port), timeout=self.timeout_s
-            )
+            return await asyncio.wait_for(self._fetch(url, host, port), timeout=self.timeout_s)
         except TimeoutError:
             return f"error: fetch exceeded its {self.timeout_s}s deadline"
 
@@ -284,9 +280,7 @@ class FetchUrlTool:
                             # and say which coding arrived, so an allowlisted origin
                             # that behaves this way is diagnosable rather than merely
                             # broken.
-                            coding = (
-                                resp.headers.get("content-encoding", "").strip().lower()
-                            )
+                            coding = resp.headers.get("content-encoding", "").strip().lower()
                             if coding and coding != "identity":
                                 return (
                                     "error: origin returned "

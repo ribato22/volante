@@ -57,19 +57,28 @@ SHOTGUN: dict[str, str] = {
         "math.isclose or round( or abs( or decimal; secrets or random. or uuid or "
         "os.urandom; itertools.groupby or sorted( or defaultdict; hashlib or hash( "
         "or md5 or repr(. Any of these might suit depending on your needs."
-    ) * 2,
+    )
+    * 2,
     # Hedging in every direction while republishing the internal record verbatim.
     "incident_note": (
         "Incident INC-4471 affected auth-edge-7, session-store-b and token-mint. "
         "The disruption may have lasted 31 minutes or 41 minutes. A certificate in "
         "the pod pool was stale. Some customers may or may not have been affected."
-    ) * 2,
+    )
+    * 2,
     "delivery_log": "\n".join(
         f"{key}: 75.0 or 80.0 (or possibly EAST 436)"
         for key in (
-            "MEDIAN_MINUTES", "MEAN_MINUTES", "VAN_DELIVERED", "DRONE_PARCELS",
-            "DELIVERED_PARCELS", "CANCEL_RATE", "TOP_DEPOT", "LOW_DEPOT",
-            "SLOWER_DEPOT", "SLOWEST_ID",
+            "MEDIAN_MINUTES",
+            "MEAN_MINUTES",
+            "VAN_DELIVERED",
+            "DRONE_PARCELS",
+            "DELIVERED_PARCELS",
+            "CANCEL_RATE",
+            "TOP_DEPOT",
+            "LOW_DEPOT",
+            "SLOWER_DEPOT",
+            "SLOWEST_ID",
         )
     ),
 }

@@ -218,9 +218,7 @@ def _live_model(env: dict[str, str]):
 
 def test_live_anthropic_defaults_match_the_same_vendor_facts() -> None:
     facts = VENDOR_FACTS["anthropic/claude-opus-4-8"]
-    registry = _live_model(
-        {"ANTHROPIC_API_KEY": "test", "ANTHROPIC_MODEL": "claude-opus-4-8"}
-    )
+    registry = _live_model({"ANTHROPIC_API_KEY": "test", "ANTHROPIC_MODEL": "claude-opus-4-8"})
 
     model = registry.get("anthropic/claude-opus-4-8")
     assert model.context_window == facts["context_window"]

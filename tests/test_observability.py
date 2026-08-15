@@ -56,9 +56,7 @@ def test_build_record_from_dict_extracts_models_and_truncates_goal() -> None:
         },
     }
     stamp = datetime(2026, 7, 27, 10, 0, 0, tzinfo=UTC)
-    rec = obs.build_record(
-        result, goal="x" * 500, prefer="cheap", source="mcp", now=stamp
-    )
+    rec = obs.build_record(result, goal="x" * 500, prefer="cheap", source="mcp", now=stamp)
     assert rec["ts"] == "2026-07-27T10:00:00Z"
     assert rec["source"] == "mcp"
     assert rec["prefer"] == "cheap"
@@ -108,8 +106,16 @@ def test_record_run_roundtrips_and_reads_newest_first(tmp_path: Path) -> None:
 
 
 def test_record_run_disabled_returns_false(tmp_path: Path) -> None:
-    assert obs.record_run({"status": "success"}, goal="g", prefer=None, source="cli",
-                          env={"VOLANTE_USAGE_LOG": ""}) is False
+    assert (
+        obs.record_run(
+            {"status": "success"},
+            goal="g",
+            prefer=None,
+            source="cli",
+            env={"VOLANTE_USAGE_LOG": ""},
+        )
+        is False
+    )
 
 
 def test_record_run_is_best_effort_on_bad_path(tmp_path: Path) -> None:
@@ -117,8 +123,9 @@ def test_record_run_is_best_effort_on_bad_path(tmp_path: Path) -> None:
     blocker = tmp_path / "blocker"
     blocker.write_text("i am a file")
     env = {"VOLANTE_USAGE_LOG": str(blocker / "nested" / "usage.jsonl")}
-    assert obs.record_run({"status": "success"}, goal="g", prefer=None,
-                          source="cli", env=env) is False
+    assert (
+        obs.record_run({"status": "success"}, goal="g", prefer=None, source="cli", env=env) is False
+    )
 
 
 # --- the ledger holds goal text, so it is private storage -------------------- #
@@ -137,8 +144,11 @@ def test_a_new_ledger_and_its_directory_are_owner_only(tmp_path: Path) -> None:
     previous = os.umask(0o022)  # the permissive-but-ordinary case
     try:
         assert obs.record_run(
-            {"status": "success"}, goal="acquire the Q3 board deck figures",
-            prefer=None, source="cli", env={"VOLANTE_USAGE_LOG": str(log)},
+            {"status": "success"},
+            goal="acquire the Q3 board deck figures",
+            prefer=None,
+            source="cli",
+            env={"VOLANTE_USAGE_LOG": str(log)},
         )
     finally:
         os.umask(previous)
@@ -179,8 +189,13 @@ def test_a_user_configured_ledger_keeps_the_permissions_the_user_chose(
     log.write_text("")
     log.chmod(0o644)
 
-    assert obs.record_run({"status": "success"}, goal="g", prefer=None, source="cli",
-                          env={"VOLANTE_USAGE_LOG": str(log)})
+    assert obs.record_run(
+        {"status": "success"},
+        goal="g",
+        prefer=None,
+        source="cli",
+        env={"VOLANTE_USAGE_LOG": str(log)},
+    )
 
     assert _mode(log) == 0o644
 
@@ -288,9 +303,7 @@ def test_the_very_first_line_of_a_file_is_still_returned(tmp_path, monkeypatch) 
     log = tmp_path / "usage.jsonl"
     log.write_text(json.dumps({"goal": "the-first-run-ever"}) + "\n", encoding="utf-8")
 
-    assert [r["goal"] for r in obs.read_runs(path=log, limit=10)] == [
-        "the-first-run-ever"
-    ]
+    assert [r["goal"] for r in obs.read_runs(path=log, limit=10)] == ["the-first-run-ever"]
 
 
 def test_a_torn_final_line_is_skipped_not_fatal(tmp_path: Path) -> None:
@@ -309,11 +322,14 @@ def test_read_runs_skips_malformed_lines_and_missing_file(tmp_path: Path) -> Non
     assert obs.read_runs({"VOLANTE_USAGE_LOG": str(tmp_path / "nope.jsonl")}) == []
     log = tmp_path / "usage.jsonl"
     log.write_text(
-        json.dumps({"status": "success", "goal": "ok"}) + "\n"
+        json.dumps({"status": "success", "goal": "ok"})
+        + "\n"
         + "{ this is not json\n"
         + "\n"
-        + json.dumps(["not", "an", "object"]) + "\n"
-        + json.dumps({"status": "failed", "goal": "also-ok"}) + "\n"
+        + json.dumps(["not", "an", "object"])
+        + "\n"
+        + json.dumps({"status": "failed", "goal": "also-ok"})
+        + "\n"
     )
     runs = obs.read_runs({"VOLANTE_USAGE_LOG": str(log)})
     assert [r["goal"] for r in runs] == ["also-ok", "ok"]
@@ -321,10 +337,20 @@ def test_read_runs_skips_malformed_lines_and_missing_file(tmp_path: Path) -> Non
 
 def test_summarize_aggregates() -> None:
     runs = [
-        {"status": "success", "billed_usd": 0.10, "credit_usd": 0.0,
-         "subscription_calls": 0, "duration_ms": 1000},
-        {"status": "failed", "billed_usd": 0.00, "credit_usd": 0.20,
-         "subscription_calls": 3, "duration_ms": 3000},
+        {
+            "status": "success",
+            "billed_usd": 0.10,
+            "credit_usd": 0.0,
+            "subscription_calls": 0,
+            "duration_ms": 1000,
+        },
+        {
+            "status": "failed",
+            "billed_usd": 0.00,
+            "credit_usd": 0.20,
+            "subscription_calls": 3,
+            "duration_ms": 3000,
+        },
     ]
     s = obs.summarize(runs)
     assert s["total_runs"] == 2
@@ -341,10 +367,22 @@ def test_summarize_quantifies_the_estimated_share() -> None:
     # A total must carry the same estimate signal the per-run rows do, quantified so a
     # mostly-authoritative total is not written off as inferred.
     runs = [
-        {"status": "success", "billed_usd": 4.0, "credit_usd": 1.0,
-         "subscription_calls": 0, "duration_ms": 1000, "cost_estimated": True},
-        {"status": "success", "billed_usd": 0.4, "credit_usd": 0.1,
-         "subscription_calls": 0, "duration_ms": 1000, "cost_estimated": False},
+        {
+            "status": "success",
+            "billed_usd": 4.0,
+            "credit_usd": 1.0,
+            "subscription_calls": 0,
+            "duration_ms": 1000,
+            "cost_estimated": True,
+        },
+        {
+            "status": "success",
+            "billed_usd": 0.4,
+            "credit_usd": 0.1,
+            "subscription_calls": 0,
+            "duration_ms": 1000,
+            "cost_estimated": False,
+        },
     ]
     s = obs.summarize(runs)
     assert s["total_billed_usd"] == 4.4
@@ -355,8 +393,14 @@ def test_summarize_quantifies_the_estimated_share() -> None:
 
 def test_summarize_reports_no_estimated_share_when_all_authoritative() -> None:
     runs = [
-        {"status": "success", "billed_usd": 0.4, "credit_usd": 0.1,
-         "subscription_calls": 0, "duration_ms": 1000, "cost_estimated": False},
+        {
+            "status": "success",
+            "billed_usd": 0.4,
+            "credit_usd": 0.1,
+            "subscription_calls": 0,
+            "duration_ms": 1000,
+            "cost_estimated": False,
+        },
     ]
     s = obs.summarize(runs)
     assert s["estimated_runs"] == 0
@@ -379,6 +423,7 @@ def test_build_record_persists_the_estimate_flag() -> None:
     assert record["cost_estimated"] is True
 
     _Result.cost_estimated = False
-    assert obs.build_record(
-        _Result(), goal="g", prefer="quality", source="cli"
-    )["cost_estimated"] is False
+    assert (
+        obs.build_record(_Result(), goal="g", prefer="quality", source="cli")["cost_estimated"]
+        is False
+    )

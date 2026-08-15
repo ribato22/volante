@@ -53,9 +53,7 @@ class _FakeResponse:
 
 def _provider_with(fake_messages: _FakeMessages, monkeypatch) -> AnthropicProvider:
     # Replace the SDK client constructor so __init__ never builds a real client.
-    monkeypatch.setattr(
-        anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(fake_messages)
-    )
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", lambda **kw: _FakeClient(fake_messages))
     return AnthropicProvider(api_key="test-key", model="claude-test")
 
 
@@ -252,8 +250,8 @@ async def test_missing_usage_is_estimated_not_zero(monkeypatch):
     req = CanonicalRequest(messages=[text("user", "0123456789012345")], max_tokens=16)
     out = await provider.complete(req)
     assert out.usage.estimated is True
-    assert out.usage.prompt_tokens == 4       # len("0123456789012345") // 4
-    assert out.usage.completion_tokens == 2   # len("abcdefgh") // 4
+    assert out.usage.prompt_tokens == 4  # len("0123456789012345") // 4
+    assert out.usage.completion_tokens == 2  # len("abcdefgh") // 4
     assert out.usage.prompt_tokens >= 1
     assert out.usage.completion_tokens >= 1
 
@@ -269,7 +267,7 @@ async def test_partial_usage_fields_trigger_estimation(monkeypatch):
     req = CanonicalRequest(messages=[text("user", "abcd")], max_tokens=16)
     out = await provider.complete(req)
     assert out.usage.estimated is True
-    assert out.usage.prompt_tokens == 1       # len("abcd") // 4
+    assert out.usage.prompt_tokens == 1  # len("abcd") // 4
     assert out.usage.completion_tokens == 1
 
 
@@ -279,8 +277,8 @@ async def test_est_minimum_is_one(monkeypatch):
     req = CanonicalRequest(messages=[text("user", "x")], max_tokens=16)
     out = await provider.complete(req)
     assert out.usage.estimated is True
-    assert out.usage.prompt_tokens == 1       # max(1, 1 // 4)
-    assert out.usage.completion_tokens == 1   # max(1, 0 // 4)
+    assert out.usage.prompt_tokens == 1  # max(1, 1 // 4)
+    assert out.usage.completion_tokens == 1  # max(1, 0 // 4)
 
 
 async def test_present_usage_not_estimated(monkeypatch):
@@ -366,9 +364,7 @@ async def test_default_timeout_is_120(monkeypatch):
 async def test_complete_lifts_the_system_prompt_to_the_top_level_param(
     monkeypatch,
 ) -> None:
-    msgs = _FakeMessages(
-        result=_FakeResponse([_FakeTextBlock("ok")], _FakeUsage(1, 1))
-    )
+    msgs = _FakeMessages(result=_FakeResponse([_FakeTextBlock("ok")], _FakeUsage(1, 1)))
     provider = _provider_with(msgs, monkeypatch)
 
     await provider.complete(
@@ -390,9 +386,7 @@ async def test_complete_lifts_the_system_prompt_to_the_top_level_param(
 
 @pytest.mark.asyncio
 async def test_multiple_system_messages_are_joined_not_dropped(monkeypatch) -> None:
-    msgs = _FakeMessages(
-        result=_FakeResponse([_FakeTextBlock("ok")], _FakeUsage(1, 1))
-    )
+    msgs = _FakeMessages(result=_FakeResponse([_FakeTextBlock("ok")], _FakeUsage(1, 1)))
     provider = _provider_with(msgs, monkeypatch)
 
     await provider.complete(

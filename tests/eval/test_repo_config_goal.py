@@ -119,7 +119,8 @@ def resolve(argv, env, file_text):
 
 def _score(answer: str) -> float:
     return _score_reference(
-        answer, DEPLOYCTL_TASK.reference_test,
+        answer,
+        DEPLOYCTL_TASK.reference_test,
         repo_files_for(answer, DEPLOYCTL_TASK.repo),
     )[0]
 
@@ -142,11 +143,11 @@ def test_an_answer_that_changes_nothing_scores_exactly_zero(answer: str) -> None
 _TWO_CASES = 2 / len(CHANGE)
 
 _NO_INTERACTION = GOLDEN.replace(
-    '''    if settings.get("dry_run"):
+    """    if settings.get("dry_run"):
         # After the merge, and origin is deliberately left alone: the audit log asks
         # where the number CAME FROM, which is not the same question as what it is now.
         settings["retries"] = 0
-''',
+""",
     "",
 )
 
@@ -161,27 +162,40 @@ _NO_INTERACTION = GOLDEN.replace(
             GOLDEN.replace(
                 'parser.add_argument("--dry-run", dest="dry_run", '
                 'action="store_true", default=None)',
-                'parser.add_argument("--dry-run", dest="dry_run", action="store_true")'),
-            0.7407, id="dry-run-flag-claims-a-value-nobody-passed"),
+                'parser.add_argument("--dry-run", dest="dry_run", action="store_true")',
+            ),
+            0.7407,
+            id="dry-run-flag-claims-a-value-nobody-passed",
+        ),
         # "Tidying" the existing verbose flag the same way breaks a setting the request
         # never mentioned -- the regression factor is what sees it.
         pytest.param(
             GOLDEN.replace(
                 'parser.add_argument("--verbose", action="store_true", default=None)',
-                'parser.add_argument("--verbose", action="store_true")'),
-            0.8571, id="verbose-flag-tidied-into-the-idiom"),
+                'parser.add_argument("--verbose", action="store_true")',
+            ),
+            0.8571,
+            id="verbose-flag-tidied-into-the-idiom",
+        ),
         pytest.param(_NO_INTERACTION, 0.9259, id="the-interacting-rule-ignored"),
         pytest.param(
             GOLDEN.replace(
                 '        settings["retries"] = 0',
-                '        settings["retries"] = 0\n        origin["retries"] = "default"'),
-            0.9259, id="the-override-rewrites-the-origin-it-was-told-to-keep"),
+                '        settings["retries"] = 0\n        origin["retries"] = "default"',
+            ),
+            0.9259,
+            id="the-override-rewrites-the-origin-it-was-told-to-keep",
+        ),
         pytest.param(
             GOLDEN.replace('    "retries": "int",\n}', "}"),
-            0.6296, id="retries-never-declared-in-SPEC"),
+            0.6296,
+            id="retries-never-declared-in-SPEC",
+        ),
         pytest.param(
             GOLDEN.replace('"dry_run": False,', '"dry_run": True,'),
-            0.6667, id="dry_run-default-inverted"),
+            0.6667,
+            id="dry_run-default-inverted",
+        ),
     ],
 )
 def test_each_criterion_costs_at_least_two_cases(answer: str, expected: float) -> None:
@@ -207,8 +221,6 @@ def test_the_starting_project_works_before_the_change() -> None:
         '"passed": cp * rp,', '"passed": rp,'
     ).replace('"total": len(CHANGE) * len(REGRESSION),', '"total": len(REGRESSION),')
 
-    score, measured = _score_reference(
-        "", regression_only, repo_files_for("", DEPLOYCTL_TASK.repo)
-    )
+    score, measured = _score_reference("", regression_only, repo_files_for("", DEPLOYCTL_TASK.repo))
 
     assert (score, measured) == (1.0, True)

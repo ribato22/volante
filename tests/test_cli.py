@@ -212,9 +212,7 @@ def test_main_no_stream_success_returns_0(monkeypatch, capsys) -> None:
     assert "route[T1]:" not in out  # legacy stub router has no decision API
 
 
-def test_main_lists_full_model_inventory_without_running_gate(
-    monkeypatch, capsys
-) -> None:
+def test_main_lists_full_model_inventory_without_running_gate(monkeypatch, capsys) -> None:
     models = [
         _model("provider/a"),
         ModelInfo(
@@ -336,7 +334,9 @@ class _StubRuntime:
     async def aexecute(self, goal, on_text=None, on_worker_text=None):
         self.calls += 1
         return RunResult(
-            status="success", final="orchestrated", partial_artifacts={},
+            status="success",
+            final="orchestrated",
+            partial_artifacts={},
             failed_task=None,
         )
 
@@ -449,8 +449,12 @@ def test_main_usage_lists_recorded_runs(
     from volante.observability import record_run
 
     monkeypatch.setenv("VOLANTE_USAGE_LOG", str(tmp_path / "usage.jsonl"))
-    record_run({"status": "success", "billed_usd": 0.02}, goal="teach me routing",
-               prefer="quality", source="mcp")
+    record_run(
+        {"status": "success", "billed_usd": 0.02},
+        goal="teach me routing",
+        prefer="quality",
+        source="mcp",
+    )
     assert cli.main(["--usage"]) == 0
     out = capsys.readouterr().out
     assert "teach me routing" in out
@@ -546,24 +550,34 @@ def test_summary_json_does_not_drop_the_checks() -> None:
     }
 
 
-def test_usage_listing_marks_estimated_rows_and_totals(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
+def test_usage_listing_marks_estimated_rows_and_totals(tmp_path: Path, monkeypatch, capsys) -> None:
     ledger = tmp_path / "usage.jsonl"
     ledger.write_text(
         json.dumps(
             {
-                "ts": "2026-07-27T00:00:00Z", "source": "mcp", "status": "success",
-                "goal": "g", "billed_usd": 4.0, "credit_usd": 1.0, "duration_ms": 10,
-                "subscription_calls": 0, "cost_estimated": True,
+                "ts": "2026-07-27T00:00:00Z",
+                "source": "mcp",
+                "status": "success",
+                "goal": "g",
+                "billed_usd": 4.0,
+                "credit_usd": 1.0,
+                "duration_ms": 10,
+                "subscription_calls": 0,
+                "cost_estimated": True,
             }
         )
         + "\n"
         + json.dumps(
             {
-                "ts": "2026-07-27T00:00:01Z", "source": "cli", "status": "success",
-                "goal": "h", "billed_usd": 0.4, "credit_usd": 0.1, "duration_ms": 10,
-                "subscription_calls": 0, "cost_estimated": False,
+                "ts": "2026-07-27T00:00:01Z",
+                "source": "cli",
+                "status": "success",
+                "goal": "h",
+                "billed_usd": 0.4,
+                "credit_usd": 0.1,
+                "duration_ms": 10,
+                "subscription_calls": 0,
+                "cost_estimated": False,
             }
         )
         + "\n"
@@ -591,7 +605,9 @@ def test_the_default_answers_in_one_call(monkeypatch, capsys) -> None:
         called["goal"] = goal
         called["providers"] = providers
         return RunResult(
-            status="success", final="direct answer", partial_artifacts={},
+            status="success",
+            final="direct answer",
+            partial_artifacts={},
             failed_task=None,
         )
 
@@ -626,15 +642,23 @@ def test_the_orchestrate_flag_reaches_the_builder() -> None:
 
 def _priced(mid: str, cin: float, cout: float) -> ModelInfo:
     return ModelInfo(
-        id=mid, provider="openai_compat", strengths={"coding"},
-        context_window=8000, max_output_tokens=1000, supports_tools=False,
-        cost_per_1k_in=cin, cost_per_1k_out=cout,
+        id=mid,
+        provider="openai_compat",
+        strengths={"coding"},
+        context_window=8000,
+        max_output_tokens=1000,
+        supports_tools=False,
+        cost_per_1k_in=cin,
+        cost_per_1k_out=cout,
     )
 
 
 def _result_using(mid: str) -> RunResult:
     return RunResult(
-        status="success", final="answer", partial_artifacts={}, failed_task=None,
+        status="success",
+        final="answer",
+        partial_artifacts={},
+        failed_task=None,
         usage_total={mid: Usage(prompt_tokens=100, completion_tokens=50)},
     )
 

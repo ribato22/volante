@@ -522,9 +522,7 @@ def build_providers_from_env(
             singular_key="MOONSHOT_NAME",
             models=models,
             default_name=lambda wire, index: (
-                "kimi/kimi-k3"
-                if len(models) == 1 and wire == "kimi-k3"
-                else f"kimi/{wire}"
+                "kimi/kimi-k3" if len(models) == 1 and wire == "kimi-k3" else f"kimi/{wire}"
             ),
         )
         for wire, mid in zip(models, names, strict=True):
@@ -808,9 +806,7 @@ def _runtime_factory(
     try:
         agentic_max_iters = int(raw_iters)
     except ValueError as exc:
-        raise ValueError(
-            "VOLANTE_AGENTIC_MAX_ITERS must be a positive integer"
-        ) from exc
+        raise ValueError("VOLANTE_AGENTIC_MAX_ITERS must be a positive integer") from exc
     if agentic_max_iters < 1:
         raise ValueError("VOLANTE_AGENTIC_MAX_ITERS must be a positive integer")
 
@@ -821,9 +817,7 @@ def _runtime_factory(
     # run (code was never executed) looks identical to a full-capability one.
     capability_notice: str | None = None
     if sandbox_mode == "unavailable":
-        capability_notice = (
-            f"Code execution (run_python) is disabled: {sandbox_reason}."
-        )
+        capability_notice = f"Code execution (run_python) is disabled: {sandbox_reason}."
         print(f"volante: {capability_notice}", file=sys.stderr)
     else:
         available_tool_names.add("run_python")
@@ -954,9 +948,7 @@ def make_runtime_factory(
             "subscription-only planner setup requires the live compatibility gate; "
             "use `await make_verified_runtime_factory(...)`"
         )
-    return _runtime_factory(
-        registry, providers, planner_id, prefer=prefer, synthesis=synthesis
-    )
+    return _runtime_factory(registry, providers, planner_id, prefer=prefer, synthesis=synthesis)
 
 
 async def make_verified_runtime_factory(

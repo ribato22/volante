@@ -62,9 +62,7 @@ def test_subprocess_requires_an_explicit_opt_in(tmp_path: Path, monkeypatch) -> 
     assert isinstance(sandbox_for(tmp_path), Sandbox)
 
 
-def test_explicit_docker_is_honored_when_the_daemon_answers(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_explicit_docker_is_honored_when_the_daemon_answers(tmp_path: Path, monkeypatch) -> None:
     _clear_sandbox_env(monkeypatch)
     _docker(monkeypatch, True)
     monkeypatch.setenv("VOLANTE_SANDBOX", "docker")

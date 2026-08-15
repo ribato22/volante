@@ -45,6 +45,7 @@ class _MissingComplete:
 
 # --- LLMProvider Protocol (structural typing, unchanged) ---
 
+
 def test_conforming_class_is_llmprovider() -> None:
     assert isinstance(_Conforming(), LLMProvider)
 
@@ -58,6 +59,7 @@ def test_complete_is_coroutine_function() -> None:
 
 
 # --- ProviderError (PATCH v2.1) ---
+
 
 def test_provider_error_is_exception_subclass() -> None:
     assert issubclass(ProviderError, Exception)
@@ -98,6 +100,7 @@ def test_provider_error_is_raisable_and_carries_flags() -> None:
 
 # --- ProviderError.quota_exhausted (Layer 1 reroute, §6.3) ---
 
+
 def test_provider_error_quota_exhausted_defaults_to_false() -> None:
     # Every existing construction (no kwarg) is a transient/normal error.
     err = ProviderError("rate limited", retryable=True, status=429)
@@ -107,9 +110,7 @@ def test_provider_error_quota_exhausted_defaults_to_false() -> None:
 
 
 def test_provider_error_quota_exhausted_can_be_set_true() -> None:
-    err = ProviderError(
-        "credit balance too low", retryable=False, status=400, quota_exhausted=True
-    )
+    err = ProviderError("credit balance too low", retryable=False, status=400, quota_exhausted=True)
     assert err.quota_exhausted is True
     # Contract: quota_exhausted=True MUST also be non-retryable (reroute, no backoff).
     assert err.retryable is False
@@ -168,6 +169,7 @@ def test_generic_configuration_failures_are_not_candidate_unavailable(
 
 
 # --- 429 classification helpers (residu 2) ---
+
 
 @pytest.mark.parametrize(
     "msg",

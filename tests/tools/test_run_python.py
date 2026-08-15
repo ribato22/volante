@@ -42,10 +42,7 @@ async def test_reports_sandbox_output_limit(tmp_path: Path) -> None:
     out = await tool.run(
         {
             "code": (
-                "import sys\n"
-                "while True:\n"
-                "    sys.stdout.write('x' * 65536)\n"
-                "    sys.stdout.flush()"
+                "import sys\nwhile True:\n    sys.stdout.write('x' * 65536)\n    sys.stdout.flush()"
             )
         }
     )

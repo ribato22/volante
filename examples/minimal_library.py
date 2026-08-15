@@ -31,9 +31,7 @@ async def main() -> int:
         print(str(exc), file=sys.stderr)
         return 2
 
-    make_runtime = await volante.make_verified_runtime_factory(
-        registry, providers, model_id
-    )
+    make_runtime = await volante.make_verified_runtime_factory(registry, providers, model_id)
     runtime = make_runtime()
 
     result = await runtime.aexecute(goal)

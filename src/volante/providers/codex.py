@@ -32,6 +32,7 @@ metered API instead of the shared subscription pool, so `child_env` SCRUBS both
 `OPENAI_API_KEY` and `CODEX_API_KEY`; auth then comes from `~/.codex/auth.json`,
 a secret we never read or log (§8.1).
 """
+
 from __future__ import annotations
 
 import json
@@ -296,8 +297,11 @@ class CodexAdapter:
         if any(
             k in blob
             for k in (
-                "not logged in", "codex login",
-                "401 unauthorized", "missing bearer", "invalid bearer",
+                "not logged in",
+                "codex login",
+                "401 unauthorized",
+                "missing bearer",
+                "invalid bearer",
             )
         ):
             return ProviderError(
@@ -305,14 +309,19 @@ class CodexAdapter:
                 # ClaudeCodeAdapter already uses it for its own not-logged-in arm,
                 # and the two adapters must not disagree about the same condition.
                 f"codex authentication failed: {detail or 'no detail on the wire'}",
-                retryable=False, status=None, quota_exhausted=True,
+                retryable=False,
+                status=None,
+                quota_exhausted=True,
             )
         if any(k in blob for k in ("usage limit", "try again in", "rate limit", "quota")):
             # Codex hard-pause is hours-long → reroute, not seconds of backoff (§6.3).
             return ProviderError(
-                f"codex usage/quota limit reached: {detail}" if detail
+                f"codex usage/quota limit reached: {detail}"
+                if detail
                 else "codex usage/quota limit reached",
-                retryable=False, status=None, quota_exhausted=True,
+                retryable=False,
+                status=None,
+                quota_exhausted=True,
             )
         if detail:
             # Everything else, verbatim. An unrecognised failure that reports its own
@@ -320,7 +329,8 @@ class CodexAdapter:
             return ProviderError(f"codex error: {detail}", retryable=False, status=None)
         return ProviderError(
             f"codex exec failed (exit {result.returncode})",
-            retryable=False, status=None,
+            retryable=False,
+            status=None,
         )
 
     def is_error(self, result: CliRunResult) -> bool:

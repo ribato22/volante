@@ -126,9 +126,7 @@ async def test_output_tokens_param_name_comes_from_config(monkeypatch):
         model="llama3.2",
         config=oc.BackendConfig(output_tokens_param="max_completion_tokens"),
     )
-    await provider.complete(
-        CanonicalRequest(messages=[text("user", "hi")], max_tokens=99)
-    )
+    await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=99))
     kwargs = create_mock.await_args.kwargs
     assert kwargs["max_completion_tokens"] == 99
     assert "max_tokens" not in kwargs
@@ -154,9 +152,7 @@ async def test_complete_maps_response_and_marks_usage_real(monkeypatch):
         api_key="sk-test",
         model="kimi-k2-0711",
     )
-    resp = await provider.complete(
-        CanonicalRequest(messages=[text("user", "hi")], max_tokens=64)
-    )
+    resp = await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=64))
     assert resp.content == [TextBlock(text="hello from kimi")]
     assert resp.usage == Usage(prompt_tokens=11, completion_tokens=7)
     assert resp.usage.estimated is False
@@ -182,9 +178,7 @@ async def test_finish_reason_mapping_full_table(monkeypatch, finish, expected):
     provider = oc.OpenAICompatProvider(
         base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
     )
-    resp = await provider.complete(
-        CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-    )
+    resp = await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
     assert resp.stop_reason == expected
 
 
@@ -193,9 +187,7 @@ async def test_none_content_becomes_empty_textblock(monkeypatch):
     provider = oc.OpenAICompatProvider(
         base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
     )
-    resp = await provider.complete(
-        CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-    )
+    resp = await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
     assert resp.content == [TextBlock(text="")]
 
 
@@ -204,9 +196,7 @@ async def test_missing_model_falls_back_to_configured(monkeypatch):
     provider = oc.OpenAICompatProvider(
         base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
     )
-    resp = await provider.complete(
-        CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-    )
+    resp = await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
     assert resp.model == "llama3.2"
 
 
@@ -233,9 +223,7 @@ async def test_partial_usage_missing_one_field_is_estimated(monkeypatch):
     # usage ada tapi completion_tokens=None -> jatuh ke estimasi seluruhnya.
     # input "hi there" (8) -> 2 ; output "x" (1) -> max(1, 0) = 1
     partial = SimpleNamespace(prompt_tokens=10, completion_tokens=None)
-    _install_fake_openai(
-        monkeypatch, response=_fake_response(content="x", usage=partial)
-    )
+    _install_fake_openai(monkeypatch, response=_fake_response(content="x", usage=partial))
     provider = oc.OpenAICompatProvider(
         base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
     )
@@ -248,15 +236,11 @@ async def test_partial_usage_missing_one_field_is_estimated(monkeypatch):
 
 
 async def test_none_content_with_missing_usage_estimates_at_least_one(monkeypatch):
-    _install_fake_openai(
-        monkeypatch, response=_fake_response(content=None, usage=None)
-    )
+    _install_fake_openai(monkeypatch, response=_fake_response(content=None, usage=None))
     provider = oc.OpenAICompatProvider(
         base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
     )
-    resp = await provider.complete(
-        CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-    )
+    resp = await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
     assert resp.content == [TextBlock(text="")]
     assert resp.usage.estimated is True
     assert resp.usage.prompt_tokens >= 1
@@ -292,16 +276,12 @@ class _FakeConnectionError(Exception):
     ],
 )
 async def test_status_error_wrapped_with_correct_retryable(monkeypatch, status, retryable):
-    _install_fake_openai(
-        monkeypatch, error=_FakeStatusError("boom", status_code=status)
-    )
+    _install_fake_openai(monkeypatch, error=_FakeStatusError("boom", status_code=status))
     provider = oc.OpenAICompatProvider(
         base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
     )
     with pytest.raises(ProviderError) as excinfo:
-        await provider.complete(
-            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-        )
+        await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
     err = excinfo.value
     assert err.status == status
     assert err.retryable is retryable
@@ -314,9 +294,7 @@ async def test_timeout_error_retryable_without_status(monkeypatch):
         base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
     )
     with pytest.raises(ProviderError) as excinfo:
-        await provider.complete(
-            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-        )
+        await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
     assert excinfo.value.retryable is True
     assert excinfo.value.status is None
 
@@ -327,9 +305,7 @@ async def test_connection_error_retryable_without_status(monkeypatch):
         base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
     )
     with pytest.raises(ProviderError) as excinfo:
-        await provider.complete(
-            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-        )
+        await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
     assert excinfo.value.retryable is True
     assert excinfo.value.status is None
 
@@ -340,9 +316,7 @@ async def test_unknown_error_without_status_is_not_retryable(monkeypatch):
         base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
     )
     with pytest.raises(ProviderError) as excinfo:
-        await provider.complete(
-            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-        )
+        await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
     assert excinfo.value.retryable is False
     assert excinfo.value.status is None
 
@@ -354,9 +328,7 @@ async def test_original_error_is_chained_as_cause(monkeypatch):
         base_url="http://localhost:11434/v1", api_key="ollama", model="llama3.2"
     )
     with pytest.raises(ProviderError) as excinfo:
-        await provider.complete(
-            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-        )
+        await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
     assert excinfo.value.__cause__ is original
 
 
@@ -374,9 +346,7 @@ async def test_429_insufficient_quota_is_quota_exhausted(monkeypatch):
         base_url="http://localhost:11434/v1", api_key="k", model="kimi"
     )
     with pytest.raises(ProviderError) as ei:
-        await provider.complete(
-            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-        )
+        await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
     assert ei.value.quota_exhausted is True
     assert ei.value.retryable is False
     assert ei.value.status == 429
@@ -393,9 +363,7 @@ async def test_429_rate_limit_is_transient(monkeypatch):
         base_url="http://localhost:11434/v1", api_key="k", model="kimi"
     )
     with pytest.raises(ProviderError) as ei:
-        await provider.complete(
-            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-        )
+        await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
     assert ei.value.retryable is True
     assert ei.value.quota_exhausted is False
     assert ei.value.status == 429
@@ -410,9 +378,7 @@ async def test_429_ambiguous_plan_billing_defaults_quota(monkeypatch):
         billing="plan_credit",
     )
     with pytest.raises(ProviderError) as ei:
-        await provider.complete(
-            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-        )
+        await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
     assert ei.value.quota_exhausted is True
     assert ei.value.retryable is False
 
@@ -423,9 +389,7 @@ async def test_429_ambiguous_card_billing_defaults_transient(monkeypatch):
         base_url="http://localhost:11434/v1", api_key="k", model="kimi"
     )  # default billing "card"
     with pytest.raises(ProviderError) as ei:
-        await provider.complete(
-            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-        )
+        await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
     assert ei.value.retryable is True
     assert ei.value.quota_exhausted is False
 
@@ -445,9 +409,7 @@ async def test_model_not_found_is_candidate_unavailable(monkeypatch):
     )
 
     with pytest.raises(ProviderError) as raised:
-        await provider.complete(
-            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-        )
+        await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
 
     assert raised.value.candidate_unavailable is True
     assert raised.value.retryable is False
@@ -470,9 +432,7 @@ async def test_generic_provider_configuration_failure_is_provider_unavailable(
     )
 
     with pytest.raises(ProviderError) as raised:
-        await provider.complete(
-            CanonicalRequest(messages=[text("user", "hi")], max_tokens=16)
-        )
+        await provider.complete(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16))
 
     assert raised.value.provider_unavailable is True
     assert raised.value.candidate_unavailable is False

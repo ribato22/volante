@@ -137,9 +137,7 @@ class Synthesizer:
     def set_call_gate(self, before_call: Callable[[str], None] | None) -> None:
         self._before_call = before_call
 
-    def set_model_limits(
-        self, *, context_window: int, max_output_tokens: int
-    ) -> None:
+    def set_model_limits(self, *, context_window: int, max_output_tokens: int) -> None:
         """Configure context limits from the runtime's selected model."""
 
         if context_window <= 1:
@@ -159,18 +157,14 @@ class Synthesizer:
         # billed. A synthesis is a summary; it does not need the model's ceiling.
         # Enough room to carry the artifacts through, never more than the ceiling
         # above, and never more than the model or its context actually allows.
-        artifact_chars = sum(
-            len(str(payload)) for payload in bb.current_artifacts().values()
-        )
+        artifact_chars = sum(len(str(payload)) for payload in bb.current_artifacts().values())
         needed = artifact_chars // _CHARS_PER_TOKEN
         output_tokens = min(
             self._max_output_tokens,
             max(_DEFAULT_MAX_OUTPUT_TOKENS, min(needed, _ASSEMBLY_MAX_OUTPUT_TOKENS)),
             max(1, self._context_window // 2),
         )
-        char_budget = model_input_char_budget(
-            self._context_window, output_tokens
-        )
+        char_budget = model_input_char_budget(self._context_window, output_tokens)
         # SYSTEM, not the same turn as the artifacts. Those artifacts are worker
         # output, and a worker's text can have come from a fetched page, a read file
         # or a tool result — so concatenating "combine these results" with that
@@ -231,8 +225,7 @@ class Synthesizer:
             label = f"## {task_id}\n"
             payload_budget = max(share - len(separator) - len(label), 0)
             section = (
-                f"{separator}{label}"
-                f"{_trim(str(payload), payload_budget, f'artifact {task_id}')}"
+                f"{separator}{label}{_trim(str(payload), payload_budget, f'artifact {task_id}')}"
             )
             if len(section) > remaining:
                 section = section[:remaining]

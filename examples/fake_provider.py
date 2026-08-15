@@ -33,20 +33,38 @@ _MID = "demo/fake"
 # human-readable artifacts in deterministic wave order.
 _PLAN = json.dumps(
     [
-        {"id": "research", "description": "research the topic", "type": "research",
-         "mode": "one_shot", "depends_on": []},
-        {"id": "outline", "description": "draft an outline", "type": "write",
-         "mode": "one_shot", "depends_on": []},
-        {"id": "compose", "description": "compose the final answer", "type": "analyze",
-         "mode": "one_shot", "depends_on": ["research", "outline"]},
+        {
+            "id": "research",
+            "description": "research the topic",
+            "type": "research",
+            "mode": "one_shot",
+            "depends_on": [],
+        },
+        {
+            "id": "outline",
+            "description": "draft an outline",
+            "type": "write",
+            "mode": "one_shot",
+            "depends_on": [],
+        },
+        {
+            "id": "compose",
+            "description": "compose the final answer",
+            "type": "analyze",
+            "mode": "one_shot",
+            "depends_on": ["research", "outline"],
+        },
     ]
 )
 
 
 def _plan_response() -> CanonicalResponse:
     return CanonicalResponse(
-        content=[TextBlock(text=_PLAN)], usage=Usage(40, 25),
-        model=_MID, stop_reason="end_turn", latency_ms=1,
+        content=[TextBlock(text=_PLAN)],
+        usage=Usage(40, 25),
+        model=_MID,
+        stop_reason="end_turn",
+        latency_ms=1,
     )
 
 
@@ -65,9 +83,14 @@ def build_fake_runtime() -> Runtime:
     registry = Registry(
         [
             ModelInfo(
-                id=_MID, provider="fake", strengths={"coding", "reasoning"},
-                context_window=128_000, max_output_tokens=4_096, supports_tools=True,
-                cost_per_1k_in=0.001, cost_per_1k_out=0.002,
+                id=_MID,
+                provider="fake",
+                strengths={"coding", "reasoning"},
+                context_window=128_000,
+                max_output_tokens=4_096,
+                supports_tools=True,
+                cost_per_1k_in=0.001,
+                cost_per_1k_out=0.002,
             )
         ]
     )

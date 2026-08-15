@@ -142,9 +142,14 @@ def test_a_shared_profile_may_name_models_you_do_not_have(caplog) -> None:
     are configured now. Entries that match nothing cannot affect routing.
     """
     model = ModelInfo(
-        id="have-it", provider="fake", strengths={"coding"}, context_window=8000,
-        max_output_tokens=1000, supports_tools=False,
-        cost_per_1k_in=0.0, cost_per_1k_out=0.0,
+        id="have-it",
+        provider="fake",
+        strengths={"coding"},
+        context_window=8000,
+        max_output_tokens=1000,
+        supports_tools=False,
+        cost_per_1k_in=0.0,
+        cost_per_1k_out=0.0,
     )
     profiles = {
         "have-it": ModelQualityProfile(overall_score=0.9, source="measured"),
@@ -162,9 +167,14 @@ def test_a_profile_matching_nothing_still_fails_fast() -> None:
     """The typo protection this check exists for. A file where NOTHING matches
     describes some other inventory, or every id in it is wrong."""
     model = ModelInfo(
-        id="have-it", provider="fake", strengths={"coding"}, context_window=8000,
-        max_output_tokens=1000, supports_tools=False,
-        cost_per_1k_in=0.0, cost_per_1k_out=0.0,
+        id="have-it",
+        provider="fake",
+        strengths={"coding"},
+        context_window=8000,
+        max_output_tokens=1000,
+        supports_tools=False,
+        cost_per_1k_in=0.0,
+        cost_per_1k_out=0.0,
     )
 
     with pytest.raises(ValueError, match="reference unknown models"):

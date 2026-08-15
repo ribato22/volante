@@ -91,9 +91,7 @@ async def test_the_router_still_chooses_and_the_choice_is_recorded() -> None:
     remove the one thing this path is keeping."""
     weak, strong = _Provider("weak", "x"), _Provider("strong", "answer")
 
-    result = await _run(
-        {"weak": weak, "strong": strong}, [_model("weak", 1), _model("strong", 4)]
-    )
+    result = await _run({"weak": weak, "strong": strong}, [_model("weak", 1), _model("strong", 4)])
 
     trace = result.routing_decisions["__direct__"]
     assert trace["executed_model_id"] == "strong"
@@ -105,15 +103,14 @@ async def test_a_failing_model_falls_over_to_the_next_ranked_one() -> None:
     boom = _Provider("strong", ProviderError("upstream down", retryable=False))
     ok = _Provider("weak", "recovered")
 
-    result = await _run(
-        {"strong": boom, "weak": ok}, [_model("strong", 4), _model("weak", 1)]
-    )
+    result = await _run({"strong": boom, "weak": ok}, [_model("strong", 4), _model("weak", 1)])
 
     assert result.status == "success"
     assert result.final == "recovered"
-    assert result.routing_decisions["__direct__"]["fallback_events"][0][
-        "reason"
-    ] == "provider_unavailable"
+    assert (
+        result.routing_decisions["__direct__"]["fallback_events"][0]["reason"]
+        == "provider_unavailable"
+    )
 
 
 async def test_a_blank_answer_is_a_candidate_failure_not_an_answer() -> None:
@@ -122,14 +119,12 @@ async def test_a_blank_answer_is_a_candidate_failure_not_an_answer() -> None:
     blank = _Provider("strong", "   ")
     ok = _Provider("weak", "real answer")
 
-    result = await _run(
-        {"strong": blank, "weak": ok}, [_model("strong", 4), _model("weak", 1)]
-    )
+    result = await _run({"strong": blank, "weak": ok}, [_model("strong", 4), _model("weak", 1)])
 
     assert result.final == "real answer"
-    assert result.routing_decisions["__direct__"]["fallback_events"][0][
-        "reason"
-    ] == "invalid_output"
+    assert (
+        result.routing_decisions["__direct__"]["fallback_events"][0]["reason"] == "invalid_output"
+    )
 
 
 async def test_every_model_failing_returns_a_structured_failure() -> None:

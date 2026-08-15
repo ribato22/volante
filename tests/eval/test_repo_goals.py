@@ -25,7 +25,7 @@ import pytest
 from eval.harness import _score_reference, repo_files_for
 from eval.tasks_repo import CHANGE, REGRESSION, SHOPCART_TASK
 
-GOLDEN = '''```python
+GOLDEN = """```python
 # path: cart.py
 from catalog import lookup
 from pricing import discount_for, qualifies, tax_for
@@ -90,21 +90,21 @@ class Cart:
         rows.append(("TAX", self.tax()))
         rows.append(("TOTAL", self.total()))
         return rows
-```'''
+```"""
 
 # The threshold-after-tax mutation needs somewhere to read the post-tax figure from.
 _WITH_AFTER_TAX = GOLDEN.replace(
     "    def tax(self):",
-    "    def after_tax(self):\n"
-    "        return self.payable() + self.tax()\n\n"
-    "    def tax(self):",
+    "    def after_tax(self):\n        return self.payable() + self.tax()\n\n    def tax(self):",
 )
 
 # Only `discount_for` changes. An earlier version of this mutation rewrote the whole
 # file and dropped `qualifies`, which cart.py imports -- every case then failed on an
 # ImportError and the mutation "cost" 1.0000. A mutation that breaks the import is
 # measuring the mutation, not the rule it was meant to isolate.
-_ADDITIVE_COUPONS = GOLDEN + '''
+_ADDITIVE_COUPONS = (
+    GOLDEN
+    + """
 
 ```python
 # path: pricing.py
@@ -124,7 +124,8 @@ def tax_for(amount):
 
 def qualifies(subtotal, codes, threshold):
     return subtotal - discount_for(subtotal, codes) >= threshold
-```'''
+```"""
+)
 
 _TIER_BODY = (
     "        if self.payable() >= FREE_SHIPPING_FROM:\n"
@@ -175,9 +176,7 @@ def test_the_starting_project_works_before_the_change() -> None:
         '"passed": cp * rp,', '"passed": rp,'
     ).replace('"total": len(CHANGE) * len(REGRESSION),', '"total": len(REGRESSION),')
 
-    score, measured = _score_reference(
-        "", regression_only, repo_files_for("", SHOPCART_TASK.repo)
-    )
+    score, measured = _score_reference("", regression_only, repo_files_for("", SHOPCART_TASK.repo))
 
     assert (score, measured) == (1.0, True)
 
@@ -191,38 +190,56 @@ _TWO_CASES = 2 / len(CHANGE)
     ("answer", "expected"),
     [
         pytest.param(
-            _WITH_AFTER_TAX.replace(
-                "if self.payable() >= FREE", "if self.after_tax() >= FREE"),
-            0.80, id="free-shipping-thresholded-AFTER-tax"),
+            _WITH_AFTER_TAX.replace("if self.payable() >= FREE", "if self.after_tax() >= FREE"),
+            0.80,
+            id="free-shipping-thresholded-AFTER-tax",
+        ),
         pytest.param(
             GOLDEN.replace("if self.payable() >= FREE", "if self.subtotal() >= FREE"),
-            0.85, id="free-shipping-thresholded-on-SUBTOTAL"),
+            0.85,
+            id="free-shipping-thresholded-on-SUBTOTAL",
+        ),
         pytest.param(
             GOLDEN.replace("if grams <= limit", "if grams < limit"),
-            0.85, id="weight-boundaries-made-exclusive"),
+            0.85,
+            id="weight-boundaries-made-exclusive",
+        ),
         pytest.param(
-            GOLDEN.replace("return tax_for(self.payable())",
-                           "return tax_for(self.payable() + self.shipping())"),
+            GOLDEN.replace(
+                "return tax_for(self.payable())", "return tax_for(self.payable() + self.shipping())"
+            ),
             # The only mutation that costs on BOTH factors, which is what taxing
             # shipping is: a new rule applied wrongly AND an old figure changed.
-            0.80, id="tax-charged-on-shipping-too"),
+            0.80,
+            id="tax-charged-on-shipping-too",
+        ),
         pytest.param(
-            GOLDEN.replace("self.payable() + self.tax() + self.shipping()",
-                           "self.payable() + self.tax()"),
-            0.90, id="total-forgets-shipping"),
+            GOLDEN.replace(
+                "self.payable() + self.tax() + self.shipping()", "self.payable() + self.tax()"
+            ),
+            0.90,
+            id="total-forgets-shipping",
+        ),
         pytest.param(
             GOLDEN.replace(
                 'rows.append(("SHIPPING", self.shipping()))\n'
                 '        rows.append(("TAX", self.tax()))',
                 'rows.append(("TAX", self.tax()))\n'
-                '        rows.append(("SHIPPING", self.shipping()))'),
-            0.90, id="SHIPPING-row-printed-after-TAX"),
+                '        rows.append(("SHIPPING", self.shipping()))',
+            ),
+            0.90,
+            id="SHIPPING-row-printed-after-TAX",
+        ),
         pytest.param(
             GOLDEN.replace("((500, 499), (2000, 899))", "((500, 899), (2000, 499))"),
-            0.50, id="the-two-weight-tariffs-swapped"),
+            0.50,
+            id="the-two-weight-tariffs-swapped",
+        ),
         pytest.param(
             GOLDEN.replace('["grams"] * qty for sku, qty', '["grams"] for sku, qty'),
-            0.65, id="weight-ignores-quantity"),
+            0.65,
+            id="weight-ignores-quantity",
+        ),
         # Not a criterion, its opposite: the request says the compounding rule is
         # deliberate, and tidying it into an addition is the most tempting thing to do
         # while passing through pricing.py.
@@ -234,8 +251,11 @@ _TWO_CASES = 2 / len(CHANGE)
         pytest.param(
             GOLDEN.replace(
                 "return qualifies(self.subtotal(), self._codes, FREE_GIFT_FROM)",
-                "return self.payable() + self.tax() >= FREE_GIFT_FROM"),
-            0.8889, id="free_gift-rebuilt-on-the-taxed-total"),
+                "return self.payable() + self.tax() >= FREE_GIFT_FROM",
+            ),
+            0.8889,
+            id="free_gift-rebuilt-on-the-taxed-total",
+        ),
     ],
 )
 def test_each_criterion_costs_at_least_two_cases(answer: str, expected: float) -> None:
@@ -298,11 +318,7 @@ def test_the_shipping_outcomes_are_balanced() -> None:
 def test_each_threshold_trap_appears_at_more_than_one_tariff() -> None:
     """A trap that only ever fires in one tier is guessable from the tier alone."""
     for trap in ("BEFORE tax", "AFTER discounts"):
-        tariffs = {
-            expected
-            for label, _mod, _fn, _args, expected in CHANGE
-            if trap in label
-        }
+        tariffs = {expected for label, _mod, _fn, _args, expected in CHANGE if trap in label}
         assert len(tariffs) >= 3, (trap, tariffs)
 
 
@@ -325,10 +341,7 @@ def test_a_model_cannot_replace_the_probe_that_grades_it() -> None:
     stops meaning anything.
     """
     hostile = GOLDEN + (
-        "\n\n```python\n# path: _probe.py\n"
-        "def value(items, codes, name):\n"
-        "    return 0\n"
-        "```\n"
+        "\n\n```python\n# path: _probe.py\ndef value(items, codes, name):\n    return 0\n```\n"
     )
 
     files = repo_files_for(hostile, SHOPCART_TASK.repo)
@@ -380,8 +393,13 @@ def _agentic_result(answer: str, *, tests: bool = True, readme: bool = True):
             (ws / "README.md").write_text("# cart\n", encoding="utf-8")
         tree = _collect_workspace_repo(ws)
     return AgenticArmResult(
-        solution_code="", has_tests=tests, has_readme=readme,
-        usage_total={}, cost_usd=0.0, duration_ms=0, repo_files=tree,
+        solution_code="",
+        has_tests=tests,
+        has_readme=readme,
+        usage_total={},
+        cost_usd=0.0,
+        duration_ms=0,
+        repo_files=tree,
     )
 
 

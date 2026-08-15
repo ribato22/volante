@@ -46,9 +46,7 @@ def _provider(monkeypatch, chunks):
     class _Client:
         chat = _Chat()
 
-    monkeypatch.setattr(
-        "volante.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client()
-    )
+    monkeypatch.setattr("volante.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client())
     return OpenAICompatProvider(base_url="http://x/v1", api_key="k", model="kimi-x")
 
 
@@ -61,9 +59,7 @@ async def test_stream_text(monkeypatch) -> None:
     ]
     p = _provider(monkeypatch, chunks)
     got: list[str] = []
-    res = await p.stream(
-        CanonicalRequest(messages=[text("user", "hi")], max_tokens=16), got.append
-    )
+    res = await p.stream(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16), got.append)
     assert "".join(got) == "hello"
     assert isinstance(res.content[0], TextBlock)
     assert res.usage.prompt_tokens == 5
@@ -102,9 +98,7 @@ def _provider_with_stream(monkeypatch, stream_obj):
     class _Client:
         chat = _Chat()
 
-    monkeypatch.setattr(
-        "volante.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client()
-    )
+    monkeypatch.setattr("volante.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client())
     return OpenAICompatProvider(base_url="http://x/v1", api_key="k", model="kimi-x")
 
 
@@ -121,9 +115,7 @@ async def test_stream_early_stop_forwards_partial_and_closes(monkeypatch) -> Non
         got.append(s)
         return True  # stop setelah chunk pertama
 
-    res = await p.stream(
-        CanonicalRequest(messages=[text("user", "hi")], max_tokens=16), cb
-    )
+    res = await p.stream(CanonicalRequest(messages=[text("user", "hi")], max_tokens=16), cb)
     assert got == ["a"]
     assert "".join(b.text for b in res.content if isinstance(b, TextBlock)) == "a"
     assert res.stop_reason == "early_stop"
@@ -209,12 +201,8 @@ async def test_streamed_request_carries_the_tool_declarations(monkeypatch) -> No
     class _Client:
         chat = _Chat()
 
-    monkeypatch.setattr(
-        "volante.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client()
-    )
-    provider = OpenAICompatProvider(
-        base_url="http://x/v1", api_key="k", model="kimi-x"
-    )
+    monkeypatch.setattr("volante.providers.openai_compat.AsyncOpenAI", lambda **kw: _Client())
+    provider = OpenAICompatProvider(base_url="http://x/v1", api_key="k", model="kimi-x")
 
     await provider.stream(
         CanonicalRequest(

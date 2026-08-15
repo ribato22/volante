@@ -140,9 +140,7 @@ class Supervisor:
 
         self._before_call = before_call
 
-    def set_model_limits(
-        self, *, context_window: int, max_output_tokens: int
-    ) -> None:
+    def set_model_limits(self, *, context_window: int, max_output_tokens: int) -> None:
         """Configure planner limits from the selected model's registry record."""
 
         if context_window <= 1:
@@ -160,13 +158,9 @@ class Supervisor:
             raise ValueError(f"unknown supervisor tools: {sorted(unknown)}")
         self._available_tools = set(tool_names)
 
-    async def plan(
-        self, goal: str, on_text: Callable[[str], None] | None = None
-    ) -> list[Task]:
+    async def plan(self, goal: str, on_text: Callable[[str], None] | None = None) -> list[Task]:
         if self._used:
-            raise RuntimeError(
-                "Supervisor.plan is non-re-entrant; use a fresh Supervisor per run"
-            )
+            raise RuntimeError("Supervisor.plan is non-re-entrant; use a fresh Supervisor per run")
         self._used = True
         req = self._build_request(goal)
         base_messages = list(req.messages)
@@ -182,9 +176,7 @@ class Supervisor:
             # succeeds and BEFORE validation -> a call that really was executed
             # still counts even if the plan turns out to be invalid. Every attempt
             # of the retry loop is billed, not just the last one.
-            self._cost_meter.add(
-                self._model_id, resp.usage, cost_usd=resp.cost_usd
-            )
+            self._cost_meter.add(self._model_id, resp.usage, cost_usd=resp.cost_usd)
             raw = _extract_text(resp)
             try:
                 # Inside the retry, deliberately. This was called outside it, so an
@@ -196,9 +188,7 @@ class Supervisor:
                 tasks = _build_tasks(data)
                 _validate(tasks)
                 for task in tasks:
-                    unavailable = (
-                        effective_required_tools(task) - self._available_tools
-                    )
+                    unavailable = effective_required_tools(task) - self._available_tools
                     if unavailable:
                         raise ValueError(
                             f"task {task.id!r} requires tools unavailable in "
@@ -210,10 +200,7 @@ class Supervisor:
                 # content filter or an unknown stop reason is not a plan that was too
                 # long, and telling the model to emit fewer tasks would spend another
                 # call on an instruction that cannot address what went wrong.
-                if (
-                    isinstance(exc, IncompleteOutputError)
-                    and exc.stop_reason != "max_tokens"
-                ):
+                if isinstance(exc, IncompleteOutputError) and exc.stop_reason != "max_tokens":
                     raise
                 # Re-raise the FIRST rejection, not the last: later attempts
                 # can fail for an unrelated reason (e.g. the corrective
@@ -243,9 +230,7 @@ class Supervisor:
                     for block in message.content
                     if isinstance(block, TextBlock)
                 ) + len(correction)
-                char_budget = model_input_char_budget(
-                    self._context_window, req.max_tokens
-                )
+                char_budget = model_input_char_budget(self._context_window, req.max_tokens)
                 if fixed_chars >= char_budget:
                     raise first_exc from None
                 available_reply = max(char_budget - fixed_chars, 0)
@@ -258,10 +243,7 @@ class Supervisor:
                         keep = available_reply - len(marker)
                         head = keep // 2
                         tail = keep - head
-                        bounded_raw = (
-                            f"{raw[:head]}{marker}"
-                            f"{raw[-tail:] if tail else ''}"
-                        )
+                        bounded_raw = f"{raw[:head]}{marker}{raw[-tail:] if tail else ''}"
                 req = CanonicalRequest(
                     messages=[
                         *base_messages,
@@ -306,9 +288,7 @@ class Supervisor:
             _DEFAULT_MAX_OUTPUT_TOKENS,
             max(1, self._context_window // 2),
         )
-        char_budget = model_input_char_budget(
-            self._context_window, output_tokens
-        )
+        char_budget = model_input_char_budget(self._context_window, output_tokens)
         framing = len(system_prompt) + 2
         available_goal = char_budget - framing
         if available_goal < 1 or len(goal) > available_goal:
@@ -388,14 +368,10 @@ def _build_tasks(data: list[Any]) -> list[Task]:
                 raise ValueError(f"plan item #{i} 'difficulty' must be a string")
             for dep in raw_deps:
                 if not isinstance(dep, str):
-                    raise ValueError(
-                        f"plan item #{i} dependency ids must be strings"
-                    )
+                    raise ValueError(f"plan item #{i} dependency ids must be strings")
             for tool_name in raw_tools:
                 if not isinstance(tool_name, str):
-                    raise ValueError(
-                        f"plan item #{i} required tool names must be strings"
-                    )
+                    raise ValueError(f"plan item #{i} required tool names must be strings")
             task = Task(
                 id=raw_id,
                 description=raw_description,

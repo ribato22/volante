@@ -138,9 +138,7 @@ def test_claude_code_repeatable_models_use_same_detected_subscription(
     monkeypatch.setenv("CLAUDE_CODE_MODELS", "opus,sonnet")
     monkeypatch.setattr("volante.bootstrap._detect_cli", lambda binary: True)
 
-    registry, providers, baseline = build_providers_from_env(
-        include_subscription=True
-    )
+    registry, providers, baseline = build_providers_from_env(include_subscription=True)
 
     assert [model.id for model in registry.all()] == [
         "claude-code/opus",
@@ -156,9 +154,7 @@ def test_codex_repeatable_models_use_one_authenticated_cli(monkeypatch) -> None:
     monkeypatch.setenv("CODEX_MODELS", "gpt-5-codex,gpt-5-codex-mini")
     monkeypatch.setattr("volante.providers.codex.codex_detected", lambda: True)
 
-    registry, providers, baseline = build_providers_from_env(
-        include_subscription=True
-    )
+    registry, providers, baseline = build_providers_from_env(include_subscription=True)
 
     assert [model.id for model in registry.all()] == [
         "codex/gpt-5-codex",
@@ -180,9 +176,7 @@ def test_parallel_canonical_names_must_match_model_count(monkeypatch) -> None:
         build_providers_from_env()
 
 
-def test_profile_for_inaccessible_model_fails_closed(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_profile_for_inaccessible_model_fails_closed(monkeypatch, tmp_path: Path) -> None:
     profiles = tmp_path / "quality.json"
     profiles.write_text(
         json.dumps({"unconfigured/model": {"overall_score": 0.9}}),
@@ -195,9 +189,7 @@ def test_profile_for_inaccessible_model_fails_closed(
         build_providers_from_env()
 
 
-def test_plural_anthropic_models_use_independent_hard_metadata(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_plural_anthropic_models_use_independent_hard_metadata(monkeypatch, tmp_path: Path) -> None:
     overrides = tmp_path / "overrides.json"
     overrides.write_text(
         json.dumps(

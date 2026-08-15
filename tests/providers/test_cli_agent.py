@@ -50,7 +50,7 @@ async def test_runner_runs_in_clean_temp_cwd():
     )
     lines = r.stdout.splitlines()
     assert "volante-cli-" in lines[0]  # ran in a fresh temp dir, not the repo
-    assert lines[1] == "[]"          # temp cwd starts empty
+    assert lines[1] == "[]"  # temp cwd starts empty
 
 
 async def test_runner_timeout_kills_process_group():
@@ -115,7 +115,7 @@ async def test_runner_early_stop_kills_process_group():
     )
     elapsed = time.monotonic() - start
     assert seen == ["0"]
-    assert elapsed < 2.0        # killed immediately, did NOT wait out sleep(5)
+    assert elapsed < 2.0  # killed immediately, did NOT wait out sleep(5)
     assert r.timed_out is False
     assert r.stdout == "0\n"
 
@@ -224,7 +224,7 @@ _ESCAPING_GRANDCHILD = (
     "import subprocess, sys, time;"
     "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(10)'],"
     " start_new_session=True);"
-    "sys.stdout.write('{\"type\":\"x\"}\\n'); sys.stdout.flush();"
+    'sys.stdout.write(\'{"type":"x"}\\n\'); sys.stdout.flush();'
     "time.sleep(30)"
 )
 
@@ -309,9 +309,7 @@ _STALLS_BEFORE_READING_STDIN = "import time; time.sleep(10)"
 _LARGER_THAN_PIPE_BUFFER = "x" * (4 * 1024 * 1024)
 
 _REPORTS_PID_THEN_STALLS = (
-    "import os, sys, time\n"
-    "open(sys.argv[1], 'w').write(str(os.getpid()))\n"
-    "time.sleep(10)\n"
+    "import os, sys, time\nopen(sys.argv[1], 'w').write(str(os.getpid()))\ntime.sleep(10)\n"
 )
 
 
@@ -351,9 +349,7 @@ async def test_runner_timeout_covers_stdin_backpressure(on_line):
 
 
 @pytest.mark.parametrize("on_line", [None, lambda _line: False], ids=["complete", "stream"])
-async def test_runner_cancellation_during_stdin_backpressure_kills_child(
-    tmp_path, on_line
-):
+async def test_runner_cancellation_during_stdin_backpressure_kills_child(tmp_path, on_line):
     pid_file = tmp_path / "child.pid"
     task = asyncio.ensure_future(
         subprocess_cli_runner(
@@ -441,10 +437,7 @@ async def test_runner_feed_does_not_deadlock_against_a_chatty_child():
     # Writing the whole prompt before draining stdout deadlocks once the child
     # fills the stdout pipe while the runner is still filling the stdin one.
     chatty = (
-        "import sys\n"
-        "sys.stdout.write('y' * 24_000_000)\n"
-        "sys.stdout.flush()\n"
-        "sys.stdin.read()\n"
+        "import sys\nsys.stdout.write('y' * 24_000_000)\nsys.stdout.flush()\nsys.stdin.read()\n"
     )
     r = await asyncio.wait_for(
         subprocess_cli_runner(
@@ -495,9 +488,7 @@ class _FakeAdapter:
         return env
 
     def stdin(self, req):
-        return "".join(
-            b.text for m in req.messages for b in m.content if isinstance(b, TextBlock)
-        )
+        return "".join(b.text for m in req.messages for b in m.content if isinstance(b, TextBlock))
 
     def parse(self, result, req):
         data = json.loads(result.stdout)
@@ -559,9 +550,7 @@ class _RecordingRunner:
 
 
 def _req(text_in="explain recursion"):
-    return CanonicalRequest(
-        messages=[text("user", text_in)], max_tokens=999999, temperature=0.9
-    )
+    return CanonicalRequest(messages=[text("user", text_in)], max_tokens=999999, temperature=0.9)
 
 
 def _ok_result(**extra):
@@ -648,9 +637,7 @@ def test_provider_can_be_reused_across_sequential_event_loops(monkeypatch):
         await asyncio.sleep(0.01)
         return _ok_result()
 
-    provider = CliAgentProvider(
-        _FakeAdapter(), "opus", runner=delayed_runner, concurrency=1
-    )
+    provider = CliAgentProvider(_FakeAdapter(), "opus", runner=delayed_runner, concurrency=1)
 
     async def run_contended_pair() -> None:
         await asyncio.gather(provider.complete(_req()), provider.complete(_req()))
@@ -718,7 +705,7 @@ async def test_stream_relays_deltas_and_early_stop(monkeypatch):
         return len(seen) >= 2  # truthy after 2 deltas -> cooperative early-stop
 
     resp = await provider.stream(_req(), _on_text)
-    assert seen == ["Hel", "lo"]           # 3rd delta never delivered (stopped)
+    assert seen == ["Hel", "lo"]  # 3rd delta never delivered (stopped)
     assert resp.content[0].text == "Hello"  # accumulated partial
     assert resp.usage.estimated is True
     # NEVER Usage(0, 0): the partial text is real bytes, so the estimate must be
@@ -765,9 +752,9 @@ async def test_stream_early_stop_keeps_partial_even_with_result_line(monkeypatch
     runner = _RecordingRunner(CliRunResult("", "", 0), lines=lines)
     provider = CliAgentProvider(adapter, "opus", runner=runner)
     resp = await provider.stream(_req(), lambda _d: True)  # stop after first delta
-    assert resp.content[0].text == "Hel"       # partial, NOT the full result-line text
-    assert resp.usage.estimated is True         # unchanged early-stop contract
-    assert resp.usage.completion_tokens > 0     # still NEVER Usage(0, 0)
+    assert resp.content[0].text == "Hel"  # partial, NOT the full result-line text
+    assert resp.usage.estimated is True  # unchanged early-stop contract
+    assert resp.usage.completion_tokens > 0  # still NEVER Usage(0, 0)
     assert resp.usage.prompt_tokens > 0
 
 
@@ -843,9 +830,7 @@ async def test_an_ordinary_stream_is_untouched_by_the_retention_bound(monkeypatc
         json.dumps({"type": "text", "text": "Hel"}) + "\n",
         json.dumps({"type": "text", "text": "lo"}) + "\n",
     ]
-    result_line = json.dumps(
-        {"result": "Hello", "usage": {"input_tokens": 3, "output_tokens": 2}}
-    )
+    result_line = json.dumps({"result": "Hello", "usage": {"input_tokens": 3, "output_tokens": 2}})
     adapter = _FakeAdapter(stream_result_line_value=result_line)
     runner = _RecordingRunner(CliRunResult("", "", 0), lines=lines)
     provider = CliAgentProvider(adapter, "opus", runner=runner)

@@ -9,9 +9,14 @@ from volante.types import ModelInfo, Usage
 
 def _m(mid: str, tools: bool) -> ModelInfo:
     return ModelInfo(
-        id=mid, provider="x", strengths={"coding"}, context_window=1000,
-        max_output_tokens=100, supports_tools=tools,
-        cost_per_1k_in=0.001, cost_per_1k_out=0.002,
+        id=mid,
+        provider="x",
+        strengths={"coding"},
+        context_window=1000,
+        max_output_tokens=100,
+        supports_tools=tools,
+        cost_per_1k_in=0.001,
+        cost_per_1k_out=0.002,
     )
 
 

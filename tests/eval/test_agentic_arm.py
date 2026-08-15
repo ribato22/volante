@@ -18,16 +18,24 @@ from volante.types import (
 
 def _model(mid: str) -> ModelInfo:
     return ModelInfo(
-        id=mid, provider="fake", strengths={"coding"}, context_window=100_000,
-        max_output_tokens=4096, supports_tools=True,
-        cost_per_1k_in=0.001, cost_per_1k_out=0.002,
+        id=mid,
+        provider="fake",
+        strengths={"coding"},
+        context_window=100_000,
+        max_output_tokens=4096,
+        supports_tools=True,
+        cost_per_1k_in=0.001,
+        cost_per_1k_out=0.002,
     )
 
 
 def _resp(content, stop, usage=(3, 2)) -> CanonicalResponse:
     return CanonicalResponse(
-        content=content, usage=Usage(prompt_tokens=usage[0], completion_tokens=usage[1]),
-        model="m1", stop_reason=stop, latency_ms=1,
+        content=content,
+        usage=Usage(prompt_tokens=usage[0], completion_tokens=usage[1]),
+        model="m1",
+        stop_reason=stop,
+        latency_ms=1,
     )
 
 
@@ -70,10 +78,12 @@ async def test_run_agentic_single_captures_workspace() -> None:
         "open('test_x.py','w').write('def test_ok():\\n    assert True\\n')\n"
         "open('README.md','w').write('# readme\\n')\n"
     )
-    provider = FakeProvider(responses=[
-        _resp([ToolUseBlock(id="u1", name="run_python", input={"code": code})], "tool_use"),
-        _resp([TextBlock(text="done")], "end_turn"),
-    ])
+    provider = FakeProvider(
+        responses=[
+            _resp([ToolUseBlock(id="u1", name="run_python", input={"code": code})], "tool_use"),
+            _resp([TextBlock(text="done")], "end_turn"),
+        ]
+    )
     res = await run_agentic_single("goal", provider, "m1", Registry([_model("m1")]))
     assert isinstance(res, AgenticArmResult)
     assert "def slugify" in res.solution_code
@@ -97,10 +107,12 @@ async def test_run_agentic_single_does_not_read_through_a_planted_symlink(
         f"os.symlink({str(secret)!r}, 'solution.py')\n"
         f"os.symlink({str(secret)!r}, 'test_planted.py')\n"
     )
-    provider = FakeProvider(responses=[
-        _resp([ToolUseBlock(id="u1", name="run_python", input={"code": code})], "tool_use"),
-        _resp([TextBlock(text="no code fence here")], "end_turn"),
-    ])
+    provider = FakeProvider(
+        responses=[
+            _resp([ToolUseBlock(id="u1", name="run_python", input={"code": code})], "tool_use"),
+            _resp([TextBlock(text="no code fence here")], "end_turn"),
+        ]
+    )
 
     res = await run_agentic_single("goal", provider, "m1", Registry([_model("m1")]))
 
@@ -113,10 +125,12 @@ async def test_run_agentic_single_bounds_an_oversized_solution() -> None:
     # `read_text()` on a model-controlled path has no ceiling; the arm only ever
     # needs enough source to score.
     code = "open('solution.py','w').write('#' + 'a' * 3_000_000)\n"
-    provider = FakeProvider(responses=[
-        _resp([ToolUseBlock(id="u1", name="run_python", input={"code": code})], "tool_use"),
-        _resp([TextBlock(text="done")], "end_turn"),
-    ])
+    provider = FakeProvider(
+        responses=[
+            _resp([ToolUseBlock(id="u1", name="run_python", input={"code": code})], "tool_use"),
+            _resp([TextBlock(text="done")], "end_turn"),
+        ]
+    )
 
     res = await run_agentic_single("goal", provider, "m1", Registry([_model("m1")]))
 
@@ -169,9 +183,7 @@ async def test_run_agentic_single_success_has_no_error() -> None:
 
 @pytest.mark.asyncio
 async def test_run_agentic_single_scores_a_tool_free_answer_instead_of_failing_it() -> None:
-    provider = FakeProvider(
-        responses=[_resp([TextBlock(text="claimed success")], "end_turn")]
-    )
+    provider = FakeProvider(responses=[_resp([TextBlock(text="claimed success")], "end_turn")])
 
     res = await run_agentic_single(
         "goal",

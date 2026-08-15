@@ -107,10 +107,7 @@ def format_report(result: dict) -> str:
     per_goal = result["per_goal"]
     agg = result["aggregate"]
 
-    header = (
-        f"{'GOAL':<14}{'WINNER':<15}"
-        f"{'BASE':>7}{'ORCH':>7}{'AGEN':>7}"
-    )
+    header = f"{'GOAL':<14}{'WINNER':<15}{'BASE':>7}{'ORCH':>7}{'AGEN':>7}"
     lines: list[str] = [header, "-" * len(header)]
     for g in per_goal:
         s = g["scores"]
@@ -247,12 +244,8 @@ async def main(argv: list[str] | None = None) -> None:
         raise SystemExit(f"eval needs a code-execution sandbox: {reason}")
 
     registry, providers, model_id = build_providers_from_env()
-    make_runtime = make_runtime_factory(
-        registry, providers, model_id, synthesis=args.synthesis
-    )
-    result = await run_suite(
-        suite, make_runtime, providers[model_id], model_id, registry, k=args.k
-    )
+    make_runtime = make_runtime_factory(registry, providers, model_id, synthesis=args.synthesis)
+    result = await run_suite(suite, make_runtime, providers[model_id], model_id, registry, k=args.k)
     print(format_report(result))
     if args.json:
         import json

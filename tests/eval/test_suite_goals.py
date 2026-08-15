@@ -30,316 +30,316 @@ def slugify(text):
 """
 
 ROMAN_GOOD = (
-    'from __future__ import annotations\n'
-    '\n'
-    '_TO_ROMAN = [\n'
+    "from __future__ import annotations\n"
+    "\n"
+    "_TO_ROMAN = [\n"
     '    (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),\n'
     '    (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),\n'
     '    (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),\n'
-    ']\n'
+    "]\n"
     '_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}\n'
-    '\n'
-    '\n'
-    'def to_roman(n: int) -> str:\n'
-    '    if isinstance(n, bool) or not isinstance(n, int):\n'
+    "\n"
+    "\n"
+    "def to_roman(n: int) -> str:\n"
+    "    if isinstance(n, bool) or not isinstance(n, int):\n"
     '        raise ValueError("n must be an int")\n'
-    '    if n < 1 or n > 3999:\n'
+    "    if n < 1 or n > 3999:\n"
     '        raise ValueError("n must be in 1..3999")\n'
-    '    out = []\n'
-    '    for value, sym in _TO_ROMAN:\n'
-    '        while n >= value:\n'
-    '            out.append(sym)\n'
-    '            n -= value\n'
+    "    out = []\n"
+    "    for value, sym in _TO_ROMAN:\n"
+    "        while n >= value:\n"
+    "            out.append(sym)\n"
+    "            n -= value\n"
     '    return "".join(out)\n'
-    '\n'
-    '\n'
-    'def from_roman(s: str) -> int:\n'
-    '    s = s.upper()\n'
-    '    total = 0\n'
-    '    length = len(s)\n'
-    '    for i, ch in enumerate(s):\n'
-    '        v = _VALUES[ch]\n'
-    '        if i + 1 < length and _VALUES[s[i + 1]] > v:\n'
-    '            total -= v\n'
-    '        else:\n'
-    '            total += v\n'
-    '    return total\n'
+    "\n"
+    "\n"
+    "def from_roman(s: str) -> int:\n"
+    "    s = s.upper()\n"
+    "    total = 0\n"
+    "    length = len(s)\n"
+    "    for i, ch in enumerate(s):\n"
+    "        v = _VALUES[ch]\n"
+    "        if i + 1 < length and _VALUES[s[i + 1]] > v:\n"
+    "            total -= v\n"
+    "        else:\n"
+    "            total += v\n"
+    "    return total\n"
 )
 
 ROMAN_BROKEN = (
-    'from __future__ import annotations\n'
-    '\n'
+    "from __future__ import annotations\n"
+    "\n"
     '_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}\n'
-    '\n'
-    '\n'
-    'def to_roman(n: int) -> str:\n'
+    "\n"
+    "\n"
+    "def to_roman(n: int) -> str:\n"
     '    # SUBTLY WRONG: purely additive, no subtractive pairs -> to_roman(4) == "IIII".\n'
     '    result = ""\n'
     '    result += "M" * (n // 1000)\n'
-    '    n %= 1000\n'
+    "    n %= 1000\n"
     '    result += "D" * (n // 500)\n'
-    '    n %= 500\n'
+    "    n %= 500\n"
     '    result += "C" * (n // 100)\n'
-    '    n %= 100\n'
+    "    n %= 100\n"
     '    result += "L" * (n // 50)\n'
-    '    n %= 50\n'
+    "    n %= 50\n"
     '    result += "X" * (n // 10)\n'
-    '    n %= 10\n'
+    "    n %= 10\n"
     '    result += "V" * (n // 5)\n'
-    '    n %= 5\n'
+    "    n %= 5\n"
     '    result += "I" * n\n'
-    '    return result\n'
-    '\n'
-    '\n'
-    'def from_roman(s: str) -> int:\n'
-    '    s = s.upper()\n'
-    '    total = 0\n'
-    '    length = len(s)\n'
-    '    for i, ch in enumerate(s):\n'
-    '        v = _VALUES[ch]\n'
-    '        if i + 1 < length and _VALUES[s[i + 1]] > v:\n'
-    '            total -= v\n'
-    '        else:\n'
-    '            total += v\n'
-    '    return total\n'
+    "    return result\n"
+    "\n"
+    "\n"
+    "def from_roman(s: str) -> int:\n"
+    "    s = s.upper()\n"
+    "    total = 0\n"
+    "    length = len(s)\n"
+    "    for i, ch in enumerate(s):\n"
+    "        v = _VALUES[ch]\n"
+    "        if i + 1 < length and _VALUES[s[i + 1]] > v:\n"
+    "            total -= v\n"
+    "        else:\n"
+    "            total += v\n"
+    "    return total\n"
 )
 
 CALC_GOOD = (
-    'from __future__ import annotations\n'
-    '\n'
-    '\n'
-    'def evaluate(expr: str) -> float:\n'
-    '    tokens = _tokenize(expr)\n'
-    '    parser = _Parser(tokens)\n'
-    '    value = parser.parse_expression()\n'
-    '    if parser.pos != len(tokens):\n'
+    "from __future__ import annotations\n"
+    "\n"
+    "\n"
+    "def evaluate(expr: str) -> float:\n"
+    "    tokens = _tokenize(expr)\n"
+    "    parser = _Parser(tokens)\n"
+    "    value = parser.parse_expression()\n"
+    "    if parser.pos != len(tokens):\n"
     '        raise ValueError("unexpected trailing tokens")\n'
-    '    return float(value)\n'
-    '\n'
-    '\n'
-    'def _tokenize(expr: str) -> list:\n'
-    '    tokens = []\n'
-    '    i = 0\n'
-    '    n = len(expr)\n'
-    '    while i < n:\n'
-    '        ch = expr[i]\n'
-    '        if ch.isspace():\n'
-    '            i += 1\n'
-    '            continue\n'
+    "    return float(value)\n"
+    "\n"
+    "\n"
+    "def _tokenize(expr: str) -> list:\n"
+    "    tokens = []\n"
+    "    i = 0\n"
+    "    n = len(expr)\n"
+    "    while i < n:\n"
+    "        ch = expr[i]\n"
+    "        if ch.isspace():\n"
+    "            i += 1\n"
+    "            continue\n"
     '        if ch in "+-*/()":\n'
-    '            tokens.append(ch)\n'
-    '            i += 1\n'
-    '            continue\n'
+    "            tokens.append(ch)\n"
+    "            i += 1\n"
+    "            continue\n"
     '        if ch.isdigit() or ch == ".":\n'
-    '            j = i\n'
+    "            j = i\n"
     '            while j < n and (expr[j].isdigit() or expr[j] == "."):\n'
-    '                j += 1\n'
-    '            tokens.append(float(expr[i:j]))\n'
-    '            i = j\n'
-    '            continue\n'
+    "                j += 1\n"
+    "            tokens.append(float(expr[i:j]))\n"
+    "            i = j\n"
+    "            continue\n"
     '        raise ValueError(f"bad char: {ch!r}")\n'
-    '    return tokens\n'
-    '\n'
-    '\n'
-    'class _Parser:\n'
-    '    def __init__(self, tokens: list) -> None:\n'
-    '        self.tokens = tokens\n'
-    '        self.pos = 0\n'
-    '\n'
-    '    def _peek(self):\n'
-    '        if self.pos < len(self.tokens):\n'
-    '            return self.tokens[self.pos]\n'
-    '        return None\n'
-    '\n'
-    '    def _next(self):\n'
-    '        tok = self.tokens[self.pos]\n'
-    '        self.pos += 1\n'
-    '        return tok\n'
-    '\n'
+    "    return tokens\n"
+    "\n"
+    "\n"
+    "class _Parser:\n"
+    "    def __init__(self, tokens: list) -> None:\n"
+    "        self.tokens = tokens\n"
+    "        self.pos = 0\n"
+    "\n"
+    "    def _peek(self):\n"
+    "        if self.pos < len(self.tokens):\n"
+    "            return self.tokens[self.pos]\n"
+    "        return None\n"
+    "\n"
+    "    def _next(self):\n"
+    "        tok = self.tokens[self.pos]\n"
+    "        self.pos += 1\n"
+    "        return tok\n"
+    "\n"
     "    # expression := term (('+' | '-') term)*\n"
-    '    def parse_expression(self) -> float:\n'
-    '        value = self.parse_term()\n'
+    "    def parse_expression(self) -> float:\n"
+    "        value = self.parse_term()\n"
     '        while self._peek() in ("+", "-"):\n'
-    '            op = self._next()\n'
-    '            rhs = self.parse_term()\n'
+    "            op = self._next()\n"
+    "            rhs = self.parse_term()\n"
     '            value = value + rhs if op == "+" else value - rhs\n'
-    '        return value\n'
-    '\n'
+    "        return value\n"
+    "\n"
     "    # term := factor (('*' | '/') factor)*\n"
-    '    def parse_term(self) -> float:\n'
-    '        value = self.parse_factor()\n'
+    "    def parse_term(self) -> float:\n"
+    "        value = self.parse_factor()\n"
     '        while self._peek() in ("*", "/"):\n'
-    '            op = self._next()\n'
-    '            rhs = self.parse_factor()\n'
+    "            op = self._next()\n"
+    "            rhs = self.parse_factor()\n"
     '            value = value * rhs if op == "*" else value / rhs\n'
-    '        return value\n'
-    '\n'
+    "        return value\n"
+    "\n"
     "    # factor := number | '(' expression ')' | ('+'|'-') factor\n"
-    '    def parse_factor(self) -> float:\n'
-    '        tok = self._peek()\n'
+    "    def parse_factor(self) -> float:\n"
+    "        tok = self._peek()\n"
     '        if tok == "(":\n'
-    '            self._next()\n'
-    '            value = self.parse_expression()\n'
+    "            self._next()\n"
+    "            value = self.parse_expression()\n"
     '            if self._peek() != ")":\n'
     '                raise ValueError("expected )")\n'
-    '            self._next()\n'
-    '            return value\n'
+    "            self._next()\n"
+    "            return value\n"
     '        if tok == "+":\n'
-    '            self._next()\n'
-    '            return self.parse_factor()\n'
+    "            self._next()\n"
+    "            return self.parse_factor()\n"
     '        if tok == "-":\n'
-    '            self._next()\n'
-    '            return -self.parse_factor()\n'
-    '        if isinstance(tok, float):\n'
-    '            return self._next()\n'
+    "            self._next()\n"
+    "            return -self.parse_factor()\n"
+    "        if isinstance(tok, float):\n"
+    "            return self._next()\n"
     '        raise ValueError("unexpected token")\n'
 )
 
 CALC_BROKEN = (
-    'from __future__ import annotations\n'
-    '\n'
-    '\n'
-    'def evaluate(expr: str) -> float:\n'
-    '    tokens = _tokenize(expr)\n'
-    '    return float(_eval_ltr(tokens, 0)[0])\n'
-    '\n'
-    '\n'
-    'def _tokenize(expr: str) -> list:\n'
-    '    tokens = []\n'
-    '    i = 0\n'
-    '    n = len(expr)\n'
-    '    while i < n:\n'
-    '        ch = expr[i]\n'
-    '        if ch.isspace():\n'
-    '            i += 1\n'
-    '            continue\n'
+    "from __future__ import annotations\n"
+    "\n"
+    "\n"
+    "def evaluate(expr: str) -> float:\n"
+    "    tokens = _tokenize(expr)\n"
+    "    return float(_eval_ltr(tokens, 0)[0])\n"
+    "\n"
+    "\n"
+    "def _tokenize(expr: str) -> list:\n"
+    "    tokens = []\n"
+    "    i = 0\n"
+    "    n = len(expr)\n"
+    "    while i < n:\n"
+    "        ch = expr[i]\n"
+    "        if ch.isspace():\n"
+    "            i += 1\n"
+    "            continue\n"
     '        if ch in "+-*/()":\n'
-    '            tokens.append(ch)\n'
-    '            i += 1\n'
-    '            continue\n'
+    "            tokens.append(ch)\n"
+    "            i += 1\n"
+    "            continue\n"
     '        if ch.isdigit() or ch == ".":\n'
-    '            j = i\n'
+    "            j = i\n"
     '            while j < n and (expr[j].isdigit() or expr[j] == "."):\n'
-    '                j += 1\n'
-    '            tokens.append(float(expr[i:j]))\n'
-    '            i = j\n'
-    '            continue\n'
+    "                j += 1\n"
+    "            tokens.append(float(expr[i:j]))\n"
+    "            i = j\n"
+    "            continue\n"
     '        raise ValueError(f"bad char: {ch!r}")\n'
-    '    return tokens\n'
-    '\n'
-    '\n'
-    '# BUG: evaluates strictly left-to-right ignoring * / precedence.\n'
-    'def _eval_ltr(tokens: list, pos: int):\n'
-    '    def read_operand(p):\n'
+    "    return tokens\n"
+    "\n"
+    "\n"
+    "# BUG: evaluates strictly left-to-right ignoring * / precedence.\n"
+    "def _eval_ltr(tokens: list, pos: int):\n"
+    "    def read_operand(p):\n"
     '        if tokens[p] == "(":\n'
-    '            val, p = _eval_ltr(tokens, p + 1)\n'
-    '            # skip closing paren\n'
-    '            return val, p + 1\n'
-    '        return tokens[p], p + 1\n'
-    '\n'
-    '    value, pos = read_operand(pos)\n'
+    "            val, p = _eval_ltr(tokens, p + 1)\n"
+    "            # skip closing paren\n"
+    "            return val, p + 1\n"
+    "        return tokens[p], p + 1\n"
+    "\n"
+    "    value, pos = read_operand(pos)\n"
     '    while pos < len(tokens) and tokens[pos] in ("+", "-", "*", "/"):\n'
-    '        op = tokens[pos]\n'
-    '        rhs, pos = read_operand(pos + 1)\n'
+    "        op = tokens[pos]\n"
+    "        rhs, pos = read_operand(pos + 1)\n"
     '        if op == "+":\n'
-    '            value = value + rhs\n'
+    "            value = value + rhs\n"
     '        elif op == "-":\n'
-    '            value = value - rhs\n'
+    "            value = value - rhs\n"
     '        elif op == "*":\n'
-    '            value = value * rhs\n'
-    '        else:\n'
-    '            value = value / rhs\n'
-    '    return value, pos\n'
+    "            value = value * rhs\n"
+    "        else:\n"
+    "            value = value / rhs\n"
+    "    return value, pos\n"
 )
 
 CSV_STATS_GOOD = (
-    'from __future__ import annotations\n'
-    '\n'
-    '\n'
-    'def column_stats(csv_text: str) -> dict:\n'
+    "from __future__ import annotations\n"
+    "\n"
+    "\n"
+    "def column_stats(csv_text: str) -> dict:\n"
     '    lines = [ln for ln in csv_text.splitlines() if ln != ""]\n'
-    '    if not lines:\n'
-    '        return {}\n'
+    "    if not lines:\n"
+    "        return {}\n"
     '    header = [h.strip() for h in lines[0].split(",")]\n'
     '    rows = [ln.split(",") for ln in lines[1:]]\n'
-    '    result: dict = {}\n'
-    '    for i, col in enumerate(header):\n'
-    '        values: list[float] = []\n'
-    '        numeric = True\n'
-    '        for row in rows:\n'
-    '            if i >= len(row):\n'
-    '                numeric = False\n'
-    '                break\n'
-    '            try:\n'
-    '                values.append(float(row[i].strip()))\n'
-    '            except (ValueError, TypeError):\n'
-    '                numeric = False\n'
-    '                break\n'
-    '        if numeric and values:\n'
-    '            result[col] = {\n'
+    "    result: dict = {}\n"
+    "    for i, col in enumerate(header):\n"
+    "        values: list[float] = []\n"
+    "        numeric = True\n"
+    "        for row in rows:\n"
+    "            if i >= len(row):\n"
+    "                numeric = False\n"
+    "                break\n"
+    "            try:\n"
+    "                values.append(float(row[i].strip()))\n"
+    "            except (ValueError, TypeError):\n"
+    "                numeric = False\n"
+    "                break\n"
+    "        if numeric and values:\n"
+    "            result[col] = {\n"
     '                "min": float(min(values)),\n'
     '                "max": float(max(values)),\n'
     '                "mean": sum(values) / len(values),\n'
-    '            }\n'
-    '    return result\n'
+    "            }\n"
+    "    return result\n"
 )
 
 CSV_STATS_BROKEN = (
-    'from __future__ import annotations\n'
-    '\n'
-    '\n'
-    'def column_stats(csv_text: str) -> dict:\n'
+    "from __future__ import annotations\n"
+    "\n"
+    "\n"
+    "def column_stats(csv_text: str) -> dict:\n"
     '    lines = [ln for ln in csv_text.splitlines() if ln != ""]\n'
-    '    if not lines:\n'
-    '        return {}\n'
+    "    if not lines:\n"
+    "        return {}\n"
     '    header = [h.strip() for h in lines[0].split(",")]\n'
     '    rows = [ln.split(",") for ln in lines[1:]]\n'
-    '    result: dict = {}\n'
-    '    for i, col in enumerate(header):\n'
-    '        values: list[float] = []\n'
-    '        numeric = True\n'
-    '        for row in rows:\n'
-    '            if i >= len(row):\n'
-    '                numeric = False\n'
-    '                break\n'
-    '            try:\n'
-    '                values.append(float(row[i].strip()))\n'
-    '            except (ValueError, TypeError):\n'
-    '                numeric = False\n'
-    '                break\n'
-    '        if numeric and values:\n'
-    '            result[col] = {\n'
+    "    result: dict = {}\n"
+    "    for i, col in enumerate(header):\n"
+    "        values: list[float] = []\n"
+    "        numeric = True\n"
+    "        for row in rows:\n"
+    "            if i >= len(row):\n"
+    "                numeric = False\n"
+    "                break\n"
+    "            try:\n"
+    "                values.append(float(row[i].strip()))\n"
+    "            except (ValueError, TypeError):\n"
+    "                numeric = False\n"
+    "                break\n"
+    "        if numeric and values:\n"
+    "            result[col] = {\n"
     '                "min": float(min(values)),\n'
     '                "max": float(max(values)),\n'
-    '                # BUG: integer division truncates the mean (2.5 -> 2.0, 1.5 -> 1.0)\n'
+    "                # BUG: integer division truncates the mean (2.5 -> 2.0, 1.5 -> 1.0)\n"
     '                "mean": float(sum(values) // len(values)),\n'
-    '            }\n'
-    '    return result\n'
+    "            }\n"
+    "    return result\n"
 )
 
 JSON_FLATTEN_GOOD = (
-    'def flatten(d: dict) -> dict:\n'
-    '    result: dict = {}\n'
-    '    for key, value in d.items():\n'
-    '        if isinstance(value, dict):\n'
-    '            for sub_key, sub_value in flatten(value).items():\n'
+    "def flatten(d: dict) -> dict:\n"
+    "    result: dict = {}\n"
+    "    for key, value in d.items():\n"
+    "        if isinstance(value, dict):\n"
+    "            for sub_key, sub_value in flatten(value).items():\n"
     '                result[f"{key}.{sub_key}"] = sub_value\n'
-    '        else:\n'
-    '            result[key] = value\n'
-    '    return result\n'
+    "        else:\n"
+    "            result[key] = value\n"
+    "    return result\n"
 )
 
 JSON_FLATTEN_BROKEN = (
-    'def flatten(d: dict) -> dict:\n'
-    '    # SUBTLY WRONG: flattens only one level deep instead of recursing.\n'
-    '    result: dict = {}\n'
-    '    for key, value in d.items():\n'
-    '        if isinstance(value, dict):\n'
-    '            for sub_key, sub_value in value.items():\n'
+    "def flatten(d: dict) -> dict:\n"
+    "    # SUBTLY WRONG: flattens only one level deep instead of recursing.\n"
+    "    result: dict = {}\n"
+    "    for key, value in d.items():\n"
+    "        if isinstance(value, dict):\n"
+    "            for sub_key, sub_value in value.items():\n"
     '                result[f"{key}.{sub_key}"] = sub_value\n'
-    '        else:\n'
-    '            result[key] = value\n'
-    '    return result\n'
+    "        else:\n"
+    "            result[key] = value\n"
+    "    return result\n"
 )
 
 FIXTURES: dict[str, tuple[str, str]] = {
@@ -367,8 +367,7 @@ def test_reference_test_scores_broken_below_one(task):
     assert score_code(broken, task.reference_test) < 1.0
 
 
-
-TEXTKIT_GOOD = '''\
+TEXTKIT_GOOD = """\
 import re
 
 
@@ -391,10 +390,10 @@ def column_widths(rows):
     if not rows:
         return []
     return [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
-'''
+"""
 
 # BUG: setiap fungsi mengembalikan nilai kosong -> hanya lolos case yang memang kosong.
-TEXTKIT_BROKEN = '''\
+TEXTKIT_BROKEN = """\
 def word_frequencies(text):
     return {}
 
@@ -405,9 +404,9 @@ def parse_duration(s):
 
 def column_widths(rows):
     return []
-'''
+"""
 
-LEDGER_GOOD = '''\
+LEDGER_GOOD = """\
 def parse_entry(line):
     date, label, amount = line.split("|")
     return {"date": date, "label": label.strip(), "amount": float(amount)}
@@ -421,10 +420,10 @@ def summarize(lines, rate):
     entries = [parse_entry(line) for line in lines]
     total = round(sum(entry["amount"] for entry in entries), 2)
     return {"count": len(entries), "total": total, "converted": convert(total, rate)}
-'''
+"""
 
 # BUG: label tak di-strip dan konversi tak dibulatkan -> gagal case whitespace & pembulatan.
-LEDGER_BROKEN = '''\
+LEDGER_BROKEN = """\
 def parse_entry(line):
     date, label, amount = line.split("|")
     return {"date": date, "label": label, "amount": float(amount)}
@@ -438,13 +437,13 @@ def summarize(lines, rate):
     entries = [parse_entry(line) for line in lines]
     total = sum(entry["amount"] for entry in entries)
     return {"count": len(entries), "total": total, "converted": convert(total, rate)}
-'''
+"""
 
 FIXTURES["textkit"] = (TEXTKIT_GOOD, TEXTKIT_BROKEN)
 FIXTURES["ledger"] = (LEDGER_GOOD, LEDGER_BROKEN)
 
 
-TOOLBELT_GOOD = '''\
+TOOLBELT_GOOD = """\
 def wrap_text(s, width):
     words = s.split()
     if not words:
@@ -502,11 +501,11 @@ def run_length_encode(s):
             out += prev + (str(count) if count > 1 else "")
             prev, count = ch, 1
     return out + prev + (str(count) if count > 1 else "")
-'''
+"""
 
 # BUG: wrap lupa memperhitungkan spasi pemisah, dan RLE menempelkan hitungan
 # bahkan untuk run tunggal -> sebagian kasus gagal, bukan semuanya (skor bergradasi).
-TOOLBELT_BROKEN = '''\
+TOOLBELT_BROKEN = """\
 def wrap_text(s, width):
     words = s.split()
     if not words:
@@ -564,12 +563,12 @@ def run_length_encode(s):
             out += prev + (str(count) if count >= 1 else "")
             prev, count = ch, 1
     return out + prev + (str(count) if count >= 1 else "")
-'''
+"""
 
 FIXTURES["toolbelt"] = (TOOLBELT_GOOD, TOOLBELT_BROKEN)
 
 
-DEBUG_GAUNTLET_GOOD = '''\
+DEBUG_GAUNTLET_GOOD = """\
 def session_minutes(rows):
     totals = {}
     for user, start, end in rows:
@@ -583,12 +582,12 @@ def session_minutes(rows):
             finish += 24 * 60
         totals[user] = totals.get(user, 0) + (finish - begin)
     return totals
-'''
+"""
 
 # The buggy implementation handed to the model in the goal itself: minutes added to
 # hours instead of scaled, midnight crossings skipped, whitespace names kept. Copying
 # it without finding the bugs must score well below 1.0 (measured: 0.2).
-DEBUG_GAUNTLET_BROKEN = '''\
+DEBUG_GAUNTLET_BROKEN = """\
 def session_minutes(rows):
     totals = {}
     for user, start, end in rows:
@@ -602,6 +601,6 @@ def session_minutes(rows):
             continue
         totals[user] = totals.get(user, 0) + (finish - begin)
     return totals
-'''
+"""
 
 FIXTURES["debug_gauntlet"] = (DEBUG_GAUNTLET_GOOD, DEBUG_GAUNTLET_BROKEN)

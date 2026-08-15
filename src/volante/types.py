@@ -29,9 +29,7 @@ def validate_goal(goal: object) -> str:
     if not goal.strip():
         raise InvalidGoalError("goal must be a non-empty string")
     if len(goal) > MAX_GOAL_LENGTH:
-        raise InvalidGoalError(
-            f"goal exceeds the {MAX_GOAL_LENGTH}-character safety limit"
-        )
+        raise InvalidGoalError(f"goal exceeds the {MAX_GOAL_LENGTH}-character safety limit")
     return goal
 
 
@@ -48,9 +46,7 @@ def validate_task_id(task_id: object) -> str:
     if not task_id:
         raise ValueError("task id must not be empty")
     if len(task_id) > MAX_TASK_ID_LENGTH:
-        raise ValueError(
-            f"task id {task_id!r} exceeds {MAX_TASK_ID_LENGTH} characters"
-        )
+        raise ValueError(f"task id {task_id!r} exceeds {MAX_TASK_ID_LENGTH} characters")
     if task_id in {".", ".."} or _SAFE_TASK_ID.fullmatch(task_id) is None:
         raise ValueError(
             f"unsafe task id {task_id!r}: use only ASCII letters, digits, '.', '_', "
@@ -67,13 +63,11 @@ def validate_task(task: Task) -> None:
         raise ValueError(f"task {task.id!r} description must be a non-empty string")
     if task.type not in TASK_TYPES:
         raise ValueError(
-            f"task {task.id!r} has invalid type {task.type!r}; "
-            f"expected one of {sorted(TASK_TYPES)}"
+            f"task {task.id!r} has invalid type {task.type!r}; expected one of {sorted(TASK_TYPES)}"
         )
     if task.mode not in TASK_MODES:
         raise ValueError(
-            f"task {task.id!r} has invalid mode {task.mode!r}; "
-            f"expected one of {sorted(TASK_MODES)}"
+            f"task {task.id!r} has invalid mode {task.mode!r}; expected one of {sorted(TASK_MODES)}"
         )
     if task.difficulty not in TASK_DIFFICULTIES:
         raise ValueError(
@@ -86,15 +80,11 @@ def validate_task(task: Task) -> None:
         try:
             validate_task_id(dependency)
         except ValueError as exc:
-            raise ValueError(
-                f"task {task.id!r} has invalid dependency id: {exc}"
-            ) from exc
+            raise ValueError(f"task {task.id!r} has invalid dependency id: {exc}") from exc
     if not isinstance(task.required_tools, list):
         raise ValueError(f"task {task.id!r} required_tools must be a list")
     if any(not isinstance(tool_name, str) for tool_name in task.required_tools):
-        raise ValueError(
-            f"task {task.id!r} required_tools must contain only strings"
-        )
+        raise ValueError(f"task {task.id!r} required_tools must contain only strings")
     if len(task.required_tools) != len(set(task.required_tools)):
         raise ValueError(f"task {task.id!r} required_tools contains duplicates")
     for tool_name in task.required_tools:
@@ -104,9 +94,7 @@ def validate_task(task: Task) -> None:
                 f"expected a subset of {sorted(TASK_TOOL_NAMES)}"
             )
     if task.mode == "one_shot" and task.required_tools:
-        raise ValueError(
-            f"task {task.id!r} is one_shot but declares required_tools"
-        )
+        raise ValueError(f"task {task.id!r} is one_shot but declares required_tools")
 
 
 class CapabilityUnavailableError(RuntimeError):

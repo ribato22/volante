@@ -20,20 +20,38 @@ _MID = "demo/fake"
 # meaningful artifacts for the UI's default concurrency brief.
 _PLAN = json.dumps(
     [
-        {"id": "research", "description": "research the topic", "type": "research",
-         "mode": "one_shot", "depends_on": []},
-        {"id": "outline", "description": "draft an outline", "type": "write",
-         "mode": "one_shot", "depends_on": []},
-        {"id": "compose", "description": "compose the final answer", "type": "analyze",
-         "mode": "one_shot", "depends_on": ["research", "outline"]},
+        {
+            "id": "research",
+            "description": "research the topic",
+            "type": "research",
+            "mode": "one_shot",
+            "depends_on": [],
+        },
+        {
+            "id": "outline",
+            "description": "draft an outline",
+            "type": "write",
+            "mode": "one_shot",
+            "depends_on": [],
+        },
+        {
+            "id": "compose",
+            "description": "compose the final answer",
+            "type": "analyze",
+            "mode": "one_shot",
+            "depends_on": ["research", "outline"],
+        },
     ]
 )
 
 
 def _plan_response() -> CanonicalResponse:
     return CanonicalResponse(
-        content=[TextBlock(text=_PLAN)], usage=Usage(40, 25),
-        model=_MID, stop_reason="end_turn", latency_ms=1,
+        content=[TextBlock(text=_PLAN)],
+        usage=Usage(40, 25),
+        model=_MID,
+        stop_reason="end_turn",
+        latency_ms=1,
     )
 
 
@@ -57,8 +75,12 @@ def demo_runtime_factory() -> Callable[[], Runtime]:
     registry = Registry(
         [
             ModelInfo(
-                id=_MID, provider="fake", strengths={"coding", "reasoning"},
-                context_window=128_000, max_output_tokens=4_096, supports_tools=True,
+                id=_MID,
+                provider="fake",
+                strengths={"coding", "reasoning"},
+                context_window=128_000,
+                max_output_tokens=4_096,
+                supports_tools=True,
                 # Priced at zero because it costs zero: FakeProvider makes no network
                 # call. Plausible-looking rates here were not harmless decoration —
                 # every Web UI run is persisted to ~/.volante/usage.jsonl, which
@@ -68,7 +90,8 @@ def demo_runtime_factory() -> Callable[[], Runtime]:
                 # recorded against them, with cost_estimated=False asserting it was
                 # authoritative. Fixing it at the source means nothing downstream has
                 # to know it was a demo in order to avoid lying.
-                cost_per_1k_in=0.0, cost_per_1k_out=0.0,
+                cost_per_1k_in=0.0,
+                cost_per_1k_out=0.0,
             )
         ]
     )

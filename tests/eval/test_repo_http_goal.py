@@ -48,9 +48,7 @@ def test_the_score_reads_as_how_many_files_landed() -> None:
     wrong. The measured failure this goal exists to see is exactly that shape: a single
     call emits complete-looking files and silently drops parts it did not edit.
     """
-    scores = [
-        _score("\n\n".join(_BLOCKS[:n])) for n in range(len(_BLOCKS) + 1)
-    ]
+    scores = [_score("\n\n".join(_BLOCKS[:n])) for n in range(len(_BLOCKS) + 1)]
 
     assert scores[0] == 0.0
     assert scores[-1] == 1.0
@@ -63,10 +61,9 @@ def test_the_keystone_file_is_the_most_expensive_to_drop() -> None:
     """`methods.py` is what every other module reads. Losing it must be visibly worse
     than losing a leaf, or the score flattens every kind of incompleteness into one
     number and stops telling you which happened."""
+
     def without(name: str) -> float:
-        return _score(
-            "\n\n".join(b for i, b in enumerate(_BLOCKS) if _NAMES[i] != name)
-        )
+        return _score("\n\n".join(b for i, b in enumerate(_BLOCKS) if _NAMES[i] != name))
 
     assert without("methods.py") < 0.5
     assert without("retry.py") > 0.8

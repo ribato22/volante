@@ -180,15 +180,12 @@ def test_usage_api_reports_disabled_when_ledger_off(
     assert body["summary"]["total_runs"] == 0
 
 
-def test_usage_api_returns_recorded_runs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_usage_api_returns_recorded_runs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from volante.observability import record_run
 
     log = tmp_path / "usage.jsonl"
     monkeypatch.setenv("VOLANTE_USAGE_LOG", str(log))
-    record_run({"status": "success", "billed_usd": 0.3}, goal="hi",
-               prefer="quality", source="cli")
+    record_run({"status": "success", "billed_usd": 0.3}, goal="hi", prefer="quality", source="cli")
     body = _client().get("/api/usage").json()
     assert body["enabled"] is True
     assert body["summary"]["total_runs"] == 1
@@ -254,11 +251,18 @@ async def _raw_call(app, method: str, path: str, *, headers, disconnect=False):
         sent.append(message)
 
     scope = {
-        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
-        "method": method, "scheme": "http", "path": path,
-        "raw_path": path.encode(), "query_string": b"", "root_path": "",
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
         "headers": [(b"host", _UI_HOST.encode()), *headers],
-        "client": ("203.0.113.9", 5000), "server": (_UI_HOST, 80),
+        "client": ("203.0.113.9", 5000),
+        "server": (_UI_HOST, 80),
     }
     await app(scope, receive, send)
     start = [m for m in sent if m["type"] == "http.response.start"]
@@ -299,8 +303,10 @@ async def test_a_browser_that_leaves_before_the_stream_starts_returns_its_slot()
     import asyncio
 
     app = create_app(
-        demo_runtime_factory(), allowed_hosts=[_UI_HOST],
-        max_concurrent_runs=1, pending_ttl_s=0.2,
+        demo_runtime_factory(),
+        allowed_hosts=[_UI_HOST],
+        max_concurrent_runs=1,
+        pending_ttl_s=0.2,
     )
     client = TestClient(app, base_url=f"http://{_UI_HOST}")
     run_id = client.post("/runs", json={"goal": "one"}).json()["run_id"]
@@ -317,9 +323,7 @@ async def test_a_non_ascii_credential_is_rejected_not_a_crash() -> None:
     # Authorization escaped the guard as a 500 with a traceback instead of a 401.
     app = create_app(demo_runtime_factory(), allowed_hosts=[_UI_HOST], auth_token="secret")
 
-    status = await _raw_call(
-        app, "GET", "/api/usage", headers=[(b"authorization", b"Bearer \xfc")]
-    )
+    status = await _raw_call(app, "GET", "/api/usage", headers=[(b"authorization", b"Bearer \xfc")])
 
     assert status == 401
 

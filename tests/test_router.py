@@ -55,9 +55,7 @@ def _models() -> list[ModelInfo]:
 
 
 def _task(type_: str, mode: str = "one_shot", difficulty: str = "medium") -> Task:
-    return Task(
-        id="t1", description="do the thing", type=type_, mode=mode, difficulty=difficulty
-    )
+    return Task(id="t1", description="do the thing", type=type_, mode=mode, difficulty=difficulty)
 
 
 def test_route_code_picks_best_metadata_fit_then_cost_tiebreak():

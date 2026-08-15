@@ -77,6 +77,7 @@ def test_usage() -> None:
 
 # --- PATCH v2.1: Usage.estimated ---
 
+
 def test_usage_estimated_defaults_false() -> None:
     u = Usage(prompt_tokens=10, completion_tokens=5)
     assert u.estimated is False
@@ -232,6 +233,7 @@ def test_run_result_failed() -> None:
 
 # --- PATCH v2.1: RunResult cost/usage close-out fields ---
 
+
 def test_run_result_new_cost_fields_default() -> None:
     # Konstruksi lama (tanpa field baru) HARUS tetap valid; field baru ber-default.
     r = RunResult(
@@ -271,6 +273,7 @@ def test_run_result_accepts_populated_cost_fields() -> None:
 
 
 # --- Phase A2: economy fields (tier/billing/difficulty/ledger/cost_usd) ---
+
 
 def test_model_info_tier_and_billing_defaults() -> None:
     # 8 field lama tanpa default -> konstruksi lama tetap valid; tier/billing ber-default.

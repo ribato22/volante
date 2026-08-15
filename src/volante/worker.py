@@ -31,9 +31,7 @@ class Worker:
         try:
             provider = self._providers[model_id]
         except KeyError as exc:
-            raise ValueError(
-                f"no provider registered for model_id={model_id!r}"
-            ) from exc
+            raise ValueError(f"no provider registered for model_id={model_id!r}") from exc
         # on_text -> streaming; else complete (zero regression). Runtime passes down a
         # per-task labelled callback (see _task_cb) so that even parallel workers can
         # still be untangled per task by the consumer.

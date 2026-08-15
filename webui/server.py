@@ -67,8 +67,7 @@ def _webui_settings(
     exposed = not _is_loopback_host(host)
     if exposed and auth_token is None:
         raise SystemExit(
-            "Refusing to expose Volante Web UI beyond loopback without "
-            "VOLANTE_UI_AUTH_TOKEN."
+            "Refusing to expose Volante Web UI beyond loopback without VOLANTE_UI_AUTH_TOKEN."
         )
     tls = _tls_settings(env, exposed=exposed)
     allowed_raw = env.get("VOLANTE_UI_ALLOWED_HOSTS", "")
@@ -76,9 +75,7 @@ def _webui_settings(
     app_options: dict[str, Any] = {
         "auth_token": auth_token,
         "max_goal_chars": int(env.get("VOLANTE_UI_MAX_GOAL_CHARS", "20000")),
-        "max_concurrent_runs": int(
-            env.get("VOLANTE_UI_MAX_CONCURRENT_RUNS", "2")
-        ),
+        "max_concurrent_runs": int(env.get("VOLANTE_UI_MAX_CONCURRENT_RUNS", "2")),
         "allowed_hosts": allowed_hosts or None,
     }
     return host, port, app_options, tls
@@ -100,9 +97,7 @@ def build_runtime_factory() -> tuple[Callable[[], Any], str]:
         )
 
         registry, providers, model_id = build_providers_from_env(include_subscription=True)
-        factory = asyncio.run(
-            make_verified_runtime_factory(registry, providers, model_id)
-        )
+        factory = asyncio.run(make_verified_runtime_factory(registry, providers, model_id))
         return factory, f"live [{model_id}]"
     except NoProvidersConfiguredError:
         from webui._demo import demo_runtime_factory
