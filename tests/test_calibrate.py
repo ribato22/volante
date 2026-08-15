@@ -53,9 +53,9 @@ def test_unrelated_task_runs_do_not_inflate_confidence() -> None:
     # The P0 this guards: one `write` observation must not be trusted because 30
     # unrelated `code` runs exist.
     thin = build_profiles({"m": {"write": [0.9]}}, source="s")["m"]["confidence"]
-    padded = build_profiles(
-        {"m": {"write": [0.9], "code": [1.0] * 30}}, source="s"
-    )["m"]["confidence"]
+    padded = build_profiles({"m": {"write": [0.9], "code": [1.0] * 30}}, source="s")["m"][
+        "confidence"
+    ]
     assert padded == thin
 
 
@@ -95,7 +95,10 @@ def test_written_profiles_are_accepted_by_the_strict_loader(tmp_path: Path) -> N
     assert 0.0 < loaded["a/model"].confidence < 1.0
 
 
-def test_cli_calibrate_writes_profiles_and_reports_where(tmp_path: Path, capsys) -> None:
+def test_cli_calibrate_writes_profiles_and_reports_where(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VOLANTE_FEEDBACK_FILE", "")  # no auto-merge of a real ledger
     measurements = tmp_path / "m.json"
     measurements.write_text(json.dumps({"a/model": {"code": [1.0]}}))
     out = tmp_path / "profiles.json"
@@ -109,8 +112,9 @@ def test_cli_calibrate_writes_profiles_and_reports_where(tmp_path: Path, capsys)
 
 
 def test_cli_calibrate_reports_a_bad_file_without_a_traceback(
-    tmp_path: Path, capsys
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("VOLANTE_FEEDBACK_FILE", "")
     bad = tmp_path / "bad.json"
     bad.write_text("{not json")
 
@@ -133,7 +137,10 @@ def test_calibrate_creates_missing_parent_directories(tmp_path: Path) -> None:
     assert out.exists()
 
 
-def test_calibrate_source_label_is_recorded(tmp_path: Path, capsys) -> None:
+def test_calibrate_source_label_is_recorded(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VOLANTE_FEEDBACK_FILE", "")
     measurements = tmp_path / "m.json"
     measurements.write_text(json.dumps({"a/model": {"code": [1.0]}}))
     out = tmp_path / "p.json"
@@ -141,9 +148,12 @@ def test_calibrate_source_label_is_recorded(tmp_path: Path, capsys) -> None:
     assert (
         cli.main(
             [
-                "--calibrate", str(measurements),
-                "--calibrate-out", str(out),
-                "--calibrate-source", "ci-run-42",
+                "--calibrate",
+                str(measurements),
+                "--calibrate-out",
+                str(out),
+                "--calibrate-source",
+                "ci-run-42",
             ]
         )
         == 0
@@ -161,7 +171,10 @@ def test_unusable_source_labels_are_rejected(tmp_path: Path, label: str) -> None
         calibrate_file(measurements, tmp_path / "p.json", source=label)
 
 
-def test_calibrate_json_mode_emits_one_parseable_line(tmp_path: Path, capsys) -> None:
+def test_calibrate_json_mode_emits_one_parseable_line(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VOLANTE_FEEDBACK_FILE", "")
     measurements = tmp_path / "m.json"
     measurements.write_text(json.dumps({"a/model": {"code": [1.0]}}))
     out = tmp_path / "p.json"
@@ -238,9 +251,7 @@ def test_repeating_one_goal_does_not_buy_confidence() -> None:
     # confidence 0.25 -> 0.625, and thirty repeats reached 0.9, the ceiling meant for
     # thick evidence. Breadth is what the claim generalises over, so breadth is counted.
     once = build_profiles({"m": {"analyze": _runs("delivery_log", 0.17)}}, source="s")
-    thirty = build_profiles(
-        {"m": {"analyze": _runs("delivery_log", *([0.17] * 30))}}, source="s"
-    )
+    thirty = build_profiles({"m": {"analyze": _runs("delivery_log", *([0.17] * 30))}}, source="s")
 
     assert once["m"]["confidence"] == thirty["m"]["confidence"] == 0.25
     assert thirty["m"]["task_scores"]["analyze"] == 0.17  # the score still averages runs
@@ -332,3 +343,143 @@ def test_labelled_profiles_still_load_in_the_strict_loader(tmp_path: Path) -> No
     loaded = load_quality_profiles_file(path)
 
     assert loaded["a/model"].task_scores == {"code": 1.0, "analyze": 0.5}
+
+
+def _write_ledger(path: Path, observations: list[dict]) -> None:
+    path.write_text(
+        "".join(json.dumps(o, separators=(",", ":")) + "\n" for o in observations),
+        encoding="utf-8",
+    )
+
+
+def test_cli_calibrate_auto_merges_the_default_ledger(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = tmp_path / "feedback.jsonl"
+    _write_ledger(
+        ledger,
+        [
+            {
+                "model_id": "a/model",
+                "task_type": "code",
+                "goal": "slugify",
+                "all_passed": True,
+                "total": 5,
+                "failed": 0,
+                "error": None,
+            }
+        ],
+    )
+    monkeypatch.setenv("VOLANTE_FEEDBACK_FILE", str(ledger))
+    measurements = tmp_path / "m.json"
+    measurements.write_text(json.dumps({"a/model": {"code": []}}))
+    out = tmp_path / "p.json"
+
+    assert cli.main(["--calibrate", str(measurements), "--calibrate-out", str(out)]) == 0
+
+    printed = capsys.readouterr().out
+    assert "1 clean verification run(s) graded" in printed
+    assert "recency cutoff" in printed
+    # The graded observation is now part of the profile: 1 goal -> confidence 1/4.
+    assert load_quality_profiles_file(out)["a/model"].confidence == pytest.approx(0.25)
+
+
+def test_cli_calibrate_no_feedback_flag_ignores_a_real_ledger(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = tmp_path / "feedback.jsonl"
+    _write_ledger(
+        ledger,
+        [
+            {
+                "model_id": "a/model",
+                "task_type": "code",
+                "goal": "slugify",
+                "all_passed": True,
+                "total": 5,
+                "failed": 0,
+                "error": None,
+            }
+        ],
+    )
+    monkeypatch.setenv("VOLANTE_FEEDBACK_FILE", str(ledger))
+    measurements = tmp_path / "m.json"
+    measurements.write_text(json.dumps({"a/model": {"code": [1.0]}}))
+    out = tmp_path / "p.json"
+
+    assert (
+        cli.main(
+            [
+                "--calibrate",
+                str(measurements),
+                "--calibrate-out",
+                str(out),
+                "--no-calibrate-feedback",
+            ]
+        )
+        == 0
+    )
+    printed = capsys.readouterr().out
+    assert "clean verification run" not in printed
+    # Only the explicit measurement is graded: 1 goal -> confidence 1/4 either way,
+    # but the merged task list must not grow. Confidence with 2 goals would be 2/5.
+    assert load_quality_profiles_file(out)["a/model"].confidence == pytest.approx(0.25)
+
+
+def test_cli_calibrate_reports_when_no_default_ledger_exists(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VOLANTE_FEEDBACK_FILE", str(tmp_path / "missing.jsonl"))
+    measurements = tmp_path / "m.json"
+    measurements.write_text(json.dumps({"a/model": {"code": [1.0]}}))
+    out = tmp_path / "p.json"
+
+    assert cli.main(["--calibrate", str(measurements), "--calibrate-out", str(out)]) == 0
+
+    printed = capsys.readouterr().out
+    assert "run --verify to record real-usage evidence" in printed
+    assert load_quality_profiles_file(out)["a/model"].confidence == pytest.approx(0.25)
+
+
+def test_cli_calibrate_keeps_only_fresh_feedback(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    ledger = tmp_path / "feedback.jsonl"
+    now = datetime.now(UTC)
+    _write_ledger(
+        ledger,
+        [
+            {
+                "model_id": "a/model",
+                "task_type": "code",
+                "goal": "fresh goal",
+                "all_passed": True,
+                "total": 5,
+                "failed": 0,
+                "error": None,
+                "ts": (now - timedelta(days=1)).isoformat(),
+            },
+            {
+                "model_id": "a/model",
+                "task_type": "code",
+                "goal": "stale goal",
+                "all_passed": True,
+                "total": 5,
+                "failed": 0,
+                "error": None,
+                "ts": (now - timedelta(days=200)).isoformat(),
+            },
+        ],
+    )
+    monkeypatch.setenv("VOLANTE_FEEDBACK_FILE", str(ledger))
+    measurements = tmp_path / "m.json"
+    measurements.write_text(json.dumps({"a/model": {"code": []}}))
+    out = tmp_path / "p.json"
+
+    assert cli.main(["--calibrate", str(measurements), "--calibrate-out", str(out)]) == 0
+
+    printed = capsys.readouterr().out
+    assert "1 too_old" in printed
+    assert load_quality_profiles_file(out)["a/model"].confidence == pytest.approx(0.25)

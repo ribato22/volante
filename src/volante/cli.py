@@ -90,6 +90,25 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="provenance label recorded in each profile (default: the input filename)",
     )
     parser.add_argument(
+        "--calibrate-feedback",
+        metavar="LEDGER",
+        action="append",
+        default=[],
+        help=(
+            "also merge verified runs recorded in this feedback ledger into the "
+            "measurements before building profiles; repeatable. When omitted, the "
+            "default ledger (~/.volante/feedback.jsonl, written by --verify runs) is "
+            "merged automatically if it exists. Only runs whose derived checks ALL "
+            "passed become evidence — a run the detector flagged is often flagged "
+            "because its own CHECK was wrong"
+        ),
+    )
+    parser.add_argument(
+        "--no-calibrate-feedback",
+        action="store_true",
+        help="never merge a feedback ledger, even the default one",
+    )
+    parser.add_argument(
         "--prefer",
         choices=_PREFER_CHOICES,
         default="quality",
@@ -134,11 +153,7 @@ def _build(
     )
     if args.provider is not None:
         match = next(
-            (
-                m.id
-                for m in registry.all()
-                if m.provider == args.provider and m.id in providers
-            ),
+            (m.id for m in registry.all() if m.provider == args.provider and m.id in providers),
             None,
         )
         if match is None:
@@ -149,9 +164,7 @@ def _build(
             raise RuntimeError(f"model {args.model!r} is not configured")
         model_id = args.model
     make_runtime = asyncio.run(
-        make_verified_runtime_factory(
-            registry, providers, model_id, prefer=args.prefer
-        )
+        make_verified_runtime_factory(registry, providers, model_id, prefer=args.prefer)
     )
     runtime = make_runtime()
     runtime.verify_answer = bool(getattr(args, "verify", False))
@@ -164,7 +177,6 @@ def _build(
     # one flag away for the work it is genuinely needed for — a tool loop.
     direct = None if getattr(args, "orchestrate", False) else providers
     return registry, runtime, direct
-
 
 
 def _unpriced_models(result: RunResult, registry: Registry) -> list[str]:
@@ -212,8 +224,7 @@ def _summary_lines(result: RunResult, registry: Registry) -> list[str]:
     )
     lines = [
         head,
-        f"billed_usd: ${result.billed_usd:.6f}   credit_usd: ${result.credit_usd:.6f}"
-        f"{estimate}",
+        f"billed_usd: ${result.billed_usd:.6f}   credit_usd: ${result.credit_usd:.6f}{estimate}",
         f"duration_ms: {result.duration_ms}   "
         f"subscription_models: {_subscription_models(result, registry)}   "
         f"subscription_calls: {result.subscription_calls}",
@@ -255,11 +266,7 @@ def _summary_lines(result: RunResult, registry: Registry) -> list[str]:
         objective = decision.get("objective", "quality")
         candidates = decision.get("candidates", [])
         selected_score = next(
-            (
-                item.get("score")
-                for item in candidates
-                if item.get("model_id") == selected
-            ),
+            (item.get("score") for item in candidates if item.get("model_id") == selected),
             None,
         )
         score = f" score={selected_score:.2f}" if isinstance(selected_score, float) else ""
@@ -419,19 +426,101 @@ def _print_usage(*, json_mode: bool, limit: int = 20) -> None:
 
 def _run_calibration(args: argparse.Namespace) -> int:
     """Turn measured scores into router evidence. No provider calls, so no cost."""
-    from volante.calibrate import CalibrationError, calibrate_file
+    from collections.abc import Mapping
+
+    from volante.calibrate import (
+        CalibrationError,
+        build_profiles,
+        calibrate_file,
+        write_profiles_file,
+    )
+    from volante.feedback import (
+        FeedbackError,
+        load_ledger,
+        measurements_from_observations,
+        merge_measurements,
+    )
 
     source = args.calibrate_source or f"measurements:{os.path.basename(args.calibrate)}"
     replacing = os.path.exists(args.calibrate_out)
+    feedback_lines: list[str] = []
     try:
-        profiles = calibrate_file(
-            args.calibrate, args.calibrate_out, source=source
+        from volante.feedback import (
+            FeedbackError,
+            feedback_log_path,
+            feedback_max_age_days,
+            load_ledger,
+            measurements_from_observations,
+            merge_measurements,
         )
-    except (CalibrationError, OSError) as exc:
+
+        if args.no_calibrate_feedback:
+            ledger_paths: list[str] = []
+        elif args.calibrate_feedback:
+            ledger_paths = list(args.calibrate_feedback)
+        else:
+            default = feedback_log_path()
+            ledger_paths = [str(default)] if default is not None and os.path.exists(default) else []
+            if not ledger_paths:
+                feedback_lines.append(
+                    "feedback: no ledger at "
+                    f"{default or 'VOLANTE_FEEDBACK_FILE'} — run --verify to record "
+                    "real-usage evidence"
+                )
+        if not ledger_paths:
+            profiles = calibrate_file(args.calibrate, args.calibrate_out, source=source)
+        else:
+            with open(args.calibrate, encoding="utf-8") as handle:
+                base = json.loads(handle.read())
+            if not isinstance(base, Mapping):
+                raise CalibrationError("measurements must be a JSON object")
+            merged: dict[str, Any] = dict(base)
+            graded_total = 0
+            added_total = 0
+            skipped_lines = 0
+            discarded_total: dict[str, int] = {}
+            max_age_days = feedback_max_age_days()
+            for ledger_path in ledger_paths:
+                observations, skipped = load_ledger(ledger_path)
+                extra, discarded = measurements_from_observations(
+                    observations, max_age_days=max_age_days
+                )
+                merged, added = merge_measurements(merged, extra)
+                graded_total += sum(
+                    len(entries) for tasks in extra.values() for entries in tasks.values()
+                )
+                added_total += added
+                skipped_lines += skipped
+                for reason, count in discarded.items():
+                    discarded_total[reason] = discarded_total.get(reason, 0) + count
+            profiles = build_profiles(merged, source=source)
+            write_profiles_file(profiles, args.calibrate_out)
+            window = f" (recency cutoff: {max_age_days} day(s)" if max_age_days > 0 else ""
+            feedback_lines.append(
+                f"feedback: {graded_total} clean verification run(s) graded from "
+                f"{len(ledger_paths)} ledger(s){window}; {added_total} were new "
+                f"evidence, {skipped_lines} unreadable line(s)"
+            )
+            if discarded_total:
+                reasons = ", ".join(
+                    f"{count} {reason}" for reason, count in sorted(discarded_total.items())
+                )
+                feedback_lines.append(
+                    "  set aside (only clean, fresh runs are quality evidence): " + reasons
+                )
+    except (CalibrationError, FeedbackError, OSError, ValueError) as exc:
         print(f"volante: calibration failed: {exc}", file=sys.stderr)
         return 2
     if args.json:
-        print(json.dumps({"out": args.calibrate_out, "profiles": profiles}))
+        print(
+            json.dumps(
+                {
+                    "out": args.calibrate_out,
+                    "profiles": profiles,
+                    "feedback": feedback_lines,
+                }
+            )
+        )
         return 0
     verb = "Replaced" if replacing else "Wrote"
     print(f"{verb} {len(profiles)} quality profile(s) in {args.calibrate_out}")
@@ -449,6 +538,8 @@ def _run_calibration(args: argparse.Namespace) -> int:
         if reliability is not None:
             detail += f"  reliability={reliability:.2f}"
         print(detail)
+    for line in feedback_lines:
+        print(line)
     _warn_unknown_profile_models(profiles)
     print(
         f"Point Volante at it to make the router use this evidence:\n"
@@ -472,9 +563,7 @@ def _run_calibration(args: argparse.Namespace) -> int:
             "match every task type, so pick the row\nfor the work you actually run:"
         )
         models = sorted({m for tiers in by_task.values() for m in tiers})
-        header = "  " + "task".ljust(10) + "".join(
-            m.split("/")[-1][:18].rjust(20) for m in models
-        )
+        header = "  " + "task".ljust(10) + "".join(m.split("/")[-1][:18].rjust(20) for m in models)
         print(header)
         for task in sorted(by_task):
             row = "  " + task.ljust(10)
@@ -637,6 +726,16 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         record_run(result, goal=args.goal, prefer=args.prefer, source="cli")
+        # The feedback loop: a run that ran the check detector leaves its observation
+        # in the feedback ledger, so `--calibrate --calibrate-feedback` can turn real
+        # verified runs into router evidence. Best-effort by design: attribution is
+        # single-model only, so orchestrated runs are skipped, and a ledger problem
+        # must never fail the run that produced the observation.
+        from volante.feedback import feedback_log_path, record_observation
+
+        feedback_path = feedback_log_path()
+        if feedback_path is not None:
+            record_observation(feedback_path, result=result, goal=args.goal)
         if args.json:
             print(_summary_json(result, registry))
         else:

@@ -83,9 +83,7 @@ def _entry(item: Any, *, model_id: str, task_type: str) -> tuple[Any, str | None
     return item["score"], goal.strip()
 
 
-def _scores(
-    raw: Any, *, model_id: str, task_type: str
-) -> tuple[list[float], int, set[str] | None]:
+def _scores(raw: Any, *, model_id: str, task_type: str) -> tuple[list[float], int, set[str] | None]:
     """Return ``(graded_scores, failed_runs, distinct_goals)``.
 
     ``null`` as a score means "this run produced nothing usable". Those runs are counted
@@ -97,9 +95,7 @@ def _scores(
     unverifiable for this task type, and a partial count would overstate it.
     """
     if not isinstance(raw, list) or not raw:
-        raise CalibrationError(
-            f"{model_id}.{task_type} must be a non-empty list of 0..1 scores"
-        )
+        raise CalibrationError(f"{model_id}.{task_type} must be a non-empty list of 0..1 scores")
     values: list[float] = []
     failures = 0
     goals: set[str] = set()
@@ -119,9 +115,7 @@ def _scores(
             )
         value = float(score)
         if not 0.0 <= value <= 1.0:
-            raise CalibrationError(
-                f"{model_id}.{task_type} score {value} is outside 0..1"
-            )
+            raise CalibrationError(f"{model_id}.{task_type} score {value} is outside 0..1")
         values.append(value)
     if not values:
         raise CalibrationError(
@@ -131,9 +125,7 @@ def _scores(
     return values, failures, None if unlabelled else goals
 
 
-def build_profiles(
-    measurements: Mapping[str, Any], *, source: str
-) -> dict[str, dict[str, Any]]:
+def build_profiles(measurements: Mapping[str, Any], *, source: str) -> dict[str, dict[str, Any]]:
     """Aggregate raw per-run scores into one quality profile per model.
 
     ``task_scores`` are means per task type, ``reliability_score`` is the share of runs
@@ -160,9 +152,7 @@ def build_profiles(
         graded_total = 0
         failed_total = 0
         for task_type, raw in raw_tasks.items():
-            values, failures, goals = _scores(
-                raw, model_id=model_id, task_type=task_type
-            )
+            values, failures, goals = _scores(raw, model_id=model_id, task_type=task_type)
             task_scores[task_type] = round(sum(values) / len(values), 4)
             if goals is None:
                 # Breadth is unverifiable, so this keeps the run count these files were
@@ -207,18 +197,13 @@ def build_profiles(
         # IS complete: 30 code runs and one write run would otherwise make overall_score
         # describe the sampling rather than the model.
         if set(task_scores) == TASK_TYPES:
-            profile["overall_score"] = round(
-                sum(task_scores.values()) / len(task_scores), 4
-            )
+            profile["overall_score"] = round(sum(task_scores.values()) / len(task_scores), 4)
         # Only claim reliability when failures were actually recorded (a `null` run).
         # Deriving it from quality scores would double-count the same evidence.
         if failed_total:
-            profile["reliability_score"] = round(
-                graded_total / (graded_total + failed_total), 4
-            )
+            profile["reliability_score"] = round(graded_total / (graded_total + failed_total), 4)
         profiles[model_id] = profile
     return profiles
-
 
 
 # How far apart two measured models must be before they deserve different tiers. Below
@@ -255,9 +240,7 @@ def suggest_tiers(
     """
     per_type: dict[str, dict[str, int]] = {}
     task_types = {
-        task
-        for profile in profiles.values()
-        for task in (profile.get("task_scores") or {})
+        task for profile in profiles.values() for task in (profile.get("task_scores") or {})
     }
     for task in sorted(task_types):
         ranked = sorted(
@@ -281,6 +264,27 @@ def suggest_tiers(
     return per_type
 
 
+def write_profiles_file(profiles: Mapping[str, Mapping[str, Any]], output_path: str | Path) -> None:
+    """Write strict quality profiles and prove Volante itself can load them.
+
+    Round-tripping through the strict loader Volante uses: writing a file that the
+    engine would later reject — while printing "Wrote N profiles" — is worse than
+    failing here, because the rejection surfaces on an unrelated command.
+    """
+    target = Path(output_path).expanduser()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(profiles, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    from volante.inventory import InventoryConfigError, load_quality_profiles_file
+
+    try:
+        load_quality_profiles_file(target)
+    except InventoryConfigError as exc:
+        raise CalibrationError(
+            f"the generated profiles are not loadable by Volante ({exc}); "
+            "check the model ids in your measurements file"
+        ) from exc
+
+
 def calibrate_file(
     measurements_path: str | Path, output_path: str | Path, *, source: str
 ) -> dict[str, dict[str, Any]]:
@@ -293,25 +297,9 @@ def calibrate_file(
         raw = Path(measurements_path).expanduser().read_text(encoding="utf-8")
         decoded = json.loads(raw)
     except UnicodeDecodeError as exc:
-        raise CalibrationError(
-            f"{measurements_path} is not UTF-8 text: {exc}"
-        ) from exc
+        raise CalibrationError(f"{measurements_path} is not UTF-8 text: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise CalibrationError(f"{measurements_path} is not valid JSON: {exc}") from exc
     profiles = build_profiles(decoded, source=source)
-    target = Path(output_path).expanduser()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(profiles, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    # Round-trip through the strict loader Volante itself uses: writing a file that the
-    # engine would later reject — while printing "Wrote N profiles" — is worse than
-    # failing here, because the rejection surfaces on an unrelated command.
-    from volante.inventory import InventoryConfigError, load_quality_profiles_file
-
-    try:
-        load_quality_profiles_file(target)
-    except InventoryConfigError as exc:
-        raise CalibrationError(
-            f"the generated profiles are not loadable by Volante ({exc}); "
-            "check the model ids in your measurements file"
-        ) from exc
+    write_profiles_file(profiles, output_path)
     return profiles
