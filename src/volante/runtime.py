@@ -13,6 +13,7 @@ from typing import Any
 
 from volante.agent import AgenticWorker
 from volante.blackboard import Blackboard
+from volante.breaker import BREAKER, note_failure, note_success
 from volante.cost import CostMeter
 from volante.projector import Projector
 from volante.providers.base import (
@@ -30,6 +31,7 @@ from volante.tools.run_python import RunPythonTool
 from volante.tools.sandbox import Sandbox, sandbox_for
 from volante.types import (
     TASK_TOOL_NAMES,
+    CanonicalRequest,
     CapabilityUnavailableError,
     ContentBlock,
     Entry,
@@ -60,9 +62,7 @@ def _safe_task_workspace(runs_dir: Path, run_id: str, task_id: str) -> Path:
             f"unsafe task workspace for task {task_id!r}: path escapes run root"
         ) from exc
     if not relative.parts:
-        raise ValueError(
-            f"unsafe task workspace for task {task_id!r}: path equals run root"
-        )
+        raise ValueError(f"unsafe task workspace for task {task_id!r}: path equals run root")
     return candidate
 
 
@@ -125,11 +125,7 @@ class Runtime:
                 raise ValueError(f"{name} must be positive")
         if isinstance(fan_out, bool) or not isinstance(fan_out, int) or fan_out < 1:
             raise ValueError("fan_out must be a positive integer")
-        if (
-            isinstance(max_retries, bool)
-            or not isinstance(max_retries, int)
-            or max_retries < 0
-        ):
+        if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
             raise ValueError("max_retries must be a non-negative integer")
         if (
             isinstance(initial_subscription_calls, bool)
@@ -176,8 +172,7 @@ class Runtime:
         unknown_tool_names = normalized_tool_names - TASK_TOOL_NAMES
         if unknown_tool_names:
             raise ValueError(
-                "available_tool_names contains unsupported tools: "
-                f"{sorted(unknown_tool_names)}"
+                f"available_tool_names contains unsupported tools: {sorted(unknown_tool_names)}"
             )
         self.available_tool_names = normalized_tool_names
         # Carried into every RunResult so a degraded run is visible in-band.
@@ -195,9 +190,7 @@ class Runtime:
         self._synthesis_model_ids = self._validate_phase_models(
             "synthesis_model_ids", synthesis_model_ids
         )
-        if (
-            self._planning_model_ids or self._synthesis_model_ids
-        ) and not self._phase_providers:
+        if (self._planning_model_ids or self._synthesis_model_ids) and not self._phase_providers:
             raise ValueError(
                 "phase_providers is required when phase fallback models are configured"
             )
@@ -212,8 +205,7 @@ class Runtime:
                 and component_model_id != model_ids[0]
             ):
                 raise ValueError(
-                    f"{name}[0] must match the primary component model "
-                    f"{component_model_id!r}"
+                    f"{name}[0] must match the primary component model {component_model_id!r}"
                 )
 
     def _validate_phase_models(
@@ -235,9 +227,7 @@ class Runtime:
             except ValueError as exc:
                 raise ValueError(f"{name} contains {model_id!r}: {exc}") from exc
             if model_id not in self._phase_providers:
-                raise ValueError(
-                    f"{name} contains {model_id!r} without a configured provider"
-                )
+                raise ValueError(f"{name} contains {model_id!r} without a configured provider")
         return tuple(model_ids)
 
     def _before_model_call(self, model_id: str) -> None:
@@ -252,8 +242,7 @@ class Runtime:
             return
         if self._sub_calls >= self._sub_cap:
             raise ProviderError(
-                f"subscription cap {self._sub_cap} reached "
-                f"({self._sub_calls} physical calls)",
+                f"subscription cap {self._sub_cap} reached ({self._sub_calls} physical calls)",
                 retryable=False,
                 quota_exhausted=True,
             )
@@ -534,15 +523,9 @@ class Runtime:
                 inferred = "provider_timeout"
             elif isinstance(error, ProviderError) and error.quota_exhausted:
                 inferred = "quota_exhausted"
-            elif (
-                isinstance(error, ProviderError)
-                and error.candidate_unavailable
-            ):
+            elif isinstance(error, ProviderError) and error.candidate_unavailable:
                 inferred = "candidate_unavailable"
-            elif (
-                isinstance(error, ProviderError)
-                and error.provider_unavailable
-            ):
+            elif isinstance(error, ProviderError) and error.provider_unavailable:
                 inferred = "provider_unavailable"
             elif isinstance(error, ProviderError) and error.retryable:
                 # This method is reached only after the runtime's retry policy has
@@ -613,9 +596,7 @@ class Runtime:
         rejected: dict[str, list[str]] = {}
         for candidate in candidates:
             if not candidate.get("eligible", False):
-                rejected[str(candidate["model_id"])] = list(
-                    candidate.get("rejection_reasons", ())
-                )
+                rejected[str(candidate["model_id"])] = list(candidate.get("rejection_reasons", ()))
         # Keep an explicit index in addition to the complete candidate records:
         # consumers can answer "why not model X?" without reverse-engineering.
         serialized["rejected_models"] = rejected
@@ -650,16 +631,12 @@ class Runtime:
                     if isinstance(self.router, Router):
                         decision = decide(
                             task,
-                            estimated_input_tokens=self._routing_input_tokens(
-                                task, bb
-                            ),
+                            estimated_input_tokens=self._routing_input_tokens(task, bb),
                         )
                     else:
                         decision = decide(task)
                     model_ids = list(decision.ranked_model_ids)
-                    self._routing_decisions[task.id] = (
-                        self._serialize_routing_decision(decision)
-                    )
+                    self._routing_decisions[task.id] = self._serialize_routing_decision(decision)
                 else:
                     model_ids = self.router.route_ranked(task)
             except NoEligibleModelError as exc:
@@ -670,8 +647,7 @@ class Runtime:
                         "selected_model_id": None,
                         "ranked_model_ids": [],
                         "rejected_models": {
-                            str(model_id): list(reasons)
-                            for model_id, reasons in rejected.items()
+                            str(model_id): list(reasons) for model_id, reasons in rejected.items()
                         },
                         "explanation": str(exc),
                     }
@@ -679,9 +655,7 @@ class Runtime:
                     f"no configured model satisfies task {task.id!r}: {exc}"
                 ) from exc
             model_id = model_ids[0] if model_ids else "unknown"
-            return await self._run_task_body(
-                task, bb, run_id, sem, model_ids, on_worker_text
-            )
+            return await self._run_task_body(task, bb, run_id, sem, model_ids, on_worker_text)
         # ProviderError/TimeoutError are normally absorbed per-candidate inside
         # _run_task_body/_run_agentic (they return False on exhaustion), so they should
         # not surface here. But _run_task is gathered without a per-task except in
@@ -723,9 +697,32 @@ class Runtime:
         worker_cb = _task_cb(on_worker_text, task.id)
         last_err: Exception | None = None
         last_model = model_ids[0]
+        req: CanonicalRequest | None = None  # stays None when every candidate is skipped
         async with sem:  # one fan-out slot per task, wrapping the candidate+retry loop
             for candidate_index, model_id in enumerate(model_ids):
                 last_model = model_id
+                # Circuit-breaker gate: a model in a known outage is not probed
+                # again (one resolved status entry explains the skip to the
+                # next reader of the trace, replayable like every other entry).
+                if BREAKER.is_open(model_id):
+                    state = BREAKER.status(model_id)
+                    bb.append(
+                        Entry(
+                            run_id=run_id,
+                            task_id=task.id,
+                            attempt=0,
+                            kind="status",
+                            payload=(
+                                f"skip: {model_id} circuit open "
+                                f"({state['consecutive_failures']} consecutive "
+                                "failures)"
+                            ),
+                            model_id=model_id,
+                            usage=None,
+                            timestamp=time.time(),
+                        )
+                    )
+                    continue
                 # MANDATORY RE-PROJECTION per candidate: the old req is scoped to the
                 # previous model's context_window/max_output, and a reroute step can
                 # land on a model with a much smaller window (tier 4 down to a local
@@ -749,10 +746,12 @@ class Runtime:
                             self.worker.run_one_shot(req, model_id, worker_cb),
                             timeout=self.call_timeout,
                         )
+                        note_success(model_id)
                         if not _text_of(resp.content).strip():
                             raise EmptyOutputError(phase="worker model")
                     except (ProviderError, TimeoutError) as err:
                         last_err = err
+                        note_failure(model_id, err)
                         # A blank completion advances to the next candidate at once.
                         # Retrying is the one response that cannot help — at
                         # temperature 0 the same model returns the same nothing, and
@@ -786,9 +785,7 @@ class Runtime:
                             isinstance(err, ProviderError) and err.retryable
                         )
                         if retryable and attempt < self.max_retries:
-                            await asyncio.sleep(
-                                0.5 * 2**attempt + random.uniform(0, 0.25)
-                            )
+                            await asyncio.sleep(0.5 * 2**attempt + random.uniform(0, 0.25))
                             continue
                         if retryable:
                             reroute = True
@@ -856,12 +853,22 @@ class Runtime:
                 # Semantic/request failures do not walk the remaining inventory:
                 # repeating an invalid request across providers only burns budget.
                 break
+                # Every candidate was skipped by the circuit breaker: no call was made at
+        # all. Synthesize one honest failure instead of the "failed: None" the
+        # shared final block would otherwise record (req is then never bound).
+        last_attempt = req.attempt if req is not None else 0
+        if last_err is None:
+            last_err = ProviderError(
+                "no candidate tried: every ranked model is circuit-open",
+                retryable=False,
+                provider_unavailable=True,
+            )
         # final failure: record str(err) in the status entry so it stays replayable.
         bb.append(
             Entry(
                 run_id=run_id,
                 task_id=task.id,
-                attempt=req.attempt,
+                attempt=last_attempt,
                 kind="status",
                 payload=f"failed: {last_err}",
                 model_id=last_model,
@@ -888,8 +895,7 @@ class Runtime:
         missing_tools = required_tools - set(tools)
         if missing_tools:
             raise CapabilityUnavailableError(
-                f"task {task.id!r} requires unavailable runtime tools: "
-                f"{sorted(missing_tools)}"
+                f"task {task.id!r} requires unavailable runtime tools: {sorted(missing_tools)}"
             )
         worker_cb = _task_cb(on_worker_text, task.id)  # labelled agentic stream
         last_err: Exception | None = None
@@ -920,12 +926,8 @@ class Runtime:
                             required_tools=required_tools,
                         )
                     else:
-                        execution = self.agentic_worker.run(
-                            req, model_id, tools, worker_cb
-                        )
-                    res = await asyncio.wait_for(
-                        execution, timeout=self.agentic_timeout
-                    )
+                        execution = self.agentic_worker.run(req, model_id, tools, worker_cb)
+                    res = await asyncio.wait_for(execution, timeout=self.agentic_timeout)
                 except (ProviderError, TimeoutError) as err:
                     last_err = err
                     # A mid-agentic reroute RESTARTS the task from scratch on the new
@@ -934,18 +936,15 @@ class Runtime:
                     # cost_meter, workspace side effects remain). This limitation is
                     # ACCEPTED & DOCUMENTED (§6.4) — to be done once the one-shot path
                     # is stable.
-                    if (
-                        candidate_index + 1 < len(model_ids)
-                        and (
-                            isinstance(err, TimeoutError)
-                            or (
-                                isinstance(err, ProviderError)
-                                and (
-                                    err.quota_exhausted
-                                    or err.candidate_unavailable
-                                    or err.provider_unavailable
-                                    or err.retryable
-                                )
+                    if candidate_index + 1 < len(model_ids) and (
+                        isinstance(err, TimeoutError)
+                        or (
+                            isinstance(err, ProviderError)
+                            and (
+                                err.quota_exhausted
+                                or err.candidate_unavailable
+                                or err.provider_unavailable
+                                or err.retryable
                             )
                         )
                     ):
@@ -965,12 +964,14 @@ class Runtime:
                         )
                         bb.append(
                             Entry(
-                                run_id=run_id, task_id=task.id, attempt=0, kind="status",
-                                payload=(
-                                    f"reroute: {model_id} {reason} "
-                                    f"({err}) -> next candidate"
-                                ),
-                                model_id=model_id, usage=None, timestamp=time.time(),
+                                run_id=run_id,
+                                task_id=task.id,
+                                attempt=0,
+                                kind="status",
+                                payload=(f"reroute: {model_id} {reason} ({err}) -> next candidate"),
+                                model_id=model_id,
+                                usage=None,
+                                timestamp=time.time(),
                             )
                         )
                         continue
@@ -978,8 +979,13 @@ class Runtime:
                     # across providers would only duplicate side effects and cost.
                     bb.append(
                         Entry(
-                            run_id=run_id, task_id=task.id, attempt=0, kind="status",
-                            payload=f"failed: {err}", model_id=model_id, usage=None,
+                            run_id=run_id,
+                            task_id=task.id,
+                            attempt=0,
+                            kind="status",
+                            payload=f"failed: {err}",
+                            model_id=model_id,
+                            usage=None,
                             timestamp=time.time(),
                         )
                     )
@@ -989,23 +995,39 @@ class Runtime:
                 for tr in res.turns:
                     bb.append(
                         Entry(
-                            run_id=run_id, task_id=task.id, attempt=tr.index, kind=tr.kind,
-                            payload=tr.payload[:2000], model_id=tr.model_id, usage=tr.usage,
+                            run_id=run_id,
+                            task_id=task.id,
+                            attempt=tr.index,
+                            kind=tr.kind,
+                            payload=tr.payload[:2000],
+                            model_id=tr.model_id,
+                            usage=tr.usage,
                             timestamp=time.time(),
                         )
                     )
                 agg = res.usage_total.get(model_id)
                 bb.append(
                     Entry(
-                        run_id=run_id, task_id=task.id, attempt=0, kind="artifact",
-                        payload=res.final_text, model_id=model_id, usage=agg,
+                        run_id=run_id,
+                        task_id=task.id,
+                        attempt=0,
+                        kind="artifact",
+                        payload=res.final_text,
+                        model_id=model_id,
+                        usage=agg,
                         timestamp=time.time(),
                     )
                 )
                 bb.append(
                     Entry(
-                        run_id=run_id, task_id=task.id, attempt=0, kind="status",
-                        payload="success", model_id=model_id, usage=None, timestamp=time.time(),
+                        run_id=run_id,
+                        task_id=task.id,
+                        attempt=0,
+                        kind="status",
+                        payload="success",
+                        model_id=model_id,
+                        usage=None,
+                        timestamp=time.time(),
                     )
                 )
                 self._remember_executed_model(task.id, model_id)
@@ -1013,10 +1035,14 @@ class Runtime:
         # Every viable candidate became unavailable -> fail with the last cause.
         bb.append(
             Entry(
-                run_id=run_id, task_id=task.id, attempt=0, kind="status",
+                run_id=run_id,
+                task_id=task.id,
+                attempt=0,
+                kind="status",
                 payload=f"failed: {last_err}",
                 model_id=model_ids[-1] if model_ids else "unknown",
-                usage=None, timestamp=time.time(),
+                usage=None,
+                timestamp=time.time(),
             )
         )
         self._remember_task_error(task.id, last_err)
@@ -1057,9 +1083,7 @@ class Runtime:
             logger.exception("failed to clean run workspace %s", run_path)
 
     @staticmethod
-    def _phase_error(
-        error: Exception, *, phase: str
-    ) -> tuple[str, str]:
+    def _phase_error(error: Exception, *, phase: str) -> tuple[str, str]:
         if isinstance(error, TimeoutError):
             code = "phase_timeout"
         elif isinstance(error, InvalidGoalError):
@@ -1072,9 +1096,7 @@ class Runtime:
             code = "quota_exhausted"
         elif isinstance(error, ProviderError) and error.candidate_unavailable:
             code = "candidate_unavailable"
-        elif isinstance(error, ProviderError) and (
-            error.provider_unavailable or error.retryable
-        ):
+        elif isinstance(error, ProviderError) and (error.provider_unavailable or error.retryable):
             code = "provider_unavailable"
         elif isinstance(error, ProviderError):
             code = "provider_error"
@@ -1116,18 +1138,14 @@ class Runtime:
                 timeout=self.call_timeout,
             )
             derived = _text_of(resp.content)
-            self.cost_meter.add(
-                self.supervisor._model_id, resp.usage, cost_usd=resp.cost_usd
-            )
+            self.cost_meter.add(self.supervisor._model_id, resp.usage, cost_usd=resp.cost_usd)
             assertions = parse_assertions(derived)
             if not assertions:
                 return CheckReport()
             factory = self.sandbox_factory or sandbox_for
             workspace = _safe_task_workspace(self.runs_dir, run_id, "__verify__")
             workspace.mkdir(parents=True, exist_ok=True)
-            result = await factory(workspace).run(
-                build_program(extract_python(answer), assertions)
-            )
+            result = await factory(workspace).run(build_program(extract_python(answer), assertions))
             return read_report(result.stdout, result.stderr, assertions)
         except Exception as exc:  # noqa: BLE001 - a detector must never fail a good run
             logger.debug("answer verification did not run: %s", exc)
@@ -1162,8 +1180,7 @@ class Runtime:
             error_message=error_message,
             checks=checks,
             routing_decisions={
-                task_id: dict(decision)
-                for task_id, decision in self._routing_decisions.items()
+                task_id: dict(decision) for task_id, decision in self._routing_decisions.items()
             },
             subscription_calls=self._sub_calls,
             cost_estimated=self.cost_meter.has_estimated(),
@@ -1192,13 +1209,9 @@ class Runtime:
                 "VOLANTE_MAX_SUBSCRIPTION_CALLS must be a non-negative integer"
             ) from exc
         if sub_cap < 0:
-            raise ValueError(
-                "VOLANTE_MAX_SUBSCRIPTION_CALLS must be a non-negative integer"
-            )
+            raise ValueError("VOLANTE_MAX_SUBSCRIPTION_CALLS must be a non-negative integer")
         if self._initial_subscription_calls > sub_cap:
-            raise ValueError(
-                "preflight subscription calls exceed VOLANTE_MAX_SUBSCRIPTION_CALLS"
-            )
+            raise ValueError("preflight subscription calls exceed VOLANTE_MAX_SUBSCRIPTION_CALLS")
         # A Runtime runs exactly one goal. Its components are single-use too
         # (Supervisor.plan is explicitly non-re-entrant) and the cost meter, subscription
         # counter, task errors, and route trace are all per-run, so a second or
@@ -1250,9 +1263,7 @@ class Runtime:
             done: set[str] = set()
             while len(done) < len(plan):
                 wave = [
-                    t
-                    for t in plan
-                    if t.id not in done and all(dep in done for dep in t.depends_on)
+                    t for t in plan if t.id not in done and all(dep in done for dep in t.depends_on)
                 ]
                 if not wave:
                     return self._finalize(
@@ -1265,10 +1276,7 @@ class Runtime:
                         error_message="no runnable tasks remain",
                     )
                 results = await asyncio.gather(
-                    *(
-                        self._run_task(t, bb, run_id, sem, on_worker_text)
-                        for t in wave
-                    )
+                    *(self._run_task(t, bb, run_id, sem, on_worker_text) for t in wave)
                 )
                 for task, ok in zip(wave, results, strict=True):
                     if not ok:
@@ -1299,13 +1307,13 @@ class Runtime:
                     error_code=code,
                     error_message=message,
                 )
-            checks = (
-                await self._verify_final(goal, final, run_id)
-                if self.verify_answer
-                else None
-            )
+            checks = await self._verify_final(goal, final, run_id) if self.verify_answer else None
             return self._finalize(
-                bb, started, status="success", final=final, failed_task=None,
+                bb,
+                started,
+                status="success",
+                final=final,
+                failed_task=None,
                 checks=checks,
             )
         finally:

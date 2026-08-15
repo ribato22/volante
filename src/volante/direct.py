@@ -25,6 +25,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from volante.blackboard import Blackboard
+from volante.breaker import BREAKER, note_failure, note_success
 from volante.cost import CostMeter
 from volante.projector import Projector
 from volante.providers.base import (
@@ -99,6 +100,21 @@ async def answer_directly(
     for model_id in ranked:
         if model_id not in providers:
             continue
+        # Circuit-breaker gate: a model in a known outage is not probed again,
+        # and the fallback trace explains why the next-ranked model answered.
+        if BREAKER.is_open(model_id):
+            state = BREAKER.status(model_id)
+            trace["fallback_events"].append(
+                {
+                    "model_id": model_id,
+                    "reason": "circuit_open",
+                    "message": (
+                        f"{state['consecutive_failures']} consecutive failures; "
+                        "skipped until the cooldown expires"
+                    ),
+                }
+            )
+            continue
         # Count PHYSICAL calls to subscription-billed models exactly like the
         # Runtime's gate does (_before_model_call): every attempt reserves one,
         # success or failure. Unregistered models count nothing (same rule).
@@ -112,11 +128,12 @@ async def answer_directly(
         req.task_id = task.id
         try:
             resp = await call_provider(providers[model_id], req, on_text)
+            note_success(model_id)
         except (ProviderError, TimeoutError) as exc:
             last_error = exc
+            note_failure(model_id, exc)
             trace["fallback_events"].append(
-                {"model_id": model_id, "reason": "provider_unavailable",
-                 "message": str(exc)}
+                {"model_id": model_id, "reason": "provider_unavailable", "message": str(exc)}
             )
             continue
         cost_meter.add(model_id, resp.usage, cost_usd=resp.cost_usd)
@@ -127,8 +144,7 @@ async def answer_directly(
             # failure, not an answer, so the next ranked model gets a turn.
             last_error = EmptyOutputError(phase="direct model")
             trace["fallback_events"].append(
-                {"model_id": model_id, "reason": "invalid_output",
-                 "message": str(last_error)}
+                {"model_id": model_id, "reason": "invalid_output", "message": str(last_error)}
             )
             continue
         trace["executed_model_id"] = model_id

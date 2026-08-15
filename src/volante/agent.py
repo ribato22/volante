@@ -6,6 +6,7 @@ import random
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from volante.breaker import BREAKER, note_failure, note_success
 from volante.cost import CostMeter
 from volante.providers.base import (
     EmptyOutputError,
@@ -54,8 +55,7 @@ def _estimate_tool_spec_chars(specs: list[ToolSpec]) -> int:
     # Provider wire formats differ, but names/descriptions/schemas all consume
     # context. ``str`` is deliberately conservative and provider-independent.
     return sum(
-        len(spec.name) + len(spec.description) + len(str(spec.input_schema))
-        for spec in specs
+        len(spec.name) + len(spec.description) + len(str(spec.input_schema)) for spec in specs
     )
 
 
@@ -137,9 +137,9 @@ class AgenticWorker:
                 "agentic request leaves no input context after output reserve",
                 retryable=False,
             )
-        model_budget = int(
-            (req.context_window - req.max_tokens) * _CONTEXT_MARGIN
-        ) * _CHARS_PER_TOKEN
+        model_budget = (
+            int((req.context_window - req.max_tokens) * _CONTEXT_MARGIN) * _CHARS_PER_TOKEN
+        )
         return min(self.char_budget, model_budget)
 
     async def _call_with_retry(
@@ -149,21 +149,37 @@ class AgenticWorker:
         model_id: str,
         on_text: OnText | None,
     ) -> CanonicalResponse:
+        # Circuit-breaker gate: the Runtime's candidate loop and this retry loop
+        # both protect against one task consuming calls, but consecutive tasks
+        # against a model in an outage each pay the full retry bill. Once the
+        # breaker is open, refuse BEFORE the call — no provider request is made
+        # (the runtime classifies this as provider_unavailable and reroutes at
+        # once).
+        if BREAKER.is_open(model_id):
+            state = BREAKER.status(model_id)
+            raise ProviderError(
+                f"circuit open: {model_id} had "
+                f"{state['consecutive_failures']} consecutive failures and is "
+                "not being tried until the cooldown expires",
+                retryable=False,
+                provider_unavailable=True,
+            )
         last: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
                 if self._before_call is not None:
                     self._before_call(model_id)
-                return await call_provider(provider, req, on_text)
+                response = await call_provider(provider, req, on_text)
+                note_success(model_id)
+                return response
             except (ProviderError, TimeoutError) as err:
                 last = err
+                note_failure(model_id, err)
                 # quota_exhausted (subscription quota/credit used up) is NOT backed
                 # off: short-circuit -> Runtime reroutes to another candidate (§6.4),
                 # rather than sleeping for seconds to no purpose.
                 reroutable = isinstance(err, ProviderError) and (
-                    err.quota_exhausted
-                    or err.candidate_unavailable
-                    or err.provider_unavailable
+                    err.quota_exhausted or err.candidate_unavailable or err.provider_unavailable
                 )
                 retryable = not reroutable and (
                     isinstance(err, TimeoutError)
@@ -241,9 +257,7 @@ class AgenticWorker:
                 context_window=req.context_window,
             )
             resp = await self._call_with_retry(provider, call, model_id, on_text)
-            self.cost_meter.add(
-                model_id, resp.usage, cost_usd=resp.cost_usd
-            )
+            self.cost_meter.add(model_id, resp.usage, cost_usd=resp.cost_usd)
             local.add(model_id, resp.usage, cost_usd=resp.cost_usd)
 
             if resp.stop_reason != "tool_use":
@@ -319,8 +333,7 @@ class AgenticWorker:
                     # guard, killing the task with no correction turn and no reroute.
                     # A malformed call is the model's mistake to fix, like any other.
                     content = (
-                        "error: tool arguments must be a JSON object, got "
-                        f"{type(b.input).__name__}"
+                        f"error: tool arguments must be a JSON object, got {type(b.input).__name__}"
                     )
                     known_tool_calls += 1
                     used_tool_names.add(b.name)
@@ -335,13 +348,8 @@ class AgenticWorker:
             # Tool output is untrusted and may be arbitrarily large. Allocate the
             # remaining model-specific transcript budget fairly across results so
             # one verbose tool cannot overflow or starve its siblings.
-            assistant_message = CanonicalMessage(
-                role="assistant", content=resp.content
-            )
-            used = (
-                _estimate_chars([*messages, assistant_message])
-                + tool_spec_chars
-            )
+            assistant_message = CanonicalMessage(role="assistant", content=resp.content)
+            used = _estimate_chars([*messages, assistant_message]) + tool_spec_chars
             remaining = max(effective_budget - used, 0)
             share = remaining // len(raw_results) if raw_results else 0
             results: list[ContentBlock] = [
@@ -353,11 +361,7 @@ class AgenticWorker:
             ]
             for result in results:
                 if isinstance(result, ToolResultBlock):
-                    turns.append(
-                        TurnRecord(
-                            i, "tool_result", result.content, None, model_id
-                        )
-                    )
+                    turns.append(TurnRecord(i, "tool_result", result.content, None, model_id))
             messages = messages + [
                 assistant_message,
                 CanonicalMessage(role="user", content=results),
@@ -407,6 +411,4 @@ class AgenticWorker:
                 stalls = 0
             last_exchange = exchange
 
-        raise ProviderError(
-            f"agentic loop exhausted after {self.max_iters} iters", retryable=False
-        )
+        raise ProviderError(f"agentic loop exhausted after {self.max_iters} iters", retryable=False)

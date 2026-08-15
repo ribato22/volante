@@ -21,6 +21,34 @@ def _isolate_usage_ledger(
 
 
 @pytest.fixture(autouse=True)
+def _fresh_breaker() -> None:
+    """A clean circuit breaker per test.
+
+    The breaker is process-wide by design (it protects the wallet across the
+    runs of one session), so a test that opens it must not leak that state into
+    the next test's run. Reset it up front; a test that drives a real outage
+    keeps its effects within its own body, just like the usage-ledger fixture.
+    """
+    from volante.breaker import BREAKER
+
+    BREAKER.reset()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_reliability_ledger(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the whole suite hermetic w.r.t. the reliability ledger.
+
+    Any test that drives a failing provider through the Runtime, the agentic
+    worker, or the direct path triggers a best-effort outage record
+    (volante.breaker.note_failure), which without isolation appends to the
+    developer's real ``~/.volante/reliability.jsonl``. Silence recording by
+    default; individual tests that exercise the ledger explicitly override
+    ``VOLANTE_RELIABILITY_LOG`` after this runs.
+    """
+    monkeypatch.setenv("VOLANTE_RELIABILITY_LOG", "")
+
+
+@pytest.fixture(autouse=True)
 def _pin_sandbox_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the execution sandbox so the suite does not depend on the developer's Docker.
 

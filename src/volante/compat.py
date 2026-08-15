@@ -28,6 +28,8 @@ LEGACY_SETTINGS: frozenset[str] = frozenset(
         "AGENTIC_MAX_ITERS",
         "CLI_AGENT_DEPTH",
         "CLI_AGENT_PASSTHROUGH",
+        "FEEDBACK_FILE",
+        "FEEDBACK_MAX_AGE_DAYS",
         "FETCH_ALLOWLIST",
         "LOG",
         "MAX_SUBSCRIPTION_CALLS",
@@ -44,6 +46,9 @@ LEGACY_SETTINGS: frozenset[str] = frozenset(
         # Added after the rename, so no BATON_* user can ever have set them — listed
         # anyway because the drift guard's job is to make forgetting impossible, and
         # an exemption list would need the same maintenance with none of the safety.
+        "BREAKER_COOLDOWN_SECONDS",
+        "BREAKER_THRESHOLD",
+        "RELIABILITY_LOG",
         "UI_TLS_CERT",
         "UI_TLS_KEY",
         "UI_TRUST_PROXY",
