@@ -408,9 +408,7 @@ import volante
 
 async def main() -> None:
     registry, providers, model_id = volante.build_providers_from_env()
-    factory = await volante.make_verified_runtime_factory(
-        registry, providers, model_id
-    )
+    factory = await volante.make_verified_runtime_factory(registry, providers, model_id)
     runtime = factory()
     result = await runtime.aexecute("your goal")
     print(result.status, result.billed_usd, result.credit_usd, result.cost_estimated)
@@ -695,6 +693,44 @@ the `goal` field, so `--calibrate` warns that their breadth is unverifiable and 
 run-count confidence — the per-run goals were never recorded, and inventing an assignment now would
 fabricate the provenance these files exist to preserve. `eval/artifacts/measurements-k5.json` is a
 fully labelled run if you want to see the current format on real data.
+
+**Real usage is also evidence — if it verified.** Every `--verify` run that answered in one call
+leaves an observation in the feedback ledger (`~/.volante/feedback.jsonl`, overridable with
+`VOLANTE_FEEDBACK_FILE`; blank disables it), and a calibration folds them in automatically when
+the ledger exists:
+
+```bash
+uv run volante --calibrate measurements.json
+```
+
+`--calibrate-feedback OTHER_LEDGER` merges additional ledgers; `--no-calibrate-feedback` skips
+them all. Only runs whose derived checks **all passed** become graded entries (score 1.0) — the
+detector's rare verdict-like output: measured, it never approved a wrong answer in 22 runs, while
+45% of the answers it flags are correct code it flagged with its own wrong check. A flagged run is
+therefore no evidence about quality, and calibration says exactly how many runs it set aside and
+why. Observations older than 90 days stop being evidence (`VOLANTE_FEEDBACK_MAX_AGE_DAYS`, 0 for
+no cutoff): the ledger describes a model as it runs today, and a slot can be re-tuned or replaced.
+Attribution is single-model only: a run's observation is credited to the one executed model of the
+direct path, and a run whose producing model cannot be identified is not recorded at all.
+
+**A model in a known outage is not probed again while the outage lasts.** The failure handling
+backs off and reroutes, but a fresh task has no memory of the last one, so a broken model got
+retried and rerouted per task. A circuit breaker fixes that: it counts **consecutive** failures
+per model (default 2, `VOLANTE_BREAKER_THRESHOLD`), and once the count reaches the threshold the
+model is skipped at every call site — the Runtime's candidate loop, the agentic retry loop, and
+the direct path — until the cooldown expires (default 60 s,
+`VOLANTE_BREAKER_COOLDOWN_SECONDS`). The run trace records each skip as a status entry
+("skip: ... circuit open") or a `circuit_open` fallback event, so nothing is hidden. After the
+cooldown the model is probed once; one new failure slams it shut again, one success resets the
+streak. What counts as an outage is the failure classes the engine already treats as transient
+(timeout, retryable, candidate/provider unavailable); depletion (`quota_exhausted`, already
+handled by the subscription gate) and empty or incomplete output (evidence for calibration, not
+circuit state) do not. State is per process: the breaker protects one session (CLI, MCP server,
+or Web UI) from its own repeated probes, and every outage event is also persisted one line at a
+time in the reliability ledger (`~/.volante/reliability.jsonl`, `VOLANTE_RELIABILITY_LOG`, blank
+disables it), so the same evidence exists for calibration and post-mortems. Folding the ledger
+into `reliability_score` is not done yet: its merge semantics deserve the same measured design
+the verification feedback merge got.
 
 **What the measurements establish.** Three OpenAI models produced a clean monotonic gradient on
 `code` — `gpt-4.1-nano` 0.951, `gpt-4o-mini` 0.990, `gpt-4.1` 1.000 — which agreed with the tier

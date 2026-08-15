@@ -6,6 +6,88 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- **The routing estimate now sees context DEPTH, not just the difficulty label.** The
+  default `estimated_input_tokens` rises (bounded, +16k cap) when a task description
+  names file paths — each distinct reference costs a 2k-token content allowance,
+  because a named artifact enters the prompt as content, not as a path — or uses
+  explicit size language ("large file", "the whole repository", "multiple files").
+  A small-window model is now flagged `requires_truncation` for a depth-heavy task
+  where it previously scored full marks on context headroom, and the trace says when
+  the target was raised above the difficulty floor. Deliberately conservative: the
+  router still does not know the real file sizes, and the Projector re-checks the
+  actual prompt at execution time.
+
+  **Measured against the eval suite, and the measurement found a defect in the first
+  draft.** `eval/depth_route.py` simulates the real Router against the k5 suite with
+  no providers and no spend. The first rule counted ANY slash-separated word pair as
+  a file, and three of the twelve suite goals write either-or notation with slashes
+  ("min/max", "10/4", "int/str/None") — all three got a spurious uplift that would
+  push small-window models into the truncating pool on a mixed-window inventory.
+  The reference rule now requires a dotted filename after the slash (so `src/parser.py`
+  counts and "min/max" does not), and the regression test pins it. After the fix,
+  routing every measured goal with both estimators produced **0/12 decisions changed
+  and identical mean loss (0.1244)** — the honest null result: the heuristic is inert
+  on goals that do not name files, and it does not disturb existing routing. The
+  mechanism demonstration (one trivial goal, an 8k-window model outranking everything
+  on metadata): naming three files raises the estimate from 256 to 14592 tokens,
+  flags the 8k model `requires_truncation`, and demotes it from rank 1 to rank 3
+  behind a 32k candidate. Full numbers: `eval/artifacts/README.md`.
+
+- **Verified runs from real use are now calibration evidence, automatically.** Every
+  `--verify` run that answered in one call appends an observation to a feedback
+  ledger (`~/.volante/feedback.jsonl`, `VOLANTE_FEEDBACK_FILE`, blank disables it),
+  and `--calibrate` merges the default ledger on its own when it exists —
+  `--calibrate-feedback LEDGER` adds other ledgers, `--no-calibrate-feedback`
+  disables the merge entirely. Only runs whose derived checks **all passed** are
+  graded (score 1.0): that is the detector's verdict-like output, while a flagged run
+  is wrong 45% of the time about the answer — its checks are wrong, not the code — so
+  it is set aside and counted by reason (`checks_failed`, `too_few_checks`, ...).
+  Attribution is single-model only: a run is credited to the one executed model of
+  the direct path, and a run whose producing model cannot be identified is not
+  recorded. Goals are deduplicated across ledgers and the measurements file, because
+  `confidence` counts DISTINCT goals and a goal verified twice is the same claim
+  twice. The ledger tolerates a corrupt line (skipped, counted, warned) rather than
+  failing calibration.
+- **Real-usage evidence goes stale, and the merge says so.** Observations older than
+  90 days are discarded from the merge (`VOLANTE_FEEDBACK_MAX_AGE_DAYS`, 0 for no
+  cutoff): the ledger describes a model as it runs today, and a slot can be re-tuned
+  or replaced. The count of runs set aside for age is reported next to the other
+  discard reasons.
+- **A circuit breaker keeps a model in a known outage from consuming calls again
+  and again.** The old failure handling was sound but admission-bound: a model
+  that starts timing out collected backoff retries on one task, was rerouted, and
+  the next task probed it again. The breaker counts CONSECUTIVE failures per model
+  (default 2, `VOLANTE_BREAKER_THRESHOLD`); once it opens, every call site — the
+  Runtime's candidate loop, the agentic worker's retry loop, and the direct path —
+  skips the model until the cooldown expires (default 60 s,
+  `VOLANTE_BREAKER_COOLDOWN_SECONDS`), and the run trace says exactly that ("skip:
+  ... circuit open") instead of burning another attempt. After the cooldown the
+  model is probed once; one failure slams it shut again, one success resets the
+  streak. What counts as an outage is the failure classes the engine already
+  singles out for backoff or fail-fast reroute (timeout, retryable,
+  candidate/provider unavailable); what does NOT count is depletion
+  (`quota_exhausted`, a billing truth the run gate already handles) and empty or
+  incomplete output (evidence for calibration, not circuit state). State is per
+  process by design — the breaker protects the wallet within one session, and
+  concurrent CLI/MCP/UI sessions each see their own outages.
+
+  **Measured against the runtime's own admission policy.** `eval/breaker_sim.py`
+  counts provider calls against a model that fails 100% of attempts, driving the
+  real breaker with an injected clock and the runtime's per-candidate retry
+  policy (no providers, no network): 30 → 15 calls for 10 tasks 30s apart with
+  max_retries=2 (50% avoided), 300 → 51 for 100 tasks 10s apart (83%), and
+  100 → 10 for 100 tasks 5s apart with max_retries=0 (90%). The residue is the
+  opening task and one probe per cooldown, each paying the full retry budget —
+  the exact floor a per-candidate gate can hold.
+- **Every outage the breaker sees is also persisted**
+  (`~/.volante/reliability.jsonl`, `VOLANTE_RELIABILITY_LOG`, blank disables it):
+  one line per outage event with the model, the kind ("timeout",
+  "provider_unavailable", "candidate_unavailable"), and a timestamp. The ledger is
+  the raw material for folding real-usage reliability into calibration; folding it
+  in is deliberately not done yet, because its merge semantics (weights against
+  eval-time null runs) deserve the same measured design the feedback merge got.
+
 ## [0.9.0] - 2026-08-04
 
 **Calibration counted the same goal twice.** `confidence` was computed from the number
