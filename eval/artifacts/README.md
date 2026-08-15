@@ -942,3 +942,86 @@ tools are all outside what was measured.
 
 It also does not excuse the agentic arm, which scored 0.00 on all eighteen runs with
 ten terminal errors — the escaping loop documented above, unchanged.
+
+## The depth-aware routing estimate, measured against the suite (2026-08-14)
+
+The router's default input-token estimate now rises when a task description names
+files ("Read src/parser.py ...") or warns the input is large ("the whole
+repository"), so small-window models are priced for the content a named artifact
+will actually put in front of them. `eval/depth_route.py` simulates the real Router
+against the measured k5 suite — no providers, no spend — and the first run found a
+bug and fixed it, which is the whole method in one paragraph.
+
+**The defect the measurement caught.** The first draft counted any
+slash-separated word pair as a file reference. Three of the twelve suite goals
+write either-or notation with slashes — "min/max", "10/4", "int/str/None" — and all
+three received a spurious estimate uplift (4096 to 8192 tokens). Decisions did not
+move on this suite (every model is 128k and the medium-difficulty target of 32768
+dwarfs the +16k cap), but on a mixed-window inventory those prose slashes would
+have pushed small-window models into the truncating pool for no reason. The
+reference rule now requires a dotted filename after the slash, which drops all
+three false positives and keeps `src/parser.py`. The regression test pins it.
+
+**The invariance result, after the fix.** Routing every measured goal under the old
+engine behavior (the old estimate passed explicitly, which is exactly what the router
+ran before the change) and the depth-aware default — same inventory, same difficulty
+as the direct path:
+
+    estimates moved:    0/12
+    decisions changed:  0/12
+    mean loss per goal: 0.1244 old vs 0.1244 new
+
+The suite's goals do not name files, so the heuristic is inert here by
+construction — the number above is the honest null result: the change did not
+disturb existing routing on the measured suite. The 0.1244 loss is the "route
+against declared metadata" baseline published above, reproduced by a fresh
+simulation rather than restated from memory.
+
+**The mechanism, where the heuristic can act.** One trivial goal, a mixed-window
+inventory (a tier-4 8k-window model that outranks everything on metadata, a tier-3
+32k model, a tier-3 128k model):
+
+    plain               est=   256 -> small/8k   (truncation: no)
+    one file            est=  2304 -> small/8k   (truncation: no)
+    three files+large   est= 14592 -> mid/32k    (small/8k truncating, rank 1 -> 3)
+
+Naming three files costs 2x2048 + 4096 tokens of estimate, which crosses the 8k
+model's usable input: it is flagged `requires_truncation` and demoted below the
+32k candidate, whose headroom is untouched. That is the intended behavior — and it
+is a mechanism demonstration, not a quality claim: the synthetic window-size models
+have no measured scores, and the loss metric deliberately stops at metadata.
+
+**The scope, stated rather than assumed.** Depth only moves decisions for tasks
+whose descriptions actually carry these signals, and only where the raised target
+exceeds the difficulty floor: on `trivial`/`easy` tasks (targets 4096/8192) a
+file-naming goal can flip a small-window candidate; on `medium`/`hard` (32768/131072)
+the difficulty target already dominates, and the +16k cap means a description can
+never push the estimate past the hard-difficulty target. The router still does not
+know real file sizes — the estimate is a lower bound, and the Projector re-checks
+the real prompt at execution time.
+
+## The circuit breaker, measured against the runtime's own admission policy (2026-08-14)
+
+`eval/breaker_sim.py` counts provider calls against a model in a permanent
+outage (every attempt fails transiently), driven by the REAL `CircuitBreaker`
+with an injected clock and the runtime's per-candidate retry policy — no
+providers, no network, no spend.
+
+    scenario                                no breaker  breaker  avoided
+    10 tasks, 30s apart, max_retries=2              30       15     50%
+    100 tasks, 10s apart, max_retries=2            300       51     83%
+    100 tasks, 5s apart, max_retries=0             100       10     90%
+
+The saving is exactly the tasks whose candidate is skipped: the task that
+opens the breaker still pays its full retry budget (the breaker is checked per
+candidate, not per attempt), and each post-cooldown probe also pays its budget
+before the next failure reopens the breaker. What the breaker stops is the
+tasks in between — the ones that would otherwise have paid the full budget
+against a model already known to be down.
+
+No failure rate was assumed in the three rows: every row simulates a model
+that fails 100% of attempts, which is the honest worst case for the repeated
+consumption the breaker exists to stop. The breaker's own defaults (threshold
+2, cooldown 60s) are product defaults, not measured claims; the avoidance
+numbers above hold for those defaults and degrade predictably with a higher
+threshold or longer cooldown.

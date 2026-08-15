@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -22,15 +23,9 @@ _TYPE_STRENGTHS: dict[str, frozenset[str]] = {
 # Optional, more specific strength tags. They improve task fit when users supply richer
 # model metadata while preserving compatibility with today's coding/reasoning profiles.
 _RELATED_STRENGTHS: dict[str, frozenset[str]] = {
-    "code": frozenset(
-        {"coding", "software_engineering", "debugging", "instruction_following"}
-    ),
-    "research": frozenset(
-        {"reasoning", "research", "grounding", "long_context"}
-    ),
-    "write": frozenset(
-        {"reasoning", "writing", "creativity", "instruction_following"}
-    ),
+    "code": frozenset({"coding", "software_engineering", "debugging", "instruction_following"}),
+    "research": frozenset({"reasoning", "research", "grounding", "long_context"}),
+    "write": frozenset({"reasoning", "writing", "creativity", "instruction_following"}),
     "analyze": frozenset({"reasoning", "analysis", "math", "long_context"}),
 }
 
@@ -55,6 +50,67 @@ _OUTPUT_TARGET: dict[str, int] = {
     "hard": 4_096,
 }
 
+# Depth signals: the router sees the task DESCRIPTION, not the artifacts it names, but
+# naming an artifact is a promise about the prompt. "Read src/parser.py and fix it"
+# puts the file's CONTENT in front of the model, not its path, so a task that names
+# files or warns that the input is large costs more context than one that does not.
+# The allowance stays a bound, deliberately: the actual file sizes are unknown to the
+# router, and the Projector re-checks its real prompt against the model's budget at
+# execution time. Small values on purpose — misjudging low only weakens the
+# context_headroom signal slightly, while misjudging high would send small-window
+# models to the truncating pool it does not need to be in.
+
+# Anything with a slash-separated path AND a dotted filename: "src/parser.py",
+# "./config/dev.json". The dotted segment is what separates a file reference from
+# prose slash-writing — measured, the eval suite writes "min/max", "10/4" and
+# "int/str/None" as either-or notation, and counting those as files gave three of
+# twelve suite goals a spurious estimate uplift. A bare multi-segment path with no
+# filename ("a/b/c") or a bare filename ("lexer.py") is not counted: it is as likely
+# to be prose, and a miss costs nothing because the estimate is a bound.
+_REFERENCED_FILE_RE = re.compile(r"(?<![\w.])\.?[\w.-]+/[\w./-]*\.[A-Za-z0-9]+")
+# One referenced file's content allowance: what a typical artifact costs in tokens.
+_FILE_REFERENCE_TOKENS = 2_048
+# A phrase that tells the router the input is large or multi-artifact in a way that
+# the file-path scan cannot see (no paths written, or "the whole repository").
+_DEPTH_PHRASE_TOKENS = 4_096
+# Hard ceiling for the whole uplift: the estimate must stay a sane lower bound even
+# for a task that names a dozen files.
+_MAX_DEPTH_UPLIFT = 16_384
+_DEPTH_PHRASES: tuple[str, ...] = (
+    "large file",
+    "large files",
+    "huge file",
+    "huge files",
+    "big file",
+    "big files",
+    "entire file",
+    "whole file",
+    "full file",
+    "long document",
+    "long documents",
+    "long report",
+    "long article",
+    "long text",
+    "many files",
+    "multiple files",
+    "several files",
+    "all the files",
+    "every file",
+    "whole directory",
+    "entire directory",
+    "whole project",
+    "entire project",
+    "whole repository",
+    "entire repository",
+    "large repository",
+    "large project",
+    "large codebase",
+    "the whole codebase",
+    "dependency tree",
+    "all dependencies",
+    "every dependency",
+)
+
 
 class InvalidRoutingRequest(ValueError):
     """The task or routing objective is outside Volante's declared contract."""
@@ -71,8 +127,7 @@ class NoEligibleModelError(ValueError):
         self.task_id = task.id
         self.rejected = rejected
         detail = "; ".join(
-            f"{model_id}: {', '.join(reasons)}"
-            for model_id, reasons in sorted(rejected.items())
+            f"{model_id}: {', '.join(reasons)}" for model_id, reasons in sorted(rejected.items())
         )
         super().__init__(
             f"no configured model is eligible for task {task.id!r}"
@@ -132,22 +187,35 @@ class RoutingDecision:
 
 def _cash(model: ModelInfo) -> float:
     # Subscription calls draw quota rather than incremental card cash.
-    return (
-        0.0
-        if model.billing in _SUBSCRIPTION_BILLING
-        else model.cost_per_1k_out
-    )
+    return 0.0 if model.billing in _SUBSCRIPTION_BILLING else model.cost_per_1k_out
 
 
 def _clamp_unit(value: float) -> float:
     return max(0.0, min(1.0, value))
 
 
+def _context_depth_signals(description: str) -> int:
+    """Token allowance for artifacts the description names or warns are large.
+
+    Counts DISTINCT referenced paths and DISTINCT depth phrases, so repeating one
+    filename in a sentence does not compound into evidence of two files.
+    """
+    lowered = description.lower()
+    phrases = len({phrase for phrase in _DEPTH_PHRASES if phrase in lowered})
+    files = len(set(_REFERENCED_FILE_RE.findall(description)))
+    return min(
+        _MAX_DEPTH_UPLIFT,
+        files * _FILE_REFERENCE_TOKENS + phrases * _DEPTH_PHRASE_TOKENS,
+    )
+
+
 def _estimated_input_tokens(task: Task) -> int:
     # Router sees the task description, not the eventual dependency artifacts. This is
     # therefore only a hard lower bound; Projector/worker context budgeting still owns
-    # the complete prompt at execution time.
-    return max(256, (len(task.description) + 3) // 4 + 128)
+    # the complete prompt at execution time. Depth signals add a bounded allowance
+    # because a named artifact will enter the prompt as content, not as a path.
+    base = max(256, (len(task.description) + 3) // 4 + 128)
+    return base + _context_depth_signals(task.description)
 
 
 def _profile_blend(
@@ -157,10 +225,7 @@ def _profile_blend(
 ) -> float:
     if configured is None or profile is None:
         return fallback
-    return (
-        profile.confidence * float(configured)
-        + (1.0 - profile.confidence) * fallback
-    )
+    return profile.confidence * float(configured) + (1.0 - profile.confidence) * fallback
 
 
 def _is_local(model: ModelInfo, profile: ModelQualityProfile | None) -> bool:
@@ -218,9 +283,7 @@ def _quality_components(
     estimated_input_tokens: int,
 ) -> tuple[ScoreComponent, ...]:
     metadata_task_fit = _metadata_task_fit(model, task.type)
-    configured_task_fit = (
-        profile.task_scores.get(task.type) if profile is not None else None
-    )
+    configured_task_fit = profile.task_scores.get(task.type) if profile is not None else None
     task_fit = _profile_blend(configured_task_fit, metadata_task_fit, profile)
     task_evidence = (
         f"profile {profile.source!r}, confidence={profile.confidence:.2f}"
@@ -249,13 +312,14 @@ def _quality_components(
         _CONTEXT_TARGET[task.difficulty],
     )
     context_fit = _clamp_unit(usable_context / context_target)
-    output_fit = _clamp_unit(
-        model.max_output_tokens / _OUTPUT_TARGET[task.difficulty]
-    )
+    context_evidence = f"{usable_context} usable tokens versus {context_target} target"
+    if estimated_input_tokens > _CONTEXT_TARGET[task.difficulty]:
+        context_evidence += (
+            " (target raised above the difficulty floor by depth signals in the task description)"
+        )
+    output_fit = _clamp_unit(model.max_output_tokens / _OUTPUT_TARGET[task.difficulty])
 
-    configured_reliability = (
-        profile.reliability_score if profile is not None else None
-    )
+    configured_reliability = profile.reliability_score if profile is not None else None
     reliability = _profile_blend(configured_reliability, 0.75, profile)
     reliability_evidence = (
         f"profile {profile.source!r}, confidence={profile.confidence:.2f}"
@@ -286,15 +350,13 @@ def _quality_components(
             "context_headroom",
             context_fit,
             8.0,
-            f"{usable_context} usable tokens versus "
-            f"{context_target} target",
+            context_evidence,
         ),
         (
             "output_capacity",
             output_fit,
             5.0,
-            f"{model.max_output_tokens} tokens versus "
-            f"{_OUTPUT_TARGET[task.difficulty]} target",
+            f"{model.max_output_tokens} tokens versus {_OUTPUT_TARGET[task.difficulty]} target",
         ),
         (
             "reliability",
@@ -354,9 +416,7 @@ def _varying_component_names(
         }
         if len(values) > 1:
             varying.append(
-                ScoreComponent(
-                    name=name, value=0.0, weight=0.0, contribution=0.0, evidence=""
-                )
+                ScoreComponent(name=name, value=0.0, weight=0.0, contribution=0.0, evidence="")
             )
     return tuple(varying)
 
@@ -455,8 +515,7 @@ class Router:
     def __init__(self, registry: Registry, *, prefer: str = "quality") -> None:
         if prefer not in _OBJECTIVES:
             raise InvalidRoutingRequest(
-                f"unknown routing objective {prefer!r}; "
-                f"expected one of {sorted(_OBJECTIVES)}"
+                f"unknown routing objective {prefer!r}; expected one of {sorted(_OBJECTIVES)}"
             )
         self._registry = registry
         self._prefer = prefer
@@ -493,15 +552,12 @@ class Router:
                     task.id,
                 )
                 for model in remote_models:
-                    notes[model.id] = (
-                        "no local model was identified; quality fallback applied"
-                    )
+                    notes[model.id] = "no local model was identified; quality fallback applied"
                 return sorted(remote_models, key=quality_key), notes
             for model in remote_models:
                 notes[model.id] = "ranked after eligible local models by objective"
             return (
-                sorted(local_models, key=quality_key)
-                + sorted(remote_models, key=quality_key),
+                sorted(local_models, key=quality_key) + sorted(remote_models, key=quality_key),
                 notes,
             )
 
@@ -538,22 +594,15 @@ class Router:
                 )
 
         if task.difficulty != "hard":
-            direct = [
-                model
-                for model in pool
-                if model.billing not in _SUBSCRIPTION_BILLING
-            ]
+            direct = [model for model in pool if model.billing not in _SUBSCRIPTION_BILLING]
             if direct:
                 excluded = {model.id for model in pool} - {model.id for model in direct}
                 for model_id in excluded:
-                    notes[model_id] = (
-                        "eligible but reserved to protect subscription quota"
-                    )
+                    notes[model_id] = "eligible but reserved to protect subscription quota"
                 pool = direct
             elif pool:
                 logger.info(
-                    "using quota: no adequate direct candidate for task %r "
-                    "(difficulty=%s)",
+                    "using quota: no adequate direct candidate for task %r (difficulty=%s)",
                     task.id,
                     task.difficulty,
                 )
@@ -571,9 +620,7 @@ class Router:
         # every eligible candidate. Otherwise a quota/cap failure on the winner can
         # make Runtime fail even though a lower-tier or subscription fallback exists.
         ranked_ids = {model.id for model in ranked}
-        fallback_models = [
-            model for model in models if model.id not in ranked_ids
-        ]
+        fallback_models = [model for model in models if model.id not in ranked_ids]
         if task.difficulty != "hard":
             fallback = sorted(
                 fallback_models,
@@ -621,9 +668,7 @@ class Router:
             or not isinstance(estimated_input_tokens, int)
             or estimated_input_tokens < 1
         ):
-            raise InvalidRoutingRequest(
-                "estimated_input_tokens must be a positive integer"
-            )
+            raise InvalidRoutingRequest("estimated_input_tokens must be a positive integer")
         else:
             estimated_input = estimated_input_tokens
 
@@ -758,9 +803,7 @@ class Router:
             # Every hard-capable model needs projection truncation. Preserve the
             # most task context first; configured quality remains the tie-break.
             ranked, objective_notes = self._objective_ranking(task, truncating)
-            objective_rank = {
-                model.id: index for index, model in enumerate(ranked)
-            }
+            objective_rank = {model.id: index for index, model in enumerate(ranked)}
             ranked.sort(
                 key=lambda model: (
                     -model_input_token_budget(
@@ -804,19 +847,14 @@ class Router:
             ) in raw_candidates
         )
 
-        winner = next(
-            candidate
-            for candidate in candidates
-            if candidate.model_id == ranked_ids[0]
-        )
+        winner = next(candidate for candidate in candidates if candidate.model_id == ranked_ids[0])
         top_components = sorted(
             winner.components,
             key=lambda component: component.contribution,
             reverse=True,
         )[:3]
         component_text = ", ".join(
-            f"{component.name}={component.value:.2f}"
-            for component in top_components
+            f"{component.name}={component.value:.2f}" for component in top_components
         )
         eligible_count = len(eligible_for_ranking)
         explanation = (
@@ -868,8 +906,7 @@ class Router:
             flat = sorted(
                 component.name
                 for component in pending[0][2]
-                if component.name in _DROPPABLE_COMPONENTS
-                and component.name not in measured
+                if component.name in _DROPPABLE_COMPONENTS and component.name not in measured
             )
             if flat:
                 caveats_list.append(

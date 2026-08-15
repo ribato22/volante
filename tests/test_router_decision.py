@@ -9,6 +9,7 @@ from volante.router import (
     InvalidRoutingRequest,
     NoEligibleModelError,
     Router,
+    RoutingDecision,
 )
 from volante.types import ModelInfo, Task
 
@@ -92,18 +93,21 @@ def test_decision_accounts_for_entire_cross_provider_inventory() -> None:
             source="team-code-eval-v3",
         )
     }
-    decision = Router(
-        Registry(models, quality_profiles=profiles), prefer="quality"
-    ).route_decision(_task())
+    decision = Router(Registry(models, quality_profiles=profiles), prefer="quality").route_decision(
+        _task()
+    )
 
     assert decision.selected_model_id == "codex/default"
     assert len(decision.candidates) == len(models)
     assert {candidate.model_id for candidate in decision.candidates} == {
         model.id for model in models
     }
-    assert {
-        candidate.provider for candidate in decision.candidates
-    } == {"anthropic", "openai_compat", "claude_code", "codex"}
+    assert {candidate.provider for candidate in decision.candidates} == {
+        "anthropic",
+        "openai_compat",
+        "claude_code",
+        "codex",
+    }
     assert sum(c.provider == "anthropic" for c in decision.candidates) == 2
     assert sum(c.provider == "openai_compat" for c in decision.candidates) == 2
     assert decision.ranked_model_ids[0] == decision.selected_model_id
@@ -247,9 +251,7 @@ def test_runtime_context_estimate_prefers_full_fit_before_truncating_fallback() 
     assert decision.selected_model_id == "large/solid"
     assert decision.estimated_input_tokens == 8_000
     fallback = next(
-        candidate
-        for candidate in decision.candidates
-        if candidate.model_id == "small/frontier"
+        candidate for candidate in decision.candidates if candidate.model_id == "small/frontier"
     )
     assert fallback.eligible is True
     assert fallback.requires_truncation is True
@@ -303,9 +305,7 @@ def test_all_contexts_too_small_selects_most_headroom_with_caveat() -> None:
 
     assert decision.selected_model_id == "larger/solid"
     assert all(candidate.requires_truncation for candidate in decision.candidates)
-    assert "Every hard-capable model requires projection truncation" in " ".join(
-        decision.caveats
-    )
+    assert "Every hard-capable model requires projection truncation" in " ".join(decision.caveats)
 
 
 @pytest.mark.parametrize("value", [0, -1, True, 1.5])
@@ -316,6 +316,101 @@ def test_invalid_runtime_context_estimate_fails_fast(value: object) -> None:
             _task(),
             estimated_input_tokens=value,  # type: ignore[arg-type]
         )
+
+
+def _decision_for_description(description: str) -> RoutingDecision:
+    task = Task(
+        id="depth",
+        description=description,
+        type="code",
+        mode="one_shot",
+        difficulty="medium",
+    )
+    return Router(Registry([_model("m", "api", tier=3)])).route_decision(task)
+
+
+def test_default_estimate_rises_with_depth_signals() -> None:
+    plain = _decision_for_description("Implement and verify a robust API endpoint.")
+    named = _decision_for_description(
+        "Read src/parser.py and src/lib/util.py and fix the regex bugs."
+    )
+    warned = _decision_for_description("This repo is messy; multiple files to edit.")
+
+    assert plain.estimated_input_tokens == 256
+    assert named.estimated_input_tokens == pytest.approx(256 + 2 * 2_048)
+    assert warned.estimated_input_tokens == pytest.approx(256 + 4_096)
+
+
+def test_repeated_paths_and_phrases_do_not_compound() -> None:
+    once = _decision_for_description("Read src/parser.py and fix it.")
+    thrice = _decision_for_description(
+        "Read src/parser.py, then src/parser.py again and also src/parser.py, "
+        "a large file that is large and huge."
+    ).estimated_input_tokens
+    expected = 256 + 2_048 + 4_096
+
+    assert once.estimated_input_tokens == pytest.approx(256 + 2_048)
+    assert thrice == pytest.approx(expected)
+
+
+def test_prose_slashes_are_not_file_references() -> None:
+    # Measured on the eval suite: its goal texts write "min/max", "10/4" and
+    # "int/str/None" as either-or notation, and the first draft of the depth
+    # heuristic counted them as files — three of twelve goals got a spurious
+    # estimate uplift. Only a dotted filename after a slash is a file reference.
+    prose = _decision_for_description(
+        "Handle min/max, 10/4 and int/str/None in one pass over the whole text."
+    )
+
+    assert prose.estimated_input_tokens == 256
+
+
+def test_depth_uplift_is_capped() -> None:
+    description = " ".join(f"src/f{i}.py" for i in range(12))
+    decision = _decision_for_description(description)
+
+    assert decision.estimated_input_tokens == 256 + 16_384
+
+
+def test_depth_estimate_flags_small_context_for_truncation() -> None:
+    small = _model(
+        "small/window",
+        "api",
+        tier=4,
+        context=8_192,
+        output=4_096,
+    )
+    router = Router(Registry([small]))
+    plain = router.route_decision(_task())
+    depth = router.route_decision(
+        Task(
+            id="depth",
+            description="Read src/parser.py and src/lib/util.py and fix the bugs.",
+            type="code",
+            mode="one_shot",
+            difficulty="medium",
+        )
+    )
+
+    assert plain.candidates[0].requires_truncation is False
+    assert depth.candidates[0].requires_truncation is True
+
+
+def test_depth_raised_target_is_visible_in_headroom_evidence() -> None:
+    task = Task(
+        id="depth",
+        description="Read src/a.py and src/b.py, both large files, and fix them.",
+        type="code",
+        mode="one_shot",
+        difficulty="trivial",
+    )
+    decision = Router(Registry([_model("m", "api", tier=3)])).route_decision(task)
+
+    candidate = decision.candidates[0]
+    headroom = next(
+        component for component in candidate.components if component.name == "context_headroom"
+    )
+    assert "raised above the difficulty floor by depth signals" in headroom.evidence
 
 
 def _component(decision, model_id: str, name: str):
@@ -474,9 +569,9 @@ def test_caveat_names_a_command_that_actually_exists() -> None:
 
 
 def test_single_candidate_discloses_its_evidence_free_priors() -> None:
-    decision = Router(
-        Registry([_model("solo", "p", tier=3)]), prefer="quality"
-    ).route_decision(_task())
+    decision = Router(Registry([_model("solo", "p", tier=3)]), prefer="quality").route_decision(
+        _task()
+    )
     assert any("without any evidence behind them" in c for c in decision.caveats)
 
 
@@ -526,7 +621,5 @@ def test_redistribution_preserves_the_raw_ranking_exactly() -> None:
         )
         for model in models
     }
-    expected = tuple(
-        sorted(raw_totals, key=lambda mid: (-raw_totals[mid], mid))
-    )
+    expected = tuple(sorted(raw_totals, key=lambda mid: (-raw_totals[mid], mid)))
     assert decision.ranked_model_ids == expected
